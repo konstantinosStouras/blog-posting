@@ -1,0 +1,138 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// UCD's Project Management Blog (stouras.com/ucd-blog) — Firestore security rules.
+//
+// Deploy with:   firebase deploy --only firestore:rules --project <project-id>
+// (ALWAYS pass --project; see the lesson recorded in OperationsAcademia's setup doc.)
+//
+// Three levels. Each has everything the one below has, plus more:
+//   student   read published posts; write and publish their OWN posts; comment
+//   lecturer  + read drafts, edit/unpublish/feature ANY post, approve queued
+//               posts, delete any comment, read the roster (who is behind a pen name)
+//   admin     + assign roles, change site settings, delete any post
+//
+// The admin is pinned to the maintainer's verified e-mail AND/OR a roles/{uid}
+// document saying 'admin'. Lecturers exist only through roles/{uid}.
+// ---------------------------------------------------------------------------
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    // Password accounts must verify their address; Google sign-ins arrive verified.
+    function verified() {
+      return signedIn() && (request.auth.token.email_verified == true
+                            || request.auth.token.firebase.sign_in_provider != 'password');
+    }
+    function roleDoc() { return /databases/$(database)/documents/roles/$(request.auth.uid); }
+    function role() { return exists(roleDoc()) ? get(roleDoc()).data.get('role', 'student') : 'student'; }
+    function isAdmin() {
+      return signedIn() && (
+        (request.auth.token.email == 'kstouras@gmail.com' && request.auth.token.email_verified == true)
+        || role() == 'admin');
+    }
+    function isStaff() { return isAdmin() || (verified() && role() == 'lecturer'); }
+    function isOwner(uid) { return verified() && request.auth.uid == uid; }
+    function siteSettings() { return get(/databases/$(database)/documents/settings/site).data; }
+    function approvalRequired() {
+      return exists(/databases/$(database)/documents/settings/site) && siteSettings().get('requireApproval', false) == true;
+    }
+    function submissionsOpen() {
+      return !exists(/databases/$(database)/documents/settings/site) || siteSettings().get('submissionsOpen', true) == true;
+    }
+    function str(field, max) { let v = request.resource.data.get(field, ''); return v is string && v.size() <= max; }
+
+    // ---- accounts ------------------------------------------------------------
+    // The account's own profile. Same shape as the other sites' profiles plus the
+    // blog's penName (public) and studentId (staff-visible only, through the roster).
+    function profileKeys() { return ['firstName', 'lastName', 'penName', 'affiliation', 'studentId', 'website', 'bio', 'contactEmail', 'photo']; }
+    function profileShape() {
+      return str('firstName', 120) && str('lastName', 120) && str('penName', 40) && str('affiliation', 200)
+          && str('studentId', 40) && str('website', 300) && str('bio', 800) && str('contactEmail', 200) && str('photo', 120000);
+    }
+    match /profiles/{uid} {
+      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
+      // The one write an unverified account may make: the registration form writes
+      // the profile in the same breath as it creates the account.
+      allow create: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.keys().hasOnly(profileKeys()) && profileShape();
+      allow update: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileKeys()) && profileShape();
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+    // Roster row, written by the account about itself; `email` is pinned to the token.
+    match /userDirectory/{uid} {
+      function rowOk() {
+        return request.resource.data.keys().hasOnly(['name', 'penName', 'email', 'first', 'seen', 'affiliation', 'contactEmail'])
+          && str('name', 200) && str('penName', 40) && str('affiliation', 300) && str('contactEmail', 200)
+          && (!('email' in request.resource.data) || request.resource.data.email == request.auth.token.email)
+          && request.resource.data.first is number && request.resource.data.seen is number;
+      }
+      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn() && request.auth.uid == uid && rowOk();
+      allow update: if signedIn() && request.auth.uid == uid && rowOk() && request.resource.data.first == resource.data.first;
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+    match /registeredUsers/{uid} {
+      allow read: if isStaff();
+      allow create, update: if signedIn() && request.auth.uid == uid
+                            && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t is number;
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+    // Roles: the admin assigns them; a person may read their own; staff may list.
+    match /roles/{uid} {
+      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
+      allow write: if isAdmin() && request.resource.data.keys().hasOnly(['role', 'setBy', 'setAt'])
+                   && request.resource.data.role in ['student', 'lecturer', 'admin'];
+    }
+
+    // ---- content -------------------------------------------------------------
+    function postKeys() { return ['title', 'slug', 'body', 'excerpt', 'category', 'organisation', 'tags', 'featuredImage', 'status', 'featured', 'authorId', 'authorName', 'wordCount', 'createdAt', 'updatedAt', 'publishedAt', 'reviewNote']; }
+    function postShape() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(postKeys())
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 200
+        && d.slug is string && d.slug.size() > 0 && d.slug.size() <= 120
+        && d.body is string && d.body.size() <= 900000
+        && str('excerpt', 400) && str('category', 80) && str('organisation', 160) && str('authorName', 60) && str('reviewNote', 2000)
+        && d.get('tags', []) is list && d.get('tags', []).size() <= 12
+        && str('featuredImage', 800000)
+        && d.status in ['draft', 'pending', 'published']
+        && d.get('featured', false) is bool
+        && d.authorId is string;
+    }
+    match /posts/{id} {
+      allow read: if resource.data.status == 'published' || isStaff() || (signedIn() && resource.data.authorId == request.auth.uid);
+      // A student creates their own post. 'published' directly only while submissions
+      // are open and approval is off; otherwise it waits as 'pending'. Students never
+      // set `featured`.
+      allow create: if verified() && postShape() && request.resource.data.authorId == request.auth.uid
+                    && (isStaff() || (submissionsOpen()
+                          && request.resource.data.get('featured', false) == false
+                          && (request.resource.data.status != 'published' || !approvalRequired())));
+      allow update: if postShape() && (
+                      isStaff()
+                      || (isOwner(resource.data.authorId)
+                          && request.resource.data.authorId == resource.data.authorId
+                          && request.resource.data.get('featured', false) == resource.data.get('featured', false)
+                          && (request.resource.data.status != 'published' || resource.data.status == 'published' || !approvalRequired())));
+      allow delete: if isAdmin() || (isOwner(resource.data.authorId) && resource.data.status != 'published');
+    }
+    match /comments/{id} {
+      allow read: if true;
+      allow create: if verified()
+                    && request.resource.data.keys().hasOnly(['postId', 'body', 'authorId', 'authorName', 'createdAt'])
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
+                    && str('authorName', 60) && request.resource.data.postId is string
+                    && (!exists(/databases/$(database)/documents/settings/site) || siteSettings().get('allowComments', true) == true);
+      allow update: if false;
+      allow delete: if isStaff() || (signedIn() && resource.data.authorId == request.auth.uid);
+    }
+    match /settings/site {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

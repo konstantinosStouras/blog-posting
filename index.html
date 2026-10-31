@@ -1,1 +1,23 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Blog Posting — A canvas of student voices</title><link rel="stylesheet" href="style.css"></head><body><header><a class="brand" href="./">Blog Posting<span>THE STUDENT CANVAS</span></a><button id="open">+ Add your voice</button></header><main><div class="intro"><p class="eyebrow">IDEAS GROW WHEN WE SHARE THEM</p><h1>Different minds.<br><em>One open canvas.</em></h1><p>A living collection of student stories, discoveries, and perspectives.</p></div><section class="tools" aria-label="Filter posts"><input id="search" type="search" placeholder="Search ideas, authors, stories…" aria-label="Search posts"><select id="topic" aria-label="Topic"><option>All topics</option><option>Campus life</option><option>Ideas</option><option>Learning</option><option>Culture</option></select><span id="count"></span></section><div id="canvas" class="canvas"></div><p id="empty" hidden>No stories match. Try another search.</p><footer>Made for curious minds. Prototype · Posts stay in this browser only · Sample stories are fictional.</footer></main><dialog id="editor"><form id="form"><h2>Add a story</h2><p>Pin a thought to the student canvas.</p><label>Your name<input name="author" required maxlength="60"></label><label>Title<input name="title" required maxlength="100"></label><label>Topic<select name="topic"><option>Campus life</option><option>Ideas</option><option>Learning</option><option>Culture</option></select></label><label>Your story<textarea name="body" required maxlength="6000" rows="6"></textarea></label><div class="actions"><button type="button" id="cancel">Cancel</button><button>Post to canvas</button></div></form></dialog><dialog id="reader"><button id="closeReader" aria-label="Close story">Close ×</button><article id="story"></article></dialog><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UCD's Project Management Blog</title>
+<meta name="description" content="Blog posts by UCD students on how organisations face the megatrends shaping business and society. BMGT45540 Managing Innovative Projects.">
+<link rel="canonical" href="https://www.stouras.com/ucd-blog/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Rubik:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+</head>
+<body>
+<a class="skip" href="#app">Skip to content</a>
+<header id="site-header" class="site-header"></header>
+<main id="app" class="app" aria-live="polite"><p class="loading">Loading…</p></main>
+<footer id="site-footer" class="site-footer"></footer>
+<noscript><p style="padding:2rem;text-align:center">This blog needs JavaScript to run.</p></noscript>
+<script type="module" src="app.js"></script>
+</body>
+</html>
