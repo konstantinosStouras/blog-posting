@@ -116,3 +116,8 @@ Test libraries recommend Node 24.12 or newer. They are not served by the app.
 Push this repository, then update only the `ucd-blog` submodule pointer on the
 `master` branch of `konstantinosStouras.github.io`. GitHub Pages serves that site
 at stouras.com. Always pass `--project stouras-ucd-blog` when deploying rules.
+
+## First-time blog setup
+
+The one-off walkthrough for creating the Project Management and Operations
+blogs and attaching the five modules on the live site is in `_SETUP-BLOGS.md`.
