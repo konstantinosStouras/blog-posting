@@ -5,8 +5,9 @@ import {can, ROLES, rank} from './permissions.js';
 import {mountEditor, fillOutline} from './editor.js';
 import {configurePlatform, blogDirectory, myModules, blogCanvas, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {renderPeople} from './people.js';
+import {startWritingTimer,formatWritingTime} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
-import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify} from './util.js';
+import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify,newId} from './util.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
@@ -250,6 +251,10 @@ async function editorView(id, moduleId) {
   }
   p = p || {moduleId, title: '', body: '', category: '', organisation: '', tags: [], featuredImage: '', status: 'draft', excerpt: ''};
   const draft = {...p, tags: [...(p.tags || [])]};
+  const trackTime=store.mode==='firebase'&&rank(u.role)===0&&(!p.authorId||p.authorId===u.uid);
+  if(trackTime&&!p.id){p.id=newId();draft.id=p.id;}
+  const previousWritingSeconds=trackTime?await store.writingSeconds(p.id):0;
+  let writingTimer;
   const approver = can(u, 'approve', draft, context), needsReview = context.requireApproval && !approver;
   const hasCats = (blog.categories || []).length > 0, catLabel = blog.categoryLabel || 'Category', orgLabel = blog.organisationLabel || '';
   let dirty = false, saving = false, ed, saveTimer = null;
@@ -264,7 +269,7 @@ async function editorView(id, moduleId) {
       <button type="button" class="btn accent" id="continue">${draft.status === 'published' ? 'Update' : 'Continue'}</button>
     </div>
     <div id="editor"></div>
-    <div class="writer-foot"><span class="wc-line" id="wc-line"></span><button type="button" class="btn ghost small" id="details">Post details</button></div>
+    <div class="writer-foot"><span class="wc-line" id="wc-line"></span>${trackTime?'<span id="writing-time" title="Counts while this editor is visible and focused; pauses in preview or another tab.">Writing / editing time: 0:00:00</span>':''}<button type="button" class="btn ghost small" id="details">Post details</button></div>
   </div>
   <dialog class="sheet" id="sheet"><form method="dialog" class="sheet-form"><button class="close" value="cancel" formnovalidate aria-label="Close">×</button>
     <h2>${draft.status === 'published' ? 'Update your post' : needsReview ? 'Submit for review' : 'Ready to publish?'}</h2>
@@ -366,9 +371,10 @@ async function editorView(id, moduleId) {
   }
   const leave = e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
   addEventListener('beforeunload', leave);
-  const stop = () => { clearTimeout(saveTimer); removeEventListener('beforeunload', leave); removeEventListener('hashchange', stop); liveView = null; };
+  const stop = () => { writingTimer?.stop();clearTimeout(saveTimer); removeEventListener('beforeunload', leave);removeEventListener('pagehide',stop); removeEventListener('hashchange', stop); liveView = null; };
   addEventListener('hashchange', stop);
-}
+  addEventListener('pagehide',stop);
+  if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor'),onTick:(n,error)=>{const el=document.getElementById('writing-time');if(el)el.textContent=`Writing / editing time: ${formatWritingTime(n)}${error?' (sync pending)':''}`;}});}
 
 // ---------- my posts ----------
 async function mine() {

@@ -11,7 +11,14 @@ export const postPath = p => `#/${monthKey(p.publishedAt || p.createdAt).replace
 // Everything a student writes is sanitised BOTH when saved and when rendered.
 export function sanitize(html) {
   if (!window.DOMPurify) return esc(html);
-  return DOMPurify.sanitize(String(html ?? ''), {USE_PROFILES: {html: true}, ADD_ATTR: ['target', 'rel'], FORBID_TAGS: ['style', 'script', 'iframe', 'form', 'input']});
+  const clean=DOMPurify.sanitize(String(html ?? ''), {USE_PROFILES: {html: true}, ADD_ATTR: ['target', 'rel'], FORBID_TAGS: ['style', 'script', 'iframe', 'form', 'input']});
+  const template=document.createElement('template');template.innerHTML=clean;
+  for(const el of template.content.querySelectorAll('[style],font')){
+    for(const name of ['font','font-family','font-size','font-size-adjust'])el.style.removeProperty(name);
+    el.removeAttribute('face');el.removeAttribute('size');
+    if(!el.getAttribute('style')?.trim())el.removeAttribute('style');
+  }
+  return template.innerHTML;
 }
 export function toDom(html) { const d = document.createElement('div'); d.innerHTML = sanitize(html); return d; }
 export const plainText = html => (toDom(html).textContent || '').replace(/\s+/g, ' ').trim();

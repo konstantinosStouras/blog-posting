@@ -39,6 +39,20 @@ beforeEach(async()=>{
   await b.commit();
  });
 });
+test('writing time is private, author-owned, monotonic and bounded by elapsed time',async()=>{
+ const d=db('student','student@ucdconnect.ie'),row={uid:'student',postId:'draft',moduleId:'one',seconds:0,startedAt:Date.now()-10000};
+ await assertSucceeds(getDoc(doc(d,'writingSessions/new')));
+ await assertSucceeds(setDoc(doc(d,'writingSessions/session'),row));
+ await assertSucceeds(updateDoc(doc(d,'writingSessions/session'),{seconds:8}));
+ await assertFails(updateDoc(doc(d,'writingSessions/session'),{seconds:7}));
+ await assertFails(updateDoc(doc(d,'writingSessions/session'),{seconds:99999}));
+ await assertFails(updateDoc(doc(d,'writingSessions/session'),{postId:'published'}));
+ await assertSucceeds(getDocs(query(collection(db('teacher-one'),'writingSessions'),where('moduleId','==','one'))));
+ await assertFails(getDoc(doc(db('teacher-two'),'writingSessions/session')));
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'writingSessions/session')));
+ await assertFails(setDoc(doc(d,'writingSessions/forged'),{...row,uid:'peer'}));
+ await assertFails(setDoc(doc(d,'writingSessions/wrong-module'),{...row,moduleId:'two'}));
+});
 test('admin guide is private to the platform administrator',async()=>{
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'adminContent/guide'),{html:'Private guide'}));
  await assertSucceeds(getDoc(doc(db('admin','kstouras@gmail.com'),'adminContent/guide')));

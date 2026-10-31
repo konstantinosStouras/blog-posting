@@ -380,3 +380,5 @@ table.list.compact td, table.list.compact th { padding: 6px 8px; }
 fieldset.blog-choice { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 14px; margin: 14px 0; }
 fieldset.blog-choice legend { font-size: 13px; color: var(--ink); padding: 0 6px; }
 .indent { margin-left: 26px; }
+
+.sort-heading{font:inherit;font-weight:bold;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left;white-space:normal}.sort-heading:focus-visible{outline:2px solid #24599e;outline-offset:4px}#writing-time{font-variant-numeric:tabular-nums;font-size:.85rem;color:#36536f}

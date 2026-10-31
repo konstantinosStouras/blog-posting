@@ -34,5 +34,5 @@ export function buildPeopleReport({users=[],memberships=[],modules=[],instructor
 export function filterPeopleReport(report,search='',status='all'){
  const q=search.trim().toLowerCase();
  const matches=row=>!q||[row.firstName,row.lastName,row.penName,row.email,row.contactEmail,row.studentId,row.affiliation,row.universityEmail,row.googleEmail,row.moduleTitle,row.code,...(row.moduleNames||[]),...(row.teachingModuleNames||[])].join(' ').toLowerCase().includes(q);
- return {...report,users:report.users.filter(matches),invitations:report.invitations.filter(i=>matches(i)&&(status==='all'||(status==='pending'?i.pending:i.status.toLowerCase().startsWith(status))))};
+ return {...report,users:report.users.filter(matches),writing:(report.writing||[]).filter(row=>matches({...row,moduleNames:[row.title,row.moduleTitle]})),invitations:report.invitations.filter(i=>matches(i)&&(status==='all'||(status==='pending'?i.pending:i.status.toLowerCase().startsWith(status))))};
 }

@@ -260,6 +260,23 @@ service cloud.firestore {
       allow delete: if own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.get('blogId',''));
     }
     match /settings/site { allow read: if true; allow write: if isAdmin(); }
+    match /writingSessions/{id} {
+      allow get: if verified() && !exists(/databases/$(database)/documents/writingSessions/$(id));
+      allow read: if own(resource.data.uid) || staffOf(resource.data.moduleId);
+      function sessionShape(){let d=request.resource.data;return verified()
+        && d.keys().hasOnly(['uid','postId','moduleId','seconds','startedAt'])
+        && d.uid == request.auth.uid && d.postId is string && d.postId.size() <= 100
+        && d.moduleId is string && memberOf(d.moduleId)
+        && d.startedAt is number && d.startedAt <= request.time.toMillis()+2000
+        && d.seconds is int && d.seconds >= 0 && d.seconds * 1000 <= request.time.toMillis() - d.startedAt + 2000
+        && (!exists(/databases/$(database)/documents/posts/$(d.postId))
+          || (get(/databases/$(database)/documents/posts/$(d.postId)).data.authorId == request.auth.uid
+            && get(/databases/$(database)/documents/posts/$(d.postId)).data.moduleId == d.moduleId));}
+      allow create: if sessionShape() && request.resource.data.startedAt >= request.time.toMillis()-86400000;
+      allow update: if sessionShape() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seconds'])
+        && request.resource.data.seconds >= resource.data.seconds;
+      allow delete: if false;
+    }
     match /adminContent/{id} { allow read, write: if isAdmin(); }
     match /{document=**} { allow read, write: if false; }
   }

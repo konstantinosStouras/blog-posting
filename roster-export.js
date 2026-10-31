@@ -19,6 +19,7 @@ export function createRosterWorkbook(ExcelJS,report){
   if(kind==='instructor'&&!rows.length&&!report.includeInstructorSheet)continue;
   sheet(name,invitationColumns,rows.map(i=>({...i,kindLabel:role(i.kind),created:date(i.createdAt),expires:date(i.expiresAt)})));
  }
+ sheet('Post writing time',[['Post title','title',40],['Module','moduleTitle',32],['First name','firstName',20],['Last name','lastName',22],['Sign-in email','email',34],['University email','contactEmail',34],['University ID','studentId',22],['Status','status',18],['Writing / editing time (H:MM:SS)','writingTime',34],['Writing / editing seconds','seconds',24],['Post ID','postId',38]],report.writing||[]);
  return workbook;
 }
 
