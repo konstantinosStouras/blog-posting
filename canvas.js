@@ -10,22 +10,24 @@ import {esc, fmtDate, postPath, excerptOf, readingTime, wordCount, plainText} fr
 
 const norm = s => String(s ?? '').trim().toLowerCase();
 const yearOf = p => new Date(p.publishedAt || p.updatedAt || p.createdAt || Date.now()).getFullYear();
+// Posts stamped with the module's academic year (2026/27) facet by that; older ones by calendar year.
+const yearKey = p => p.academicYear || String(yearOf(p));
 const SORTS = [['featured', 'Featured first'], ['new', 'Newest first'], ['old', 'Oldest first'], ['title', 'Title A–Z'], ['org', 'Organisation A–Z']];
 const TAG_LIMIT = 18;
 
 export function parseFilters(query = '') {
   const p = new URLSearchParams(String(query).replace(/^\?/, ''));
-  return {q: (p.get('q') || '').trim(), trend: p.get('trend') || '', org: p.get('org') || '', year: p.get('year') || '', module: p.get('module') || '',
+  return {q: (p.get('q') || '').trim(), trend: p.get('trend') || '', org: p.get('org') || '', year: p.get('year') || '', module: p.get('module') || '', blog: p.get('blog') || '',
     tags: (p.get('tag') || '').split(',').map(t => t.trim()).filter(Boolean), sort: SORTS.some(s => s[0] === p.get('sort')) ? p.get('sort') : 'featured'};
 }
 export function filterQuery(f) {
   const p = new URLSearchParams();
   if (f.q) p.set('q', f.q); if (f.trend) p.set('trend', f.trend); if (f.org) p.set('org', f.org); if (f.year) p.set('year', f.year);
-  if (f.module) p.set('module', f.module); if (f.tags?.length) p.set('tag', f.tags.join(',')); if (f.sort && f.sort !== 'featured') p.set('sort', f.sort);
+  if (f.module) p.set('module', f.module); if (f.blog) p.set('blog', f.blog); if (f.tags?.length) p.set('tag', f.tags.join(',')); if (f.sort && f.sort !== 'featured') p.set('sort', f.sort);
   const s = p.toString(); return s ? '?' + s : '';
 }
 const hashParts = () => { const h = location.hash.replace(/^#/, '') || '/'; const i = h.indexOf('?'); return i < 0 ? [h, ''] : [h.slice(0, i), h.slice(i + 1)]; };
-export const activeFilterCount = f => [f.q, f.trend, f.org, f.year, f.module].filter(Boolean).length + (f.tags?.length || 0);
+export const activeFilterCount = f => [f.q, f.trend, f.org, f.year, f.module, f.blog].filter(Boolean).length + (f.tags?.length || 0);
 
 // One canvas per page. The page renders the string renderCanvas() returns; the
 // document-level listeners at the bottom find the state again through `current`.
@@ -34,7 +36,7 @@ const searchIndex = new Map();   // post id + updatedAt -> lower-cased searchabl
 
 export function renderCanvas(posts, opts = {}) {
   const [base, query] = hashParts();
-  current = {posts: posts.slice(), opts, f: parseFilters(query), base: '#' + base, allTags: false, cats: opts.categories || [], modules: new Map((opts.modules || []).map(m => [m.id, m]))};
+  current = {posts: posts.slice(), opts, f: parseFilters(query), base: '#' + base, allTags: false, cats: opts.categories || [], modules: new Map((opts.modules || []).map(m => [m.id, m])), blogs: new Map((opts.blogs || []).map(b => [b.id, b]))};
   if (!posts.length) return `<p class="empty">${esc(opts.emptyText || 'No posts here yet.')}</p>`;
   return `<section class="canvas-root" aria-label="Posts">${headHtml(current)}<div class="canvas-filters">${filtersHtml(current)}</div><div class="canvas-grid">${gridHtml(current)}</div></section>`;
 }
@@ -42,19 +44,21 @@ export function renderCanvas(posts, opts = {}) {
 // ---------- matching ----------
 function textOf(p) {
   const key = p.id + ':' + (p.updatedAt || '');
-  if (!searchIndex.has(key)) { if (searchIndex.size > 2000) searchIndex.clear(); searchIndex.set(key, [p.title, p.excerpt, p.organisation, (p.tags || []).join(' '), p.authorName, catName(current, p.category), plainText(p.body)].join(' ').toLowerCase()); }
+  if (!searchIndex.has(key)) { if (searchIndex.size > 2000) searchIndex.clear(); searchIndex.set(key, [p.title, p.excerpt, p.organisation, (p.tags || []).join(' '), p.authorName, catName(current, p.category, p), plainText(p.body)].join(' ').toLowerCase()); }
   return searchIndex.get(key);
 }
 function matches(p, f, skip = '') {
   if (skip !== 'trend' && f.trend && p.category !== f.trend) return false;
   if (skip !== 'org' && f.org && norm(p.organisation) !== norm(f.org)) return false;
-  if (skip !== 'year' && f.year && String(yearOf(p)) !== f.year) return false;
+  if (skip !== 'year' && f.year && yearKey(p) !== f.year) return false;
   if (skip !== 'module' && f.module && p.moduleId !== f.module) return false;
+  if (skip !== 'blog' && f.blog && p.blogId !== f.blog) return false;
   if (skip !== 'tags' && f.tags.length) { const have = new Set((p.tags || []).map(norm)); if (!f.tags.every(t => have.has(norm(t)))) return false; }
   if (skip !== 'q' && f.q) { const words = norm(f.q).split(/\s+/).filter(Boolean), t = textOf(p); if (!words.every(w => t.includes(w))) return false; }
   return true;
 }
-const catName = (st, slug) => (st.cats.find(c => c.slug === slug) || {}).name || slug || '';
+// Category names come from the post's own blog when several blogs share a page.
+const catName = (st, slug, p) => ((p && st.blogs?.get(p.blogId)?.categories) || st.cats).find(c => c.slug === slug)?.name || st.cats.find(c => c.slug === slug)?.name || slug || '';
 function sorted(posts, sort) {
   const s = posts.slice();
   const newest = (a, b) => (b.publishedAt || b.updatedAt || 0) - (a.publishedAt || a.updatedAt || 0);
@@ -79,11 +83,12 @@ function facets(st) {
   const tagLabel = k => [...tagNames.get(k).entries()].sort((a, b) => b[1] - a[1])[0][0];
   const trends = count('trend', p => [p.category]);
   const orgs = [...count('org', p => [norm(p.organisation)]).entries()].map(([k, n]) => ({key: orgNames.get(k) || k, label: orgNames.get(k) || k, n})).sort((a, b) => a.label.localeCompare(b.label));
-  const years = [...count('year', p => [String(yearOf(p))]).entries()].map(([k, n]) => ({key: k, label: k, n})).sort((a, b) => b.key.localeCompare(a.key));
+  const years = [...count('year', p => [yearKey(p)]).entries()].map(([k, n]) => ({key: k, label: k, n})).sort((a, b) => b.key.localeCompare(a.key));
   const tags = [...count('tags', p => [...new Set((p.tags || []).map(norm))]).entries()].map(([k, n]) => ({key: k, label: tagLabel(k), n})).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
-  const modules = [...count('module', p => [p.moduleId]).entries()].map(([k, n]) => ({key: k, label: st.modules.get(k)?.title || k, n})).sort((a, b) => a.label.localeCompare(b.label));
+  const modules = [...count('module', p => [p.moduleId]).entries()].map(([k, n]) => { const m = st.modules.get(k); return {key: k, label: m ? [m.code, m.title].filter(Boolean).join(' ') : k, n}; }).sort((a, b) => a.label.localeCompare(b.label));
+  const blogs = [...count('blog', p => [p.blogId]).entries()].map(([k, n]) => ({key: k, label: st.blogs.get(k)?.title || k, n})).sort((a, b) => a.label.localeCompare(b.label));
   const allCats = st.cats.slice(); for (const slug of trends.keys()) if (slug && !allCats.some(c => c.slug === slug)) allCats.push({slug, name: slug});
-  return {trends, allCats, orgs, years, tags, modules, totalForTrend: posts.filter(p => matches(p, f, 'trend')).length};
+  return {trends, allCats, orgs, years, tags, modules, blogs, yearLabel: posts.some(p => p.academicYear) ? 'Academic year' : 'Year', totalForTrend: posts.filter(p => matches(p, f, 'trend')).length};
 }
 
 // ---------- markup ----------
@@ -107,9 +112,9 @@ function filtersHtml(st) {
   const tagHtml = shownTags.map(t => { const on = f.tags.some(x => norm(x) === t.key); return `<a href="${link({tags: on ? f.tags.filter(x => norm(x) !== t.key) : [...f.tags, t.label]})}" data-tag="${esc(t.label)}" class="${on ? 'active' : ''}${t.n ? '' : ' zero'}" aria-pressed="${on}">${esc(t.label)}<span class="n">${t.n}</span></a>`; }).join('');
   const pills = [];
   if (f.q) pills.push(['q', '', `“${f.q}”`]); if (f.trend) pills.push(['trend', '', catName(st, f.trend)]); if (f.org) pills.push(['org', '', f.org]); if (f.year) pills.push(['year', '', f.year]);
-  if (f.module) pills.push(['module', '', st.modules.get(f.module)?.title || f.module]); for (const t of f.tags) pills.push(['tag', t, '#' + t]);
+  if (f.module) pills.push(['module', '', st.modules.get(f.module)?.title || f.module]); if (f.blog) pills.push(['blog', '', st.blogs.get(f.blog)?.title || f.blog]); for (const t of f.tags) pills.push(['tag', t, '#' + t]);
   return `${fx.allCats.length ? `<div class="chips" role="group" aria-label="Megatrend">${chip('', 'All megatrends', fx.totalForTrend, !f.trend)}${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trend === c.slug)).join('')}</div>` : ''}
-    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('year', 'Year', fx.years, f.year, 'All years')}${fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
+    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
     ${fx.tags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}
     ${pills.length ? `<div class="active-filters"><span class="lbl">Showing</span>${pills.map(([k, v, label]) => `<span class="pill">${esc(label)}<button type="button" data-remove="${k}" data-v="${esc(v)}" aria-label="Remove filter ${esc(label)}">×</button></span>`).join('')}<button type="button" class="linkish clear-all" data-clear>Clear all</button></div>` : ''}`;
 }
@@ -118,17 +123,17 @@ function gridHtml(st) {
   if (!shown.length) return `<div class="canvas-empty"><p>No posts match these filters.</p><button type="button" class="btn small" data-clear>Clear filters</button></div>`;
   return `<div class="canvas">${shown.map(p => card(p, st)).join('')}</div>`;
 }
-export function card(p, st = current || {f: parseFilters(''), base: '#/posts', cats: [], modules: new Map(), opts: {}}) {
+export function card(p, st = current || {f: parseFilters(''), base: '#/posts', cats: [], modules: new Map(), blogs: new Map(), opts: {}}) {
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));
   const img = p.featuredImage ? `<a href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
   const org = String(p.organisation || '').trim(), words = p.wordCount ?? wordCount(p.body), module = st.modules?.get(p.moduleId);
-  const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trend: p.category})}" data-set="trend" data-v="${esc(p.category)}" class="trend" title="All posts on this megatrend">${esc(catName(st, p.category))}</a>` : ''].filter(Boolean).join('');
+  const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trend: p.category})}" data-set="trend" data-v="${esc(p.category)}" class="trend" title="All posts on this megatrend">${esc(catName(st, p.category, p))}</a>` : ''].filter(Boolean).join('');
   return `<article class="card ${img ? '' : 'noimage'}">${img}
     ${kicker ? `<div class="kicker">${kicker}</div>` : ''}
     <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}${p.featured ? '<span class="badge featured">Featured</span>' : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
     <p>${esc(p.excerpt || excerptOf(p.body))}</p>
     <div class="tags">${(p.tags || []).map(t => `<a href="${link({tags: [t]})}" data-tag="${esc(t)}" data-only="1">${esc(t)}</a>`).join('')}</div>
-    <div class="meta"><a href="#/author/${esc(p.authorId)}">${esc(p.authorName)}</a> · <a href="${link({year: String(yearOf(p))})}" data-set="year" data-v="${yearOf(p)}" title="All posts from ${yearOf(p)}">${fmtDate(p.publishedAt || p.updatedAt)}</a> · ${readingTime(words)}${module && st.f.module !== p.moduleId && st.modules.size > 1 ? ` · <a href="${link({module: p.moduleId})}" data-set="module" data-v="${esc(p.moduleId)}">${esc(module.code || module.title)}</a>` : ''}</div></article>`;
+    <div class="meta"><a href="#/author/${esc(p.authorId)}">${esc(p.authorName)}</a> · <a href="${link({year: yearKey(p)})}" data-set="year" data-v="${esc(yearKey(p))}" title="All posts from ${esc(yearKey(p))}">${fmtDate(p.publishedAt || p.updatedAt)}</a> · ${readingTime(words)}${module && st.f.module !== p.moduleId && st.modules.size > 1 ? ` · <a href="${link({module: p.moduleId})}" data-set="module" data-v="${esc(p.moduleId)}">${esc(module.code || module.title)}</a>` : ''}</div></article>`;
 }
 
 // ---------- behaviour (delegated, so the page only has to render the string) ----------
@@ -147,7 +152,7 @@ document.addEventListener('click', e => {
   if (set && set.tagName !== 'SELECT') { e.preventDefault(); apply(r, {[set.dataset.set]: set.dataset.v}); }
   else if (tag) { e.preventDefault(); const k = norm(tag.dataset.tag), on = current.f.tags.some(t => norm(t) === k); apply(r, {tags: tag.dataset.only ? [tag.dataset.tag] : on ? current.f.tags.filter(t => norm(t) !== k) : [...current.f.tags, tag.dataset.tag]}); }
   else if (rm) { const k = rm.dataset.remove; apply(r, k === 'tag' ? {tags: current.f.tags.filter(t => norm(t) !== norm(rm.dataset.v))} : {[k]: ''}); }
-  else if (e.target.closest('[data-clear]')) { apply(r, {q: '', trend: '', org: '', year: '', module: '', tags: []}); r.querySelector('.canvas-search input').value = ''; }
+  else if (e.target.closest('[data-clear]')) { apply(r, {q: '', trend: '', org: '', year: '', module: '', blog: '', tags: []}); r.querySelector('.canvas-search input').value = ''; }
   else if (e.target.closest('[data-more-tags]')) { current.allTags = !current.allTags; r.querySelector('.canvas-filters').innerHTML = filtersHtml(current); }
   else return;
   if (set || tag || rm) r.querySelector('.canvas-grid').scrollIntoView({block: 'nearest'});

@@ -64,7 +64,7 @@ export async function openAuthModal(view='signin',invitation=null){
   const account=currentUser();
   if(account?.role!=='admin'&&(!account?.contactEmail||!account?.firstName||!account?.lastName||!account?.affiliation||(!teacher&&!['teacher','instructor'].includes(account?.registrationKind)&&!account?.studentId))){await openAuthModal('complete',activeInvitation);return;}
   m.close();toast('Signed in.');
-  if(activeInvitation)location.hash=invitationRoute(activeInvitation);else location.hash='#/my-modules';
+  if(activeInvitation)location.hash=invitationRoute(activeInvitation);else location.hash='#/';
  };
  m.querySelectorAll('[data-provider]').forEach(b=>b.onclick=async()=>{
   const form=m.querySelector('form'),data=Object.fromEntries(new FormData(form));

@@ -8,7 +8,9 @@ export function can(user, action, post, settings = {}) {
   if (!user) return action === 'read';
   const r = rank(user.role);
   const own = post && post.authorId === user.uid;
-  const staff = r >= 2 || (r >= 1 && (!user.managedModuleIds || user.managedModuleIds.includes(post?.moduleId)));
+  // Instructors moderate posts in the modules they teach and on the blogs they own
+  // (a shared canvas can carry posts from several modules).
+  const staff = r >= 2 || (r >= 1 && (!user.managedModuleIds || user.managedModuleIds.includes(post?.moduleId) || (user.managedBlogIds || []).includes(post?.blogId)));
   switch (action) {
     case 'write':        return settings.submissionsOpen !== false || staff;
     case 'edit':         return !!post && (own || staff);

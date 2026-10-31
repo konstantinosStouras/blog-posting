@@ -1,16 +1,19 @@
 // LOCAL MODE backend: everything lives in this browser's localStorage, seeded with
 // sample content. Same API surface as backend-firebase.js so the pages never know.
-import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, DEFAULT_SETTINGS} from './seed.js';
+// Blogs (public canvases with their exercise), modules (cohorts attached to a blog),
+// memberships, posts and comments are all here, so the design can be checked with
+// `?local` on a dev server without touching the live database.
+import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, SEED_BLOGS, SEED_MODULES, SEED_MEMBERSHIPS, DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf} from './util.js';
 
-const KEY = 'ucd-blog.v1', VIEW = 'ucd-blog.viewAs';
+const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
 let state, listeners = new Set();
 
 function fresh() {
-  return {users: structuredClone(SEED_USERS), posts: structuredClone(SEED_POSTS), comments: structuredClone(SEED_COMMENTS), settings: structuredClone(DEFAULT_SETTINGS)};
+  return {users: structuredClone(SEED_USERS), blogs: structuredClone(SEED_BLOGS), modules: structuredClone(SEED_MODULES), memberships: structuredClone(SEED_MEMBERSHIPS), posts: structuredClone(SEED_POSTS), comments: structuredClone(SEED_COMMENTS), likes: [{postId: 'p1', uid: 'u-s2'}, {postId: 'p1', uid: 'u-s3'}, {postId: 'p6', uid: 'u-s1'}], settings: structuredClone(DEFAULT_SETTINGS)};
 }
 function load() {
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.posts)) return {...fresh(), ...s, settings: {...DEFAULT_SETTINGS, ...s.settings}}; } catch {}
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.posts) && Array.isArray(s.blogs)) return {...fresh(), ...s, settings: {...DEFAULT_SETTINGS, ...s.settings}}; } catch {}
   return fresh();
 }
 function save() {
@@ -18,6 +21,9 @@ function save() {
   listeners.forEach(fn => fn());
 }
 const delay = v => new Promise(r => setTimeout(() => r(v), 30)); // keeps the pages honest about async
+const me = () => local.currentUser();
+const staff = u => u && ['admin', 'lecturer'].includes(u.role);
+const teaches = (u, x) => u && (u.role === 'admin' || (x.teacherIds || []).includes(u.uid));
 
 export const local = {
   mode: 'local',
@@ -26,23 +32,81 @@ export const local = {
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
 
   // ---- auth stand-in: "View as" ----
-  currentUser() { const uid = localStorage.getItem(VIEW); return state.users.find(u => u.uid === uid) || null; },
+  currentUser() {
+    const uid = localStorage.getItem(VIEW), u = state.users.find(x => x.uid === uid);
+    if (!u) return null;
+    return {...u, emailVerified: true, managedModuleIds: state.modules.filter(m => m.teacherIds.includes(uid)).map(m => m.id), managedBlogIds: state.blogs.filter(b => b.teacherIds.includes(uid)).map(b => b.id)};
+  },
   viewAs(uid) { if (uid) localStorage.setItem(VIEW, uid); else localStorage.removeItem(VIEW); listeners.forEach(fn => fn()); },
   users: () => state.users,
+
+  // ---- blogs: a public canvas plus the exercise written on it ----
+  async listBlogs() { return delay(structuredClone(state.blogs).sort((a, b) => a.title.localeCompare(b.title))); },
+  async getBlog(id) { return delay(structuredClone(state.blogs.find(b => b.id === id) || null)); },
+  async listMyBlogs() { const u = me(); return delay(structuredClone(state.blogs.filter(b => teaches(u, b)))); },
+  async saveBlog(data) {
+    const u = me(); if (!staff(u)) throw Error('Instructor access required.');
+    const id = data.id || slugify(data.urlName || data.title);
+    if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(id)) throw Error('Choose a URL name of 2–80 lowercase letters, numbers or hyphens.');
+    const existing = state.blogs.find(b => b.id === id);
+    if (!data.id && existing) throw Error('That blog URL already exists. Choose another.');
+    if (existing && !teaches(u, existing)) throw Error('You cannot edit this blog.');
+    const doc = {...EMPTY_EXERCISE, ...(existing || {createdBy: u.uid, createdAt: Date.now(), teacherIds: [u.uid], allowComments: true}), ...data, id, updatedAt: Date.now()};
+    delete doc.urlName;
+    if (!doc.title) throw Error('Enter a blog title.');
+    if (existing) Object.assign(existing, doc); else state.blogs.push(doc);
+    save(); return structuredClone(doc);
+  },
+
+  // ---- modules: cohorts with a roster, attached to one blog ----
+  async listModules() { return delay(structuredClone(state.modules).sort((a, b) => a.title.localeCompare(b.title))); },
+  async getModule(id) { return delay(structuredClone(state.modules.find(m => m.id === id) || null)); },
+  async saveModule(data) {
+    const u = me(); if (!staff(u)) throw Error('Instructor access required.');
+    const existing = data.id ? state.modules.find(m => m.id === data.id) : null;
+    if (data.id && !existing) throw Error('Module not found.');
+    if (existing && !teaches(u, existing)) throw Error('You cannot manage this module.');
+    let blogId = data.blogId;
+    if (data.newBlog) blogId = (await this.saveBlog({title: data.newBlog.title, urlName: data.newBlog.urlName, description: data.description || ''})).id;
+    const blog = state.blogs.find(b => b.id === blogId);
+    if (!blog || !teaches(u, blog)) throw Error('Choose one of your own blogs for this module, or create a new one.');
+    const id = existing?.id || uniqueId(state.modules, slugify([data.code || data.title, data.academicYear].filter(Boolean).join(' ')));
+    const doc = {...(existing || {createdBy: u.uid, createdAt: Date.now(), teacherIds: [u.uid], teacherName: [u.firstName, u.lastName].filter(Boolean).join(' ')}), id, title: String(data.title || '').trim(), code: String(data.code || '').trim(), academicYear: String(data.academicYear || '').trim(), description: String(data.description || '').trim(), blogId, submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, deadline: data.deadline || '', updatedAt: Date.now()};
+    if (!doc.title) throw Error('Enter a module title.');
+    if (existing) Object.assign(existing, doc); else state.modules.push(doc);
+    save(); return structuredClone(doc);
+  },
+  async listMyModules() {
+    const u = me(); if (!u) return [];
+    return delay(structuredClone(state.modules.filter(m => teaches(u, m) || state.memberships.some(x => x.uid === u.uid && x.moduleId === m.id)).map(m => ({...m, teaching: teaches(u, m)}))));
+  },
+  async joinModule(id) { const u = me(); if (!u) throw Error('Sign in to join a module.'); if (!state.memberships.some(x => x.uid === u.uid && x.moduleId === id)) { state.memberships.push({uid: u.uid, moduleId: id}); save(); } },
+  async resolveRegistrationCode() { throw Error('Invitation codes exist only on the live platform.'); },
+  async listModuleInvites() { return []; },
+  async createModuleInvite() { throw Error('Invitations exist only on the live platform.'); },
+  async revokeModuleInvite() {},
+  async listTeacherInvites() { return []; },
+  async createTeacherInvite() { throw Error('Invitations exist only on the live platform.'); },
+  async revokeTeacherInvite() {},
 
   // ---- posts ----
   async listPosts(f = {}) {
     let p = state.posts;
     if (f.status) p = p.filter(x => x.status === f.status);
     if (f.authorId) p = p.filter(x => x.authorId === f.authorId);
+    if (f.moduleId) p = p.filter(x => x.moduleId === f.moduleId);
+    if (f.blogId) p = p.filter(x => x.blogId === f.blogId);
     return delay(structuredClone(p));
   },
+  async listAllPosts() { const u = me(); return delay(structuredClone(state.posts.filter(p => u?.role === 'admin' || u?.managedModuleIds.includes(p.moduleId) || u?.managedBlogIds.includes(p.blogId)))); },
   async getPost(id) { return delay(structuredClone(state.posts.find(p => p.id === id) || null)); },
   async getPostBySlug(slug) { return delay(structuredClone(state.posts.find(p => p.slug === slug) || null)); },
   async savePost(post, user) {
     const now = Date.now();
     let existing = post.id ? state.posts.find(p => p.id === post.id) : null;
-    const doc = {...(existing || {createdAt: now, authorId: user.uid}), ...post, id: existing?.id || post.id || newId(), updatedAt: now};
+    const module = state.modules.find(m => m.id === (post.moduleId || existing?.moduleId));
+    if (!module) throw Error('Choose a module before saving.');
+    const doc = {...(existing || {createdAt: now, authorId: user.uid}), ...post, id: existing?.id || post.id || newId(), moduleId: module.id, blogId: module.blogId, academicYear: existing?.academicYear || module.academicYear || '', updatedAt: now};
     doc.authorName = state.users.find(u => u.uid === doc.authorId)?.penName || doc.authorName || 'anonymous';
     doc.slug = uniqueSlug(doc.slug || slugify(doc.title), doc.id);
     doc.wordCount = wordCount(doc.body); doc.excerpt = doc.excerpt || excerptOf(doc.body);
@@ -51,19 +115,27 @@ export const local = {
     if (existing) Object.assign(existing, doc); else state.posts.unshift(doc);
     save(); return structuredClone(doc);
   },
-  async deletePost(id) { state.posts = state.posts.filter(p => p.id !== id); state.comments = state.comments.filter(c => c.postId !== id); save(); },
+  async deletePost(id) { state.posts = state.posts.filter(p => p.id !== id); state.comments = state.comments.filter(c => c.postId !== id); state.likes = (state.likes || []).filter(l => l.postId !== id); save(); },
+  async listLikes(postId) { return (state.likes || []).filter(l => l.postId === postId).map(l => l.uid); },
+  async toggleLike(postId, u) {
+    state.likes = state.likes || [];
+    const i = state.likes.findIndex(l => l.postId === postId && l.uid === u.uid);
+    if (i >= 0) state.likes.splice(i, 1); else state.likes.push({postId, uid: u.uid});
+    save(); return {liked: i < 0, count: state.likes.filter(l => l.postId === postId).length};
+  },
 
   // ---- comments ----
   async listComments(postId) { return delay(structuredClone(state.comments.filter(c => c.postId === postId).sort((a, b) => a.createdAt - b.createdAt))); },
   async recentComments(n = 5) { return delay(structuredClone([...state.comments].sort((a, b) => b.createdAt - a.createdAt).slice(0, n))); },
   async addComment({postId, body}, user) {
-    const c = {id: newId(), postId, body, authorId: user.uid, authorName: user.penName, createdAt: Date.now()};
+    const post = state.posts.find(p => p.id === postId);
+    const c = {id: newId(), postId, moduleId: post?.moduleId || '', blogId: post?.blogId || '', body, authorId: user.uid, authorName: user.penName, createdAt: Date.now()};
     state.comments.push(c); save(); return c;
   },
   async deleteComment(id) { state.comments = state.comments.filter(c => c.id !== id); save(); },
 
   // ---- people ----
-  async listUsers() { return delay(structuredClone(state.users)); },
+  async listUsers(moduleId = '') { return delay(structuredClone(moduleId ? state.users.filter(u => state.memberships.some(x => x.uid === u.uid && x.moduleId === moduleId)) : state.users)); },
   async getProfile(uid) { return delay(structuredClone(state.users.find(u => u.uid === uid) || null)); },
   async saveProfile(uid, patch) {
     const u = state.users.find(x => x.uid === uid); if (!u) throw Error('No such user.');
@@ -83,5 +155,10 @@ export const local = {
 function uniqueSlug(base, id) {
   let s = base, n = 2;
   while (state.posts.some(p => p.slug === s && p.id !== id)) s = base + '-' + n++;
+  return s;
+}
+function uniqueId(list, base) {
+  let s = base || 'module', n = 2;
+  while (list.some(x => x.id === s)) s = base + '-' + n++;
   return s;
 }

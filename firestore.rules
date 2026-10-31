@@ -9,6 +9,12 @@ service cloud.firestore {
     function modulePath(id) { return /databases/$(database)/documents/modules/$(id); }
     function moduleExists(id) { return id is string && exists(modulePath(id)); }
     function staffOf(id) { return isAdmin() || (verified() && hasRole('lecturer') && moduleExists(id) && request.auth.uid in get(modulePath(id)).data.teacherIds); }
+    // A blog is the public canvas (and exercise) that one or more modules write on.
+    function blogPath(id) { return /databases/$(database)/documents/blogs/$(id); }
+    function blogExists(id) { return id is string && exists(blogPath(id)); }
+    function blogStaff(id) { return isAdmin() || (verified() && hasRole('lecturer') && blogExists(id) && request.auth.uid in get(blogPath(id)).data.teacherIds); }
+    function blogMember(id) { return signedIn() && id is string && exists(/databases/$(database)/documents/blogs/$(id)/members/$(request.auth.uid)); }
+    function moduleBlog(id) { return get(modulePath(id)).data.get('blogId', ''); }
     function own(uid) { return signedIn() && request.auth.uid == uid; }
     function str(field, max) { let v = request.resource.data.get(field, ''); return v is string && v.size() <= max; }
     function universityEmail(value) { return value is string && value.matches('^[^@ ]+@[^@ ]+[.][^@ ]+$'); }
@@ -132,19 +138,21 @@ service cloud.firestore {
     }
     function moduleShape() {
       let d = request.resource.data;
-      return d.keys().hasOnly(['title','code','description','teacherName','teacherIds','createdBy','createdAt','updatedAt','submissionsOpen','requireApproval','allowComments'])
+      return d.keys().hasOnly(['title','code','description','teacherName','teacherIds','createdBy','createdAt','updatedAt','submissionsOpen','requireApproval','blogId','academicYear','deadline'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 160
         && str('code',40) && str('description',1200) && str('teacherName',200)
+        && blogExists(d.blogId) && str('academicYear',20) && str('deadline',20)
         && d.teacherIds is list && d.teacherIds.size() > 0 && d.teacherIds.size() <= 20
         && d.createdBy is string && d.createdAt is number && d.updatedAt is number
-        && d.submissionsOpen is bool && d.requireApproval is bool && d.allowComments is bool;
+        && d.submissionsOpen is bool && d.requireApproval is bool;
     }
     match /modules/{moduleId} {
       allow read: if true;
+      // A module may only write on a blog its instructor owns (or any blog, for the admin).
       allow create: if moduleShape() && moduleId.matches('^[a-z0-9][a-z0-9-]{1,79}$')
-        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid && blogStaff(request.resource.data.blogId)
         && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid]));
-      allow update: if moduleShape() && staffOf(moduleId)
+      allow update: if moduleShape() && staffOf(moduleId) && blogStaff(request.resource.data.blogId)
         && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
         && (isAdmin() || request.resource.data.teacherIds == resource.data.teacherIds);
       allow delete: if false;
@@ -166,47 +174,90 @@ service cloud.firestore {
         allow delete: if own(uid) || isAdmin();
       }
     }
+    function blogShape() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['title','description','teacherIds','createdBy','createdAt','updatedAt','brief','categoryLabel','categories','organisationLabel','minWords','maxWords','outline','checklist','allowComments'])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 160
+        && str('description',1200) && str('brief',60000) && str('categoryLabel',40) && str('organisationLabel',60) && str('outline',20000)
+        && d.get('categories',[]) is list && d.get('categories',[]).size() <= 30
+        && d.get('checklist',[]) is list && d.get('checklist',[]).size() <= 12
+        && d.get('minWords',0) is number && d.get('maxWords',0) is number && d.get('allowComments',true) is bool
+        && d.teacherIds is list && d.teacherIds.size() > 0 && d.teacherIds.size() <= 20
+        && d.createdBy is string && d.createdAt is number && d.updatedAt is number;
+    }
+    match /blogs/{blogId} {
+      allow read: if true;
+      allow create: if blogShape() && blogId.matches('^[a-z0-9][a-z0-9-]{1,79}$')
+        && request.resource.data.createdBy == request.auth.uid
+        && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid]));
+      allow update: if blogShape() && blogStaff(blogId)
+        && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
+        && (isAdmin() || request.resource.data.teacherIds == resource.data.teacherIds);
+      allow delete: if false;
+      // Who may comment across the modules sharing this canvas: written together with
+      // the module membership (existsAfter), holding nothing but the link to it.
+      match /members/{uid} {
+        allow read: if own(uid) || blogStaff(blogId) || staffOf(resource.data.moduleId);
+        allow create, update: if own(uid) && verified()
+          && request.resource.data.keys().hasOnly(['uid','moduleId','joinedAt'])
+          && request.resource.data.uid == uid && request.resource.data.joinedAt is number
+          && moduleExists(request.resource.data.moduleId) && moduleBlog(request.resource.data.moduleId) == blogId
+          && existsAfter(/databases/$(database)/documents/modules/$(request.resource.data.moduleId)/members/$(uid));
+        allow delete: if own(uid) || isAdmin();
+      }
+    }
     function postShape() {
       let d = request.resource.data;
-      return d.keys().hasOnly(['title','slug','body','excerpt','category','organisation','tags','featuredImage','status','featured','authorId','authorName','wordCount','createdAt','updatedAt','publishedAt','reviewNote','moduleId'])
+      return d.keys().hasOnly(['title','slug','body','excerpt','category','organisation','tags','featuredImage','status','featured','authorId','authorName','wordCount','createdAt','updatedAt','publishedAt','reviewNote','moduleId','blogId','academicYear'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 200
         && d.slug is string && d.slug.size() > 0 && d.slug.size() <= 120
         && d.body is string && d.body.size() <= 900000
         && str('excerpt',400) && str('category',80) && str('organisation',160) && str('authorName',60) && str('reviewNote',2000)
         && str('featuredImage',800000) && d.get('tags',[]) is list && d.get('tags',[]).size() <= 12
         && d.status in ['draft','pending','published'] && d.get('featured',false) is bool
-        && d.authorId is string && moduleExists(d.moduleId);
+        && d.authorId is string && moduleExists(d.moduleId)
+        && d.blogId == moduleBlog(d.moduleId) && str('academicYear',20);
     }
     match /posts/{id} {
-      allow read: if resource.data.status == 'published' || own(resource.data.authorId) || staffOf(resource.data.moduleId);
+      allow read: if resource.data.status == 'published' || own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId);
       allow create: if verified() && postShape() && request.resource.data.authorId == request.auth.uid
-        && (staffOf(request.resource.data.moduleId)
+        && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
           || (memberOf(request.resource.data.moduleId) && openSubmissions(request.resource.data.moduleId)
             && request.resource.data.get('featured',false) == false
             && (request.resource.data.status != 'published' || !approvalRequired(request.resource.data.moduleId))));
       allow update: if verified() && postShape()
         && request.resource.data.moduleId == resource.data.moduleId
         && request.resource.data.authorId == resource.data.authorId
-        && (staffOf(resource.data.moduleId)
+        && (staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId)
           || (own(resource.data.authorId) && memberOf(resource.data.moduleId) && openSubmissions(resource.data.moduleId)
             && request.resource.data.get('featured',false) == resource.data.get('featured',false)
             && (request.resource.data.status != 'published' || !approvalRequired(resource.data.moduleId))));
       allow delete: if isAdmin() || (verified() && own(resource.data.authorId) && resource.data.status != 'published');
+      // Likes: one per verified account on a published post; counts are public.
+      match /likes/{uid} {
+        allow read: if true;
+        allow create: if own(uid) && verified() && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t is number
+          && get(/databases/$(database)/documents/posts/$(id)).data.status == 'published';
+        allow update: if false;
+        allow delete: if own(uid) || isAdmin();
+      }
     }
     match /comments/{id} {
       allow read: if true;
       allow create: if verified()
-        && request.resource.data.keys().hasOnly(['postId','moduleId','body','authorId','authorName','createdAt'])
+        && request.resource.data.keys().hasOnly(['postId','moduleId','blogId','body','authorId','authorName','createdAt'])
         && request.resource.data.authorId == request.auth.uid
-        && (memberOf(request.resource.data.moduleId) || staffOf(request.resource.data.moduleId))
+        && (memberOf(request.resource.data.moduleId) || staffOf(request.resource.data.moduleId)
+          || blogMember(request.resource.data.blogId) || blogStaff(request.resource.data.blogId))
         && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
         && str('authorName',60) && request.resource.data.createdAt is number
         && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
         && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.status == 'published'
         && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.moduleId == request.resource.data.moduleId
-        && get(modulePath(request.resource.data.moduleId)).data.allowComments;
+        && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.get('blogId','') == request.resource.data.blogId
+        && get(blogPath(request.resource.data.blogId)).data.get('allowComments', true);
       allow update: if false;
-      allow delete: if own(resource.data.authorId) || staffOf(resource.data.moduleId);
+      allow delete: if own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.get('blogId',''));
     }
     match /settings/site { allow read: if true; allow write: if isAdmin(); }
     match /adminContent/{id} { allow read, write: if isAdmin(); }

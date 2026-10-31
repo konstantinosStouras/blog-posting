@@ -5,9 +5,12 @@
 //   userDirectory/{uid}     roster row: name, email (pinned to the token), first, seen
 //   registeredUsers/{uid}   contentless registration mark {t}
 //   roles/{uid}             {role: student|lecturer|admin}, written by the admin only
+//   blogs/{id}              a public canvas and its exercise, owned by instructors (teacherIds)
+//   blogs/{id}/members/{uid} link from a module membership, so the whole canvas can comment
+//   modules/{id}            a cohort: roster, invitations, academic year, deadline, blogId
 //   posts/{id}, comments/{id}, settings/site
 import {firebaseConfig, ADMIN_EMAIL} from './firebase-config.js';
-import {DEFAULT_SETTINGS} from './seed.js';
+import {DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf} from './util.js';
 import {registrationProfile} from './registration.js';
 import {randomCity, normalizeCode} from './invitation-codes.js';
@@ -16,7 +19,13 @@ import {buildPeopleReport} from './people-model.js';
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
 let app, auth, db, A, F, user = null, profile = null, role = 'student', settings = {...DEFAULT_SETTINGS};
 let registration = null;
-let managedModuleIds = [];
+let managedModuleIds = [], managedBlogIds = [];
+async function refreshManaged(self) {
+  if (!user) { managedModuleIds = []; managedBlogIds = []; return; }
+  const [modules, blogs] = await Promise.all([self.listModules(), self.listBlogs()]);
+  managedModuleIds = modules.filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
+  managedBlogIds = blogs.filter(b => b.teacherIds.includes(user.uid)).map(b => b.id);
+}
 const listeners = new Set(), notify = () => listeners.forEach(fn => fn());
 const ts = v => (v && typeof v.toMillis === 'function') ? v.toMillis() : (v ?? null);
 const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['createdAt', 'updatedAt', 'publishedAt']) if (k in o) o[k] = ts(o[k]); return o; };
@@ -78,8 +87,8 @@ export const firebase = {
     await new Promise(resolve => {
       A.onAuthStateChanged(auth, async u => {
         user = u;
-        if (u) { try { profile = await ensureProfile(u); role = await loadRole(u.uid, u.email, u.emailVerified); managedModuleIds = (await this.listModules()).filter(m => m.teacherIds.includes(u.uid)).map(m => m.id); await touchDirectory(u, profile); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
-        else { profile = null; role = 'student'; managedModuleIds = []; }
+        if (u) { try { profile = await ensureProfile(u); role = await loadRole(u.uid, u.email, u.emailVerified); await refreshManaged(this); await touchDirectory(u, profile); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
+        else { profile = null; role = 'student'; managedModuleIds = []; managedBlogIds = []; }
         notify(); resolve();
       });
     });
@@ -89,7 +98,7 @@ export const firebase = {
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
 
   // ---- auth ----
-  currentUser() { return user ? {uid: user.uid, email: user.email || '', emailVerified: user.emailVerified, ...profile, role, managedModuleIds} : null; },
+  currentUser() { return user ? {uid: user.uid, email: user.email || '', emailVerified: user.emailVerified, ...profile, role, managedModuleIds, managedBlogIds} : null; },
   async signIn(provider, {email, password, googleEmail} = {}) {
     let cred;
     if (provider === 'google.com') {
@@ -100,7 +109,7 @@ export const firebase = {
     else throw Error('Unknown sign-in method.');
     user = cred.user; profile = await ensureProfile(user);
     role = await loadRole(user.uid, user.email, user.emailVerified);
-    managedModuleIds = (await this.listModules()).filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
+    await refreshManaged(this);
     await touchDirectory(user, profile); notify(); return cred;
   },
   async register(data, teacher = false) {
@@ -138,16 +147,45 @@ export const firebase = {
   // Public module metadata is separate from private enrolment/roster records.
   async listModules() { const s = await F.getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },
   async getModule(id) { const s = await F.getDoc(F.doc(db, 'modules', id)); return s.exists() ? norm(s) : null; },
+  // ---- blogs: the public canvas and the exercise written on it ----
+  async listBlogs() { const s = await F.getDocs(F.collection(db, 'blogs')); return s.docs.map(norm).sort((a, b) => a.title.localeCompare(b.title)); },
+  async getBlog(id) { if (!id) return null; const s = await F.getDoc(F.doc(db, 'blogs', id)); return s.exists() ? norm(s) : null; },
+  async listMyBlogs() { if (!user) return []; return (await this.listBlogs()).filter(b => role === 'admin' || b.teacherIds.includes(user.uid)); },
+  async saveBlog(data) {
+    if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
+    const id = data.id || slugify(data.urlName || data.title);
+    if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(id)) throw Error('Choose a URL name of 2–80 lowercase letters, numbers or hyphens.');
+    const existing = await this.getBlog(id);
+    if (!data.id && existing) throw Error('That blog URL already exists. Choose another.');
+    const now = Date.now();
+    const doc = {...EMPTY_EXERCISE, allowComments: true, ...(existing || {}), ...data, updatedAt: now};
+    delete doc.id; delete doc.urlName;
+    doc.title = String(doc.title || '').trim(); doc.description = String(doc.description || '').trim();
+    doc.teacherIds = existing?.teacherIds || [user.uid]; doc.createdBy = existing?.createdBy || user.uid; doc.createdAt = existing?.createdAt || now;
+    if (!doc.title) throw Error('Enter a blog title.');
+    await F.setDoc(F.doc(db, 'blogs', id), doc);
+    await refreshManaged(this); notify(); return {id, ...doc};
+  },
+  // A module is a cohort attached to exactly one blog: an existing blog of the
+  // instructor's (data.blogId) or a new one created on the spot (data.newBlog).
   async saveModule(data) {
     if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
-    const id = data.id || slugify(data.urlName || data.code || data.title);
-    if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(id)) throw Error('Choose a URL name of 2–80 lowercase letters, numbers or hyphens.');
-    const existing = await this.getModule(id);
-    if (!data.id && existing) throw Error('That module URL already exists. Choose another.');
-    const doc = {title: String(data.title || '').trim(), code: String(data.code || '').trim(), description: String(data.description || '').trim(), teacherName: data.teacherName || [profile?.firstName, profile?.lastName].filter(Boolean).join(' '), teacherIds: existing?.teacherIds || [user.uid], createdBy: existing?.createdBy || user.uid, createdAt: existing?.createdAt || Date.now(), updatedAt: Date.now(), submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, allowComments: data.allowComments !== false};
+    const existing = data.id ? await this.getModule(data.id) : null;
+    if (data.id && !existing) throw Error('Module not found.');
+    let blogId = data.blogId || existing?.blogId || '';
+    if (data.newBlog) blogId = (await this.saveBlog({title: data.newBlog.title, urlName: data.newBlog.urlName, description: data.description || ''})).id;
+    const blog = await this.getBlog(blogId);
+    if (!blog || !(role === 'admin' || blog.teacherIds.includes(user.uid))) throw Error('Choose one of your own blogs for this module, or create a new one.');
+    let id = existing?.id;
+    if (!id) {
+      const base = slugify([data.code || data.title, data.academicYear].filter(Boolean).join(' '));
+      if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(base)) throw Error('Enter a module title.');
+      id = base; for (let n = 2; await this.getModule(id); n++) id = base + '-' + n;
+    }
+    const doc = {title: String(data.title || '').trim(), code: String(data.code || '').trim(), academicYear: String(data.academicYear || '').trim(), description: String(data.description || '').trim(), blogId, deadline: String(data.deadline || ''), teacherName: existing?.teacherName || [profile?.firstName, profile?.lastName].filter(Boolean).join(' '), teacherIds: existing?.teacherIds || [user.uid], createdBy: existing?.createdBy || user.uid, createdAt: existing?.createdAt || Date.now(), updatedAt: Date.now(), submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval};
     if (!doc.title) throw Error('Enter a module title.');
     await F.setDoc(F.doc(db, 'modules', id), doc);
-    managedModuleIds = (await this.listModules()).filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
+    await refreshManaged(this);
     notify(); return {id, ...doc};
   },
   async listMyModules() {
@@ -173,8 +211,11 @@ export const firebase = {
       if(!invite.exists() || invite.data().moduleId!==id || invite.data().revoked || invite.data().expiresAt<Date.now())throw Error('This module invitation has expired or is not valid.');
     }
     const details = registrationProfile(profile, ['teacher','instructor'].includes(profile?.registrationKind));
-    const now=Date.now();
-    await F.setDoc(ref, {uid:user.uid, ...details, penName:profile.penName, email:user.email, joinedAt:existing.data()?.joinedAt || now,inviteId,lastSeenAt:now,lastSignInAt:Date.parse(user.metadata?.lastSignInTime || '') || now});
+    const now=Date.now(), joinedAt = existing.data()?.joinedAt || now;
+    const batch = F.writeBatch(db);
+    batch.set(ref, {uid:user.uid, ...details, penName:profile.penName, email:user.email, joinedAt,inviteId,lastSeenAt:now,lastSignInAt:Date.parse(user.metadata?.lastSignInTime || '') || now});
+    if (m.blogId) batch.set(F.doc(db,'blogs',m.blogId,'members',user.uid), {uid:user.uid, moduleId:id, joinedAt});
+    await batch.commit();
     notify();
   },
   async resolveRegistrationCode(code) {
@@ -227,12 +268,15 @@ export const firebase = {
     let rows = snap.docs.map(norm);
     if (f.status) rows = rows.filter(p => p.status === f.status);
     if (f.moduleId) rows = rows.filter(p => p.moduleId === f.moduleId);
+    if (f.blogId) rows = rows.filter(p => p.blogId === f.blogId);
     return rows;
   },
   async listAllPosts() {
     if (role === 'admin') { const snap = await F.getDocs(F.collection(db,'posts')); return snap.docs.map(norm); }
-    const rows = await Promise.all(managedModuleIds.map(id => F.getDocs(F.query(F.collection(db,'posts'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))));
-    return rows.flat();
+    const byModule = managedModuleIds.map(id => F.getDocs(F.query(F.collection(db,'posts'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm)));
+    const byBlog = managedBlogIds.map(id => F.getDocs(F.query(F.collection(db,'posts'),F.where('blogId','==',id))).then(s=>s.docs.map(norm)));
+    const rows = (await Promise.all([...byModule, ...byBlog])).flat();
+    return [...new Map(rows.map(p => [p.id, p])).values()];
   },
   async getPost(id) { const s = await F.getDoc(F.doc(db, 'posts', id)); return s.exists() ? norm(s) : null; },
   async getPostBySlug(slug) {
@@ -245,17 +289,24 @@ export const firebase = {
         const taught = await F.getDocs(F.query(col,bySlug,F.where('moduleId','==',moduleId),F.limit(1)));
         if (!taught.empty) return norm(taught.docs[0]);
       }
+      for (const blogId of managedBlogIds) {
+        const owned = await F.getDocs(F.query(col,bySlug,F.where('blogId','==',blogId),F.limit(1)));
+        if (!owned.empty) return norm(owned.docs[0]);
+      }
     }
     const filters = staff ? [bySlug] : [bySlug, F.where('status', '==', 'published')];
     const s = await F.getDocs(F.query(col, ...filters, F.limit(1)));
     return s.empty ? null : norm(s.docs[0]);
   },
   async savePost(post, u) {
-    if (!post.moduleId) throw Error('Choose a module before saving.');
     const id = post.id || newId();
     const existing = post.id ? await this.getPost(id) : null;
+    const module = await this.getModule(post.moduleId || existing?.moduleId);
+    if (!module) throw Error('Choose a module before saving.');
+    if (!module.blogId) throw Error('This module is not attached to a blog yet. Ask your instructor.');
     const now = Date.now();
-    const doc = {...(existing || {createdAt: now, authorId: u.uid, featured: false}), ...post, updatedAt: now};
+    // Every post is stamped with its module's blog and academic year; the rules check the blog.
+    const doc = {...(existing || {createdAt: now, authorId: u.uid, featured: false}), ...post, moduleId: module.id, blogId: module.blogId, academicYear: existing?.academicYear || module.academicYear || '', updatedAt: now};
     delete doc.id;
     doc.authorName = existing && existing.authorId !== u.uid ? existing.authorName : (u.penName || 'student');
     doc.slug = doc.slug || slugify(doc.title);
@@ -267,14 +318,21 @@ export const firebase = {
     notify(); return {id, ...doc};
   },
   async deletePost(id) {
-    const cs = await F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id)));
-    const b = F.writeBatch(db); cs.forEach(c => b.delete(c.ref)); b.delete(F.doc(db, 'posts', id)); await b.commit(); notify();
+    const [cs, ls] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes'))]);
+    const b = F.writeBatch(db); cs.forEach(c => b.delete(c.ref)); ls.forEach(l => b.delete(l.ref)); b.delete(F.doc(db, 'posts', id)); await b.commit(); notify();
+  },
+  async listLikes(postId) { try { const s = await F.getDocs(F.collection(db, 'posts', postId, 'likes')); return s.docs.map(d => d.id); } catch { return []; } },
+  async toggleLike(postId, u) {
+    if (!user?.emailVerified) throw Error('Verify your sign-in email to like posts.');
+    const ref = F.doc(db, 'posts', postId, 'likes', u.uid), had = (await F.getDoc(ref)).exists();
+    if (had) await F.deleteDoc(ref); else await F.setDoc(ref, {t: Date.now()});
+    const likes = await this.listLikes(postId); return {liked: !had, count: likes.length};
   },
 
   // ---- comments ----
   async listComments(postId) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', postId))); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt); },
   async recentComments(n = 5) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.orderBy('createdAt', 'desc'), F.limit(n))); return s.docs.map(norm); },
-  async addComment({postId, body}, u) { const post = await this.getPost(postId); if (!post) throw Error('Post not found.'); const c = {postId, moduleId:post.moduleId, body, authorId: u.uid, authorName: u.penName || 'student', createdAt: Date.now()}; const ref = await F.addDoc(F.collection(db, 'comments'), c); notify(); return {id: ref.id, ...c}; },
+  async addComment({postId, body}, u) { const post = await this.getPost(postId); if (!post) throw Error('Post not found.'); const c = {postId, moduleId:post.moduleId, blogId: post.blogId || '', body, authorId: u.uid, authorName: u.penName || 'student', createdAt: Date.now()}; const ref = await F.addDoc(F.collection(db, 'comments'), c); notify(); return {id: ref.id, ...c}; },
   async deleteComment(id) { await F.deleteDoc(F.doc(db, 'comments', id)); notify(); },
 
   // ---- people (staff only, enforced by the rules) ----
@@ -323,6 +381,6 @@ export const firebase = {
 
   // ---- site ----
   async saveSettings(patch) { settings = {...settings, ...patch}; await F.setDoc(F.doc(db, 'settings', 'site'), settings); notify(); return settings; },
-  async exportAll() { const [posts, comments, users] = await Promise.all([this.listAllPosts(), F.getDocs(F.collection(db, 'comments')).then(s => s.docs.map(norm)), this.listUsers()]); return {settings, posts, comments, users}; },
+  async exportAll() { const [blogs, modules, posts, comments, users] = await Promise.all([this.listBlogs(), this.listModules(), this.listAllPosts(), F.getDocs(F.collection(db, 'comments')).then(s => s.docs.map(norm)), this.listUsers()]); return {settings, blogs, modules, posts, comments, users}; },
   async resetDemo() { throw Error('Not available with Firebase; delete documents in the Firebase console.'); },
 };

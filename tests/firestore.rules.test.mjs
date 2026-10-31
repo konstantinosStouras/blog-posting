@@ -1,14 +1,17 @@
 import {before,after,beforeEach,test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {initializeTestEnvironment,assertSucceeds,assertFails} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,getDocs,collection,query,where,updateDoc,writeBatch} from 'firebase/firestore';
+import {doc,setDoc,getDoc,getDocs,collection,query,where,updateDoc,deleteDoc,writeBatch} from 'firebase/firestore';
 let env;
 const time=Date.now();
 const profile=(email='student@ucdconnect.ie')=>({firstName:'Student',lastName:'Example',penName:'student_alias',studentId:'12345678',contactEmail:email,affiliation:'Example University',registrationKind:'student'});
-const mod=(uid)=>({title:'Test module',code:'TEST',description:'',teacherName:'Teacher',teacherIds:[uid],createdBy:uid,createdAt:time,updatedAt:time,submissionsOpen:true,requireApproval:false,allowComments:true});
-const post=(moduleId='one',authorId='student',status='draft')=>({moduleId,authorId,status,title:'Test post',slug:'test-post',body:'<p>Test content</p>',featured:false,authorName:'student_alias',createdAt:time,updatedAt:time});
+// Blogs are the public canvases (and exercises); modules are cohorts attached to one blog.
+const blog=(uid)=>({title:'Test blog',description:'',teacherIds:[uid],createdBy:uid,createdAt:time,updatedAt:time,brief:'',categoryLabel:'Megatrend',categories:[{slug:'sustainability',name:'Sustainability'}],organisationLabel:'Organisation',minWords:900,maxWords:1100,outline:'',checklist:[],allowComments:true});
+const mod=(uid,blogId='pm')=>({title:'Test module',code:'TEST',description:'',teacherName:'Teacher',teacherIds:[uid],createdBy:uid,createdAt:time,updatedAt:time,submissionsOpen:true,requireApproval:false,blogId,academicYear:'2026/27',deadline:''});
+const post=(moduleId='one',authorId='student',status='draft',blogId='pm')=>({moduleId,blogId,academicYear:'2026/27',authorId,status,title:'Test post',slug:'test-post',body:'<p>Test content</p>',featured:false,authorName:'student_alias',createdAt:time,updatedAt:time});
 const member=(uid='student')=>({uid,...profile(),penName:'student_alias',email:'student@ucdconnect.ie',joinedAt:time,inviteId:'student-valid'});
 const invite=(extra={})=>({ucdEmail:'invited@ucd.ie',gmail:'invited@gmail.com',createdBy:'admin',createdAt:time,expiresAt:time+86400000,acceptedBy:'',revoked:false,...extra});
+const comment=(extra={})=>({postId:'published',moduleId:'one',blogId:'pm',authorId:'student',authorName:'alias',body:'Hello',createdAt:time,...extra});
 const db=(uid,email=uid+'@ucd.ie',verified=true)=>env.authenticatedContext(uid,{email,email_verified:verified,firebase:{sign_in_provider:'password'}}).firestore();
 before(async()=>{env=await initializeTestEnvironment({projectId:'demo-ucd-blog',firestore:{rules:await readFile(new URL('../firestore.rules',import.meta.url),'utf8')}});});
 after(async()=>{await env?.cleanup();});
@@ -18,16 +21,20 @@ beforeEach(async()=>{
   const d=c.firestore(),b=writeBatch(d);
   for(const [path,data] of Object.entries({
    'roles/teacher-one':{role:'lecturer'},'roles/teacher-two':{role:'lecturer'},
-   'modules/one':mod('teacher-one'),'modules/two':mod('teacher-two'),
-   'modules/one/members/student':member(),'profiles/student':profile(),
+   // teacher-one owns the shared "pm" blog written on by modules one and three; teacher-two owns "ops" with module two
+   'blogs/pm':blog('teacher-one'),'blogs/ops':blog('teacher-two'),
+   'modules/one':mod('teacher-one'),'modules/three':mod('teacher-one'),'modules/two':mod('teacher-two','ops'),
+   'modules/one/members/student':member(),'blogs/pm/members/student':{uid:'student',moduleId:'one',joinedAt:time},
+   'modules/three/members/peer':{...member('peer'),email:'peer@ucd.ie',contactEmail:'peer@ucd.ie'},'blogs/pm/members/peer':{uid:'peer',moduleId:'three',joinedAt:time},
+   'profiles/student':profile(),'profiles/peer':profile('peer@ucd.ie'),
    'profiles/invited':{...profile('invited@ucd.ie'),studentId:'',registrationKind:'teacher'},
    'teacherInvites/valid':invite(),'teacherInvites/expired':invite({expiresAt:time-1000}),
    'teacherInvites/revoked':invite({revoked:true}),'teacherInvites/used':invite({acceptedBy:'someone-else'}),
    'moduleInvites/student-valid':{moduleId:'one',code:'madrid',createdBy:'teacher-one',createdAt:time,expiresAt:time+86400000,revoked:false},
    'moduleInvites/student-expired':{moduleId:'one',code:'rome',createdBy:'teacher-one',createdAt:time,expiresAt:time-1000,revoked:false},
    'registrationCodes/madrid':{kind:'student',inviteId:'student-valid',moduleId:'one',code:'madrid',expiresAt:time+86400000,revoked:false},
-   'posts/draft':post(),'posts/published':post('one','student','published'),'posts/other-draft':post('two','other'),
-   'comments/comment':{postId:'published',moduleId:'one',authorId:'student',authorName:'alias',body:'Hello',createdAt:time}
+   'posts/draft':post(),'posts/published':post('one','student','published'),'posts/other-draft':post('two','other','draft','ops'),'posts/peer-published':post('three','peer','published'),
+   'comments/comment':comment()
   }))b.set(doc(d,path),data);
   await b.commit();
  });
@@ -51,42 +58,63 @@ test('named student invitations can only be read and redeemed by the intended un
  await assertSucceeds(setDoc(doc(db('new','new@university.ie'),'modules/one/members/new'),ownMember));
  await assertFails(setDoc(doc(db('outsider','outsider@university.ie'),'modules/one/members/outsider'),{...member('outsider'),email:'outsider@university.ie',contactEmail:'outsider@university.ie',inviteId:'named'}));
 });
-test('public readers see modules and published posts, not drafts, rosters, profiles or invites',async()=>{
+test('public readers see blogs, modules and published posts, not drafts, rosters, profiles or invites',async()=>{
  const d=env.unauthenticatedContext().firestore();
+ await assertSucceeds(getDocs(collection(d,'blogs')));
  await assertSucceeds(getDocs(collection(d,'modules')));
  await assertSucceeds(getDocs(query(collection(d,'posts'),where('status','==','published'))));
+ await assertSucceeds(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));
  await assertFails(getDoc(doc(d,'posts/draft')));
  await assertFails(getDoc(doc(d,'profiles/student')));
  await assertFails(getDocs(collection(d,'modules/one/members')));
+ await assertFails(getDocs(collection(d,'blogs/pm/members')));
  await assertFails(getDoc(doc(d,'teacherInvites/valid')));
- await assertFails(setDoc(doc(d,'comments/anon'),{postId:'published',moduleId:'one',authorId:'anon',authorName:'x',body:'x',createdAt:time}));
+ await assertFails(setDoc(doc(d,'comments/anon'),comment({authorId:'anon'})));
 });
-test('student ownership and module membership constrain posts',async()=>{
+test('student ownership and module membership constrain posts; posts carry their module’s blog',async()=>{
  const d=db('student','student@ucdconnect.ie');
  await assertSucceeds(getDoc(doc(d,'posts/draft')));
  await assertSucceeds(setDoc(doc(d,'posts/new'),post()));
+ await assertFails(setDoc(doc(d,'posts/wrong-blog'),post('one','student','draft','ops')));
+ await assertFails(setDoc(doc(d,'posts/no-blog'),(()=>{const p=post();delete p.blogId;return p;})()));
  await assertFails(updateDoc(doc(d,'posts/other-draft'),{title:'Changed'}));
- await assertFails(setDoc(doc(d,'posts/wrong-module'),post('two')));
+ await assertFails(setDoc(doc(d,'posts/wrong-module'),post('two','student','draft','ops')));
  await assertFails(setDoc(doc(d,'posts/forged-author'),post('one','other')));
  await assertFails(updateDoc(doc(d,'posts/draft'),{featured:true}));
- await assertFails(updateDoc(doc(d,'posts/draft'),{moduleId:'two'}));
+ await assertFails(updateDoc(doc(d,'posts/draft'),{moduleId:'three'}));
 });
-test('teachers moderate and read rosters only in assigned modules',async()=>{
+test('teachers moderate posts in their modules and on the blogs they own, and read rosters only in assigned modules',async()=>{
  const d=db('teacher-one');
  await assertSucceeds(getDocs(query(collection(d,'posts'),where('moduleId','==','one'))));
+ await assertSucceeds(getDocs(query(collection(d,'posts'),where('blogId','==','pm'))));
  await assertSucceeds(updateDoc(doc(d,'posts/draft'),{status:'published',featured:true}));
  await assertSucceeds(getDocs(collection(d,'modules/one/members')));
+ await assertSucceeds(getDocs(collection(d,'blogs/pm/members')));
  await assertFails(getDoc(doc(d,'posts/other-draft')));
  await assertFails(getDocs(collection(d,'modules/two/members')));
  await assertFails(getDoc(doc(d,'profiles/student')));
  await assertFails(updateDoc(doc(d,'modules/two'),{title:'Hijacked'}));
+ await assertFails(updateDoc(doc(d,'blogs/ops'),{title:'Hijacked'}));
+ // a blog owner may moderate a post from another instructor’s module on the owner’s blog
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'modules/guest'),mod('teacher-two','pm')));
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'posts/guest-draft'),post('guest','someone','draft','pm')));
+ await assertSucceeds(getDoc(doc(d,'posts/guest-draft')));
+ await assertSucceeds(updateDoc(doc(d,'posts/guest-draft'),{status:'published'}));
 });
-test('teachers can create several own modules but cannot appoint other teachers',async()=>{
+test('teachers create blogs and modules on their own blogs only; nobody appoints other teachers',async()=>{
  const d=db('teacher-one');
- await assertSucceeds(setDoc(doc(d,'modules/three'),mod('teacher-one')));
- await assertSucceeds(setDoc(doc(d,'modules/four'),mod('teacher-one')));
+ await assertSucceeds(setDoc(doc(d,'blogs/new-blog'),blog('teacher-one')));
+ await assertSucceeds(setDoc(doc(d,'modules/four'),mod('teacher-one','new-blog')));
+ await assertSucceeds(setDoc(doc(d,'modules/five'),mod('teacher-one','pm')));
+ await assertFails(setDoc(doc(d,'modules/on-others-blog'),mod('teacher-one','ops')));
+ await assertFails(setDoc(doc(d,'modules/no-such-blog'),mod('teacher-one','missing')));
+ await assertFails(updateDoc(doc(d,'modules/one'),{blogId:'ops'}));
+ await assertSucceeds(updateDoc(doc(d,'modules/one'),{academicYear:'2027/28',deadline:'2027-11-30'}));
  await assertFails(updateDoc(doc(d,'modules/one'),{teacherIds:['teacher-one','other']}));
+ await assertFails(updateDoc(doc(d,'blogs/pm'),{teacherIds:['teacher-one','other']}));
  await assertFails(setDoc(doc(db('student'),'modules/stolen'),mod('student')));
+ await assertFails(setDoc(doc(db('student'),'blogs/stolen'),blog('student')));
+ await assertSucceeds(setDoc(doc(db('admin','kstouras@gmail.com'),'modules/admin-module'),{...mod('admin','ops'),teacherIds:['admin']}));
 });
 test('unverified accounts cannot post, comment, enrol or become lecturers',async()=>{
  const d=db('student','student@ucdconnect.ie',false);
@@ -103,13 +131,33 @@ test('module approval and submission controls cannot be bypassed',async()=>{
  await env.withSecurityRulesDisabled(c=>updateDoc(doc(c.firestore(),'modules/one'),{submissionsOpen:false}));
  await assertFails(setDoc(doc(d,'posts/closed'),post()));
 });
-test('verified users may comment on published posts only; module closure is enforced',async()=>{
- const d=db('student','student@ucdconnect.ie'),comment={postId:'published',moduleId:'one',authorId:'student',authorName:'alias',body:'Hello',createdAt:time};
- await assertSucceeds(setDoc(doc(d,'comments/new'),comment));
- await assertFails(setDoc(doc(d,'comments/on-draft'),{...comment,postId:'draft'}));
- await assertFails(setDoc(doc(d,'comments/forged'),{...comment,authorId:'other'}));
- await env.withSecurityRulesDisabled(c=>updateDoc(doc(c.firestore(),'modules/one'),{allowComments:false}));
- await assertFails(setDoc(doc(d,'comments/closed'),comment));
+test('members of any module on a blog may comment on its published posts; the blog decides whether comments are open',async()=>{
+ const d=db('student','student@ucdconnect.ie');
+ await assertSucceeds(setDoc(doc(d,'comments/new'),comment()));
+ // peer belongs to module three, which shares the pm blog with module one
+ await assertSucceeds(setDoc(doc(db('peer','peer@ucd.ie'),'comments/cross-module'),comment({authorId:'peer'})));
+ await assertFails(setDoc(doc(d,'comments/on-draft'),comment({postId:'draft'})));
+ await assertFails(setDoc(doc(d,'comments/forged'),comment({authorId:'other'})));
+ await assertFails(setDoc(doc(d,'comments/wrong-blog'),comment({blogId:'ops'})));
+ await assertFails(setDoc(doc(d,'comments/other-blog'),comment({postId:'other-draft',moduleId:'two',blogId:'ops'})));
+ await env.withSecurityRulesDisabled(c=>updateDoc(doc(c.firestore(),'blogs/pm'),{allowComments:false}));
+ await assertFails(setDoc(doc(d,'comments/closed'),comment()));
+});
+test('joining a module writes the blog membership only alongside a valid module membership',async()=>{
+ const d=db('new-student','student@ucdconnect.ie');
+ const b=writeBatch(d);b.set(doc(d,'modules/one/members/new-student'),member('new-student'));b.set(doc(d,'blogs/pm/members/new-student'),{uid:'new-student',moduleId:'one',joinedAt:time});
+ await assertSucceeds(b.commit());
+ await assertFails(setDoc(doc(db('intruder','intruder@ucd.ie'),'blogs/pm/members/intruder'),{uid:'intruder',moduleId:'one',joinedAt:time}));
+ await assertFails(setDoc(doc(d,'blogs/ops/members/new-student'),{uid:'new-student',moduleId:'one',joinedAt:time}));
+});
+test('likes are one per verified account on published posts and publicly countable',async()=>{
+ const d=db('peer','peer@ucd.ie');
+ await assertSucceeds(setDoc(doc(d,'posts/published/likes/peer'),{t:time}));
+ await assertFails(setDoc(doc(d,'posts/published/likes/student'),{t:time}));
+ await assertFails(setDoc(doc(d,'posts/draft/likes/peer'),{t:time}));
+ await assertFails(setDoc(doc(db('peer','peer@ucd.ie',false),'posts/peer-published/likes/peer'),{t:time}));
+ await assertSucceeds(getDocs(collection(env.unauthenticatedContext().firestore(),'posts/published/likes')));
+ await assertSucceeds(deleteDoc(doc(d,'posts/published/likes/peer')));
 });
 test('student identity is private; self-written teacher profile does not grant access',async()=>{
  const d=db('student','student@ucdconnect.ie');
@@ -123,7 +171,8 @@ async function claim(d,id='valid'){
 }
 test('matching verified UCD account atomically accepts an invitation',async()=>{
  const d=db('invited','invited@ucd.ie');await assertSucceeds(claim(d));
- await assertSucceeds(setDoc(doc(d,'modules/new-teacher-module'),mod('invited')));
+ await assertSucceeds(setDoc(doc(d,'blogs/invited-blog'),blog('invited')));
+ await assertSucceeds(setDoc(doc(d,'modules/new-teacher-module'),mod('invited','invited-blog')));
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'roles/invited'),{role:'student'}));
  await assertFails(claim(d));
 });
@@ -146,6 +195,7 @@ test('only admin creates invitations and admin retains platform-wide access',asy
  await assertSucceeds(getDocs(collection(d,'profiles')));
  await assertSucceeds(getDocs(collection(d,'posts')));
  await assertSucceeds(updateDoc(doc(d,'modules/two'),{title:'Admin edit'}));
+ await assertSucceeds(updateDoc(doc(d,'blogs/ops'),{title:'Admin edit'}));
 });
 test('students cannot self-enrol without a valid invitation for that exact module',async()=>{
  const d=db('new-student','student@ucdconnect.ie');
@@ -172,5 +222,5 @@ test('only assigned instructors can generate and revoke module city-code invitat
  await assertFails(setDoc(doc(db('new-student','student@ucdconnect.ie'),'modules/one/members/new-student'),{...member('new-student'),inviteId:'new-city'}));
 });
 test('non-members cannot comment simply by creating a platform account',async()=>{
- await assertFails(setDoc(doc(db('outsider'),'comments/no-invitation'),{postId:'published',moduleId:'one',authorId:'outsider',authorName:'alias',body:'Hello',createdAt:time}));
+ await assertFails(setDoc(doc(db('outsider'),'comments/no-invitation'),comment({authorId:'outsider'})));
 });

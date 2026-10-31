@@ -12,19 +12,23 @@ export const MEGATRENDS = [
   {slug: 'health-wellbeing', name: 'Health and well-being revolution'},
 ];
 
+// Site-wide settings are only the masthead. Everything about an exercise (brief,
+// categories, word target, outline, checklist, comments policy) belongs to a BLOG,
+// and cohort matters (academic year, deadline, approval, open/closed) to a MODULE.
 export const DEFAULT_SETTINGS = {
   title: 'UCD blog',
   tagline: 'Posts by curious UCD students',
-  module: 'BMGT45540 Managing Innovative Projects',
-  challenge: 'PM Challenge 2026',
+};
+
+// The PM Challenge exercise, applied to the maintainer's project-management blog.
+// Other instructors' blogs start from EMPTY_EXERCISE and define their own.
+export const PM_EXERCISE = {
+  categoryLabel: 'Megatrend',
   categories: MEGATRENDS,
+  organisationLabel: 'Organisation studied',
   minWords: 900,
   maxWords: 1100,
-  requireApproval: false,   // true = student posts wait for a lecturer before going public
-  submissionsOpen: true,
-  deadline: '',             // ISO date shown on the Write page, e.g. 2026-11-28
-  allowComments: true,
-  guide: `<p>The goal of the <strong>PM Challenge</strong> is to promote peer learning and discussion on the impact of a <em>megatrend</em> on business and society. Investigate how <strong>one organisation of your choice</strong> is facing a particular aspect of one of the six megatrends, and write a blog post (not an essay: use hyperlinks to your sources, and add figures, tables or statistics) of <strong>900 to 1,100 words</strong> that answers:</p>
+  brief: `<p>The goal of the <strong>PM Challenge</strong> is to promote peer learning and discussion on the impact of a <em>megatrend</em> on business and society. Investigate how <strong>one organisation of your choice</strong> is facing a particular aspect of one of the six megatrends, and write a blog post (not an essay: use hyperlinks to your sources, and add figures, tables or statistics) of <strong>900 to 1,100 words</strong> that answers:</p>
 <ol>
 <li>Why is the megatrend you selected important to your organisation's management?</li>
 <li>How will the organisation's management be affected, positively or negatively, by the megatrend?</li>
@@ -33,7 +37,34 @@ export const DEFAULT_SETTINGS = {
 <li>What are one or two important open questions on this issue that merit comments from your classmates?</li>
 </ol>
 <p>Roughly a quarter of the post should go to each of the first four questions, with a few sentences for the last. Ground your analysis in top outlets such as FT50 journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em>, <em>California Management Review</em> or <em>The Economist</em>. Choose the <strong>category</strong> matching your megatrend, add a <strong>featured image</strong> and a few <strong>tags</strong>. To keep peer review anonymous, write under a non-identifying pen name.</p>`,
+  // {organisation} and {category} are filled in from the post's side panel.
+  outline: `<p><em>Introduce {organisation} in a few sentences: what it does, where, and why it is worth studying in the context of {category}.</em></p>
+<h2>Why {category} matters to {organisation}'s management</h2><p></p>
+<h2>How management will be affected</h2><p></p>
+<h2>What management is doing now: the next two years and the decade ahead</h2><p></p>
+<h2>What else management should do</h2><p></p>
+<h2>Two questions remain open</h2><p><strong>Question 1:</strong> </p><p><strong>Question 2:</strong> </p>`,
+  checklist: ['Why the megatrend matters to management', 'How management is affected (+/−)', 'Current steps: next 2 years and 2–10 years', 'Your recommendations, short and medium term', 'One or two open questions for classmates', 'Sources as hyperlinks (FT50, HBR, MIT SMR, The Economist…)'],
 };
+export const EMPTY_EXERCISE = {categoryLabel: 'Category', categories: [], organisationLabel: '', minWords: 0, maxWords: 0, brief: '', outline: '', checklist: []};
+
+const T0 = new Date('2026-09-01T09:00:00').getTime();
+export const SEED_BLOGS = [
+  {id: 'project-management', title: 'Project Management', description: 'How organisations face the megatrends shaping business and society: blog posts by students of the project management modules.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...PM_EXERCISE},
+  {id: 'operations', title: 'Operations', description: 'Blog posts by students of BMGT41040 Operations, Innovation and Management.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...EMPTY_EXERCISE, brief: '<p>The brief for this blog has not been written yet.</p>'},
+];
+const M = (o) => ({description: '', teacherIds: ['u-admin'], teacherName: 'Konstantinos Stouras', createdBy: 'u-admin', createdAt: T0, updatedAt: T0, academicYear: '2026/27', submissionsOpen: true, requireApproval: false, deadline: '2026-11-28', ...o});
+export const SEED_MODULES = [
+  M({id: 'bmgt45540-2026-27', code: 'BMGT45540', title: 'Managing Innovative Projects', blogId: 'project-management'}),
+  M({id: 'bmgt46260-2026-27', code: 'BMGT46260', title: 'Managing Performance', blogId: 'project-management'}),
+  M({id: 'bmgt2017d-2026-27', code: 'BMGT2017D', title: 'Project Management', blogId: 'project-management'}),
+  M({id: 'pm-singapore-2026-27', code: '', title: 'Project Management Singapore', blogId: 'project-management'}),
+  M({id: 'bmgt41040-2026-27', code: 'BMGT41040', title: 'Operations, Innovation and Management', blogId: 'operations', deadline: ''}),
+];
+export const SEED_MEMBERSHIPS = [
+  {uid: 'u-s1', moduleId: 'bmgt45540-2026-27'}, {uid: 'u-s2', moduleId: 'bmgt45540-2026-27'},
+  {uid: 'u-s3', moduleId: 'bmgt46260-2026-27'}, {uid: 'u-s4', moduleId: 'bmgt41040-2026-27'},
+];
 
 export const SEED_USERS = [
   {uid: 'u-admin', role: 'admin', penName: 'kstouras', firstName: 'Konstantinos', lastName: 'Stouras', email: 'kstouras@gmail.com', affiliation: 'UCD Smurfit', studentId: '', website: 'https://www.stouras.com', bio: 'Module coordinator.'},
@@ -45,7 +76,7 @@ export const SEED_USERS = [
 ];
 
 const d = (iso) => new Date(iso).getTime();
-const P = (o) => ({status: 'published', featured: false, ...o, createdAt: d(o.date), updatedAt: d(o.date), publishedAt: d(o.date)});
+const P = (o) => ({status: 'published', featured: false, moduleId: 'bmgt45540-2026-27', blogId: 'project-management', academicYear: '2026/27', ...o, createdAt: d(o.date), updatedAt: d(o.date), publishedAt: d(o.date)});
 const sample = '<p class="caption"><em>Sample post about a fictional organisation, shown to illustrate the expected structure.</em></p>';
 
 export const SEED_POSTS = [
@@ -84,7 +115,7 @@ export const SEED_POSTS = [
 <h2>Current steps</h2><p>Harbourline now writes a two-year post-occupancy evaluation into every contract and keeps a small team on each building until it passes.</p>
 <h2>Recommendations</h2><p>Treat each building as a product with a lifecycle roadmap, and report the gap between modelled and measured performance publicly.</p>
 <h2>Open questions</h2><p>Who should bear the cost when a building underperforms: the developer, the operator or the tenant?</p>` + sample}),
-  P({id: 'p4', slug: 'the-race-to-address-the-hybrid-fitness-boom', date: '2026-10-24T16:00:00', authorId: 'u-s4', authorName: 'quietriver', category: 'health-wellbeing', organisation: 'Stride Athletics (fictional)', tags: ['Fitness', 'Health', 'Consumer Trends', 'Digital Products'], featuredImage: img('ucd-fitness'),
+  P({id: 'p4', moduleId: 'bmgt41040-2026-27', blogId: 'operations', slug: 'the-race-to-address-the-hybrid-fitness-boom', date: '2026-10-24T16:00:00', authorId: 'u-s4', authorName: 'quietriver', category: '', organisation: 'Stride Athletics (fictional)', tags: ['Fitness', 'Health', 'Consumer Trends', 'Digital Products'], featuredImage: img('ucd-fitness'),
     title: "Stride Athletics' Race to Address the Hybrid Fitness Boom",
     body: `<p>The health and well-being megatrend has turned exercise into a lifestyle identity. <strong>Stride Athletics</strong>, a fictional sportswear brand, is betting that the customer of 2030 trains in the gym, at home and online in the same week.</p>
 <h2>Why it matters</h2><p>Hybrid athletes buy more categories and churn faster. Management must decide whether Stride is a product company or a membership company.</p>
@@ -108,7 +139,7 @@ export const SEED_POSTS = [
 <h2>Current steps</h2><p>Heat-reuse agreements with district heating schemes and on-site battery storage to shave peak demand.</p>
 <h2>Recommendations</h2><p>Publish a water-use baseline per site and make it part of the project charter.</p>
 <h2>Open questions</h2><p>Should a country cap data-centre growth even when the economic benefits are large?</p>` + sample}),
-  P({id: 'p7', slug: 'anticipating-africa-a-race-to-build-the-cities-of-tomorrow', date: '2026-10-10T13:00:00', authorId: 'u-s3', authorName: 'northstar', category: 'demographic-shifts', organisation: 'Meridian Urban Partners (fictional)', tags: ['Urbanization', 'Africa', 'Infrastructure', 'Demographics'], featuredImage: img('ucd-city'),
+  P({id: 'p7', moduleId: 'bmgt46260-2026-27', slug: 'anticipating-africa-a-race-to-build-the-cities-of-tomorrow', date: '2026-10-10T13:00:00', authorId: 'u-s3', authorName: 'northstar', category: 'demographic-shifts', organisation: 'Meridian Urban Partners (fictional)', tags: ['Urbanization', 'Africa', 'Infrastructure', 'Demographics'], featuredImage: img('ucd-city'),
     title: "Anticipating Africa: Meridian's Race to Build the Cities of Tomorrow",
     body: `<p>By 2050 most of the world's urban growth will happen in Africa. <strong>Meridian Urban Partners</strong>, a fictional infrastructure developer, is trying to plan cities faster than they grow.</p>
 <h2>Why it matters</h2><p>Demographic growth is the demand forecast; the risk is in sequencing water, power and housing projects so none becomes the bottleneck.</p>
@@ -116,7 +147,7 @@ export const SEED_POSTS = [
 <h2>Current steps</h2><p>A shared digital master plan updated quarterly and an infrastructure-first phasing rule.</p>
 <h2>Recommendations</h2><p>Adopt rolling-wave planning and keep community consultation as a standing workstream rather than a milestone.</p>
 <h2>Open questions</h2><p>How much should be planned centrally, and how much left to emerge?</p>` + sample}),
-  {id: 'p8', slug: 'remote-work-at-a-global-bank', title: 'Remote work at a global bank (draft in progress)', authorId: 'u-s4', authorName: 'quietriver', category: 'future-of-work', organisation: '', tags: ['Remote Work'], featuredImage: '', status: 'draft', featured: false,
+  {id: 'p8', moduleId: 'bmgt41040-2026-27', blogId: 'operations', academicYear: '2026/27', slug: 'remote-work-at-a-global-bank', title: 'Remote work at a global bank (draft in progress)', authorId: 'u-s4', authorName: 'quietriver', category: 'future-of-work', organisation: '', tags: ['Remote Work'], featuredImage: '', status: 'draft', featured: false,
     body: '<p>Notes so far: hybrid policy announced; need numbers on office utilisation and attrition.</p>', createdAt: d('2026-10-30T18:00:00'), updatedAt: d('2026-10-30T18:00:00'), publishedAt: null},
 ];
 

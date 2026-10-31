@@ -4,9 +4,28 @@ Admins have a private walkthrough at `#/admin/guide` and searchable user and inv
 
 Live platform: https://www.stouras.com/ucd-blog/
 
-UCD blog hosts a separate public blog canvas for each instructor's module.
-Published posts are readable without signing in. Writing, editing and commenting
-require a verified account and an invitation-based membership in the module.
+UCD blog hosts public **blogs**, each written on by one or more **modules**.
+
+- A **blog** is a public canvas plus the exercise written on it: the brief, the
+  category list (for example the six megatrends), the organisation field, the
+  word target, an outline the student can insert, a pre-publish checklist and
+  whether comments are open. Blogs are owned by instructors. Address:
+  `#/blog/<url-name>`.
+- A **module** is one cohort: code, title, academic year (e.g. 2026/27),
+  roster, invitations, deadline and whether student posts need approval. When
+  an instructor creates a module they either create a new, separate blog for it
+  or attach it to one of their existing blogs, so several modules can share one
+  canvas (the maintainer's project-management modules do; BMGT41040 has its own
+  Operations blog).
+- Every post carries its module, its blog and the module's academic year, so
+  the instructor area lists posts by blog, module and year, and the canvas
+  offers the same facets to readers.
+
+Published posts are readable without signing in. Writing, commenting and
+liking require a verified account and an invitation-based membership in a
+module. A student who signs in lands on the blog of their module, with a
+**Write your blog post** button; members of any module on a blog may comment on
+all of its posts.
 
 ## Accounts and invitations
 
@@ -30,6 +49,18 @@ require a verified account and an invitation-based membership in the module.
 City codes are convenient shared invitation codes, not passwords. Instructor
 invitations additionally require the invited verified email. Private profiles
 and module rosters are not public. Instructors access only assigned modules.
+
+## Writing
+
+The writer is laid out like Substack's post editor: back and a Saved chip on the
+left, **Preview** and **Continue** on the right, one formatting toolbar (undo,
+Style, bold, italic, strikethrough, code, link, image, quote, lists, More), then
+a centred column with Title, subtitle, byline and the text in Spectral. Drafts
+autosave two seconds after a change and the chip flashes green. Preview shows the
+post as readers see it on a phone or a desktop, with Share and Done. Continue
+opens the details step (featured image, category, organisation, tags, word
+target, checklist) whose button is Publish, or Submit for review when the module
+requires approval. Published posts are not edited live: changes wait for Update.
 
 ## Canvas filters
 
