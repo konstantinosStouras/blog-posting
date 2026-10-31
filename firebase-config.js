@@ -17,4 +17,7 @@ export const enabledProviders = ['google.com', 'password'];
 // The maintainer. Must match isAdmin() in firestore.rules, which is the real
 // authorisation; this copy only decides whether admin screens are drawn.
 export const ADMIN_EMAIL = 'kstouras@gmail.com';
-export const firebaseEnabled = () => !/^PASTE_/.test(firebaseConfig.apiKey);
+// On a local dev server, ?local in the page URL (before the #) forces local mode so the
+// design can be checked against the sample posts without touching the live database.
+const forcedLocal = () => /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).has('local');
+export const firebaseEnabled = () => !/^PASTE_/.test(firebaseConfig.apiKey) && !forcedLocal();

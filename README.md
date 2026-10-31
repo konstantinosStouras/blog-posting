@@ -31,6 +31,22 @@ City codes are convenient shared invitation codes, not passwords. Instructor
 invitations additionally require the invited verified email. Private profiles
 and module rosters are not public. Instructors access only assigned modules.
 
+## Canvas filters
+
+Every canvas (a module's public page, All posts, an author or month archive) is
+drawn by `canvas.js`: cards plus facets for megatrend, organisation, year, tags
+and, across modules, the module itself, with free-text search and sorting. Facet
+counts follow the other active filters. The state lives in the hash query, so a
+filtered view is a shareable link, for example
+`#/module/managing-innovative-projects?trend=sustainability&org=Ryanair&year=2026&tag=ESG`.
+Filtering happens in the browser on the published posts already fetched; no
+Firestore index is involved. Old `#/category/…`, `#/tag/…` and `#/search/…`
+links redirect into `#/posts?…`.
+
+To check the design against the sample posts without touching the live
+database, open the dev server with `?local` before the hash, e.g.
+`http://127.0.0.1:8787/?local#/` (the `ucd-blog-local` launch configuration).
+
 ## Implementation
 
 Plain HTML and ES modules, with Firebase Authentication and Firestore.

@@ -5,6 +5,7 @@ import {can, ROLES, rank} from './permissions.js';
 import {mountEditor, OUTLINE} from './editor.js';
 import {configurePlatform, moduleDirectory, moduleCanvas, manageModule, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {renderPeople} from './people.js';
+import {renderCanvas, filterQuery} from './canvas.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify} from './util.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
@@ -27,11 +28,11 @@ const routes = [
   [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
   [/^\/(\d{4})\/(\d{2})\/([^/]+)\/?$/, (y, m, slug) => postView(slug)],
   [/^\/post\/([^/]+)$/, postView],
-  [/^\/category\/([^/]+)$/, slug => browse({category: slug})],
-  [/^\/tag\/([^/]+)$/, tag => browse({tag: decodeURIComponent(tag)})],
+  [/^\/category\/([^/]+)$/, slug => location.replace('#/posts' + filterQuery({trend: slug}))],   // old links keep working
+  [/^\/tag\/([^/]+)$/, tag => location.replace('#/posts' + filterQuery({tags: [decodeURIComponent(tag)]}))],
   [/^\/author\/([^/]+)$/, uid => browse({author: uid})],
   [/^\/archive\/(\d{4}-\d{2})$/, month => browse({month})],
-  [/^\/search\/?(.*)$/, q => browse({q: decodeURIComponent(q || '')})],
+  [/^\/search\/?(.*)$/, q => location.replace('#/posts' + filterQuery({q: decodeURIComponent(q || '')}))],
   [/^\/challenge$/, guide],
   [/^\/write$/, () => editorView(null)],
   [/^\/write\/([a-z0-9-]+)$/, moduleId => editorView(null,moduleId)],
@@ -51,7 +52,8 @@ async function doRender() {
   liveView = null;
   renderHeader(path);
   window.scrollTo(0, 0);
-  for (const [re, fn] of routes) { const m = path.match(re); if (m) { try { await fn(...m.slice(1)); } catch (e) { console.error(e); $app.innerHTML = `<p class="empty">Something went wrong: ${esc(e.message)}</p>`; } renderFooter(); return; } }
+  const bare = path.split('?')[0];   // canvas filters live in a ?query after the route; routes that expect their own query match first
+  for (const [re, fn] of routes) { const m = path.match(re) || bare.match(re); if (m) { try { await fn(...m.slice(1)); } catch (e) { console.error(e); $app.innerHTML = `<p class="empty">Something went wrong: ${esc(e.message)}</p>`; } renderFooter(); return; } }
   $app.innerHTML = `<p class="empty">That page does not exist. <a href="#/">Back to the blog</a></p>`; renderFooter();
 }
 
@@ -70,7 +72,7 @@ function renderHeader(path = location.hash.slice(1) || '/') {
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>
     </nav></div><hr class="thin">`;
   renderAccountControl($header.querySelector('#account'));
-  $header.querySelector('.searchbox').onsubmit = e => { e.preventDefault(); location.hash = '#/search/' + encodeURIComponent(e.target.q.value.trim()); };
+  $header.querySelector('.searchbox').onsubmit = e => { e.preventDefault(); location.hash = '#/posts' + filterQuery({q: e.target.q.value.trim()}); };
 }
 async function renderFooter() {
   const [posts, comments] = await Promise.all([store.listPosts({status: 'published'}), store.recentComments(5)]);
@@ -85,24 +87,17 @@ async function renderFooter() {
       <p class="colophon">${esc(S.module)} · ${esc(S.challenge)}<br>Posts stay public so classmates can read and review them. Mode: ${store.mode === 'firebase' ? 'live database' : 'local prototype (this browser only)'}.</p></div>
     <div><h3>Recent comments</h3><ul>${comments.filter(c => byPost[c.postId]).map(c => `<li><b>${esc(c.authorName)}</b> on <a href="${postPath(byPost[c.postId])}">${esc(byPost[c.postId].title)}</a></li>`).join('') || '<li class="muted">No comments yet.</li>'}</ul>
       <h3>Archives</h3><ul>${months.map(m => `<li><a href="#/archive/${m}">${monthName(m)}</a> <span class="muted">(${perMonth[m].length})</span></li>`).join('')}</ul></div>
-    <div><h3>Categories</h3><ul>${S.categories.map(c => `<li><a href="#/category/${c.slug}">${esc(c.name)}</a> <span class="muted">(${(cats[c.slug] || []).length})</span></li>`).join('')}</ul>
+    <div><h3>Categories</h3><ul>${S.categories.map(c => `<li><a href="#/posts?trend=${c.slug}">${esc(c.name)}</a> <span class="muted">(${(cats[c.slug] || []).length})</span></li>`).join('')}</ul>
       <h3>Class blog</h3><ul><li><a href="#/challenge">How the PM Challenge works</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
   </div>`;
-  $footer.querySelector('.widget-search').onsubmit = e => { e.preventDefault(); location.hash = '#/search/' + encodeURIComponent(e.target.q.value.trim()); };
+  $footer.querySelector('.widget-search').onsubmit = e => { e.preventDefault(); location.hash = '#/posts' + filterQuery({q: e.target.q.value.trim()}); };
 }
 
 // ---------- cards ----------
-function card(p, {showStatus = false} = {}) {
-  const img = p.featuredImage ? `<a href="${postPath(p)}"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
-  return `<article class="card ${img ? '' : 'noimage'}">${img}
-    <h2>${showStatus && p.status !== 'published' ? `<span class="badge ${p.status}">${p.status}</span>` : ''}${p.featured ? '<span class="badge featured">Featured</span>' : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
-    <p>${esc(p.excerpt || excerptOf(p.body))}</p>
-    <div class="tags">${(p.tags || []).map(t => `<a href="#/tag/${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>
-    <div class="meta"><a href="#/author/${esc(p.authorId)}">${esc(p.authorName)}</a> · ${fmtDate(p.publishedAt || p.updatedAt)} · ${esc(catName(p.category))}</div></article>`;
-}
-const canvas = (posts, o) => posts.length ? `<div class="canvas">${posts.map(p => card(p, o)).join('')}</div>` : `<p class="empty">No posts here yet.</p>`;
+// Cards, facets and search live in canvas.js. Pages render the string it returns;
+// its own document-level listeners handle every filter interaction afterwards.
+const canvas = (posts, o = {}) => renderCanvas(posts, {categories: S.categories, ...o});
 configurePlatform($app,canvas);
-const chips = (activeSlug = '') => `<div class="chips"><a href="#/" class="${activeSlug ? '' : 'active'}">All megatrends</a>${S.categories.map(c => `<a href="#/category/${c.slug}" class="${c.slug === activeSlug ? 'active' : ''}">${esc(c.name)}</a>`).join('')}</div>`;
 
 // ---------- pages ----------
 async function home() {
@@ -110,17 +105,17 @@ async function home() {
   const posts = (await store.listPosts({status: 'published'})).sort((a, b) => (b.featured - a.featured) || (b.publishedAt - a.publishedAt));
   const u = user();
   $app.innerHTML = `${!u && store.mode === 'local' ? `<div class="notice info">Prototype running in <b>local mode</b>: posts and accounts live in this browser only. Use <b>View as</b> at the top right to try the student, lecturer and admin experiences.</div>` : ''}
-    ${chips()}${canvas(posts)}`;
+    ${canvas(posts)}`;
 }
 async function browse(f) {
-  let posts = (await store.listPosts({status: 'published'})).sort(by('publishedAt'));
-  let title = 'All published posts', sub = 'Across UCD modules';
-  if (f.category) { posts = posts.filter(p => p.category === f.category); title = catName(f.category); sub = 'Megatrend'; }
-  if (f.tag) { posts = posts.filter(p => (p.tags || []).some(t => t.toLowerCase() === f.tag.toLowerCase())); title = '#' + f.tag; sub = 'Tag'; }
+  // One canvas across every module. Megatrend, organisation, year, tag and text
+  // filters are facets inside the canvas (read from the ?query); author and
+  // month arrive as route parameters and narrow the set before it is drawn.
+  const [all, modules] = await Promise.all([store.listPosts({status: 'published'}), store.mode === 'firebase' ? store.listModules() : Promise.resolve([])]);
+  let posts = all.sort(by('publishedAt')), title = 'All posts', sub = modules.length > 1 ? 'Across every module' : 'Published posts';
   if (f.author) { posts = posts.filter(p => p.authorId === f.author); title = posts[0]?.authorName || 'Author'; sub = 'Posts by'; }
   if (f.month) { posts = posts.filter(p => monthKey(p.publishedAt) === f.month); title = monthName(f.month); sub = 'Archive'; }
-  if ('q' in f) { const q = f.q.toLowerCase(); posts = q ? posts.filter(p => [p.title, p.authorName, p.organisation, (p.tags || []).join(' '), p.body].join(' ').toLowerCase().includes(q)) : []; title = f.q ? `Results for “${f.q}”` : 'Search'; sub = `${posts.length} post${posts.length === 1 ? '' : 's'}`; }
-  $app.innerHTML = `<p class="page-sub" style="margin:0">${esc(sub)}</p><h1 class="page-title">${esc(title)}</h1><p class="page-sub">${posts.length} post${posts.length === 1 ? '' : 's'}</p>${f.category ? chips(f.category) : ''}${canvas(posts)}`;
+  $app.innerHTML = `<p class="page-sub" style="margin:0">${esc(sub)}</p><h1 class="page-title">${esc(title)}</h1>${canvas(posts, {modules, emptyText: f.author || f.month ? 'No published posts here.' : 'No posts have been published yet.'})}`;
 }
 
 async function postView(slug) {
