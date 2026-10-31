@@ -383,6 +383,11 @@ export const firebase = {
     report.writing=writingReport(posts,sessions,modules,report.users);return report;
   },
   async getAdminGuide(){const s=await F.getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
+  // ---- AI grading assistant (admin only; keys never reach the database) ----
+  async getGraderConfig(){const s=await F.getDoc(F.doc(db,'adminContent','grader'));return s.exists()?s.data():null;},
+  async saveGraderConfig(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={persona:String(cfg.persona||''),instructions:String(cfg.instructions||''),polish:String(cfg.polish||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','grader'),doc);return doc;},
+  async listAiReviews(moduleId=''){if(role!=='admin')return [];const col=F.collection(db,'aiReviews');const s=await F.getDocs(moduleId?F.query(col,F.where('moduleId','==',moduleId)):col);return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async saveAiReview(postId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'aiReviews',postId);await F.setDoc(ref,{...patch,postId,updatedAt:Date.now()},{merge:true});const s=await F.getDoc(ref);return {id:postId,...s.data()};},
   async getProfile(uid) { const s = await F.getDoc(F.doc(db, 'profiles', uid)); return s.exists() ? {uid, ...s.data()} : null; },
   async saveProfile(uid, patch) {
     await F.setDoc(F.doc(db, 'profiles', uid), patch, {merge: true});

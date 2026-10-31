@@ -462,3 +462,20 @@ button.poll-opt:hover { border-color: #999; }
 .info-pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
 .writer-foot .grow { flex: 1; }
 .writer-foot #writing-time { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+
+/* AI grading (admin only) */
+.grading-setup .panel { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.grading-setup .panel h3 { margin: 0 0 6px; }
+.grading-setup details summary { cursor: pointer; font-size: 13px; color: var(--blue); }
+.grading-setup textarea { font-family: var(--ui, system-ui); font-size: 12.5px; line-height: 1.45; }
+.grading-table table { min-width: 1600px; }
+.grading-table td { max-width: 420px; }
+.ai-grade { font: 700 20px/1 var(--serif); }
+.ai-text { max-height: 230px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; line-height: 1.45; }
+.ai-text .summary { color: var(--muted); font-style: italic; display: block; margin-bottom: 6px; }
+.ai-error { color: var(--bad); font-size: 12px; }
+table.list textarea.final-text { width: 100%; min-width: 280px; box-sizing: border-box; padding: 6px 8px; border: 1px solid #cfcfcf; border-radius: 6px; font: inherit; font-size: 12.5px; line-height: 1.45; resize: vertical; }
+table.list input.final-grade { width: 70px; padding: 4px 6px; border: 1px solid #cfcfcf; border-radius: 6px; font: inherit; }
+.row-busy { opacity: .55; }
+#grade-progress { font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .grading-setup.two-col { grid-template-columns: 1fr; } }

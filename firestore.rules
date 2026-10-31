@@ -290,6 +290,17 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /adminContent/{id} { allow read, write: if isAdmin(); }
+    // AI grading assistant: one private review per post, written and read by the admin only.
+    // API keys are never stored here; the grader persona lives in adminContent/grader.
+    match /aiReviews/{postId} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['postId','moduleId','blogId','authorId','provider','model','effort','grade','summary','feedback','raw','error','usage','reviewedAt','inputChars','finalGrade','finalFeedback','finalEditedAt','updatedAt'])
+        && request.resource.data.postId == postId && exists(/databases/$(database)/documents/posts/$(postId))
+        && str('moduleId',100) && str('blogId',100) && str('authorId',100) && str('provider',40) && str('model',120) && str('effort',20)
+        && str('summary',4000) && str('feedback',20000) && str('raw',40000) && str('error',2000) && str('finalGrade',20) && str('finalFeedback',20000)
+        && (request.resource.data.get('grade',0) == null || request.resource.data.get('grade',0) is number);
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }

@@ -5,7 +5,8 @@ import {can, ROLES, rank} from './permissions.js';
 import {mountEditor, fillOutline} from './editor.js';
 import {configurePlatform, blogDirectory, myModules, blogCanvas, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {renderPeople} from './people.js';
-import {startWritingTimer,formatWritingTime} from './writing-time.js';
+import {renderGrading} from './ai-grading.js';
+import {startWritingTimer} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId} from './util.js';
@@ -271,7 +272,7 @@ async function editorView(id, moduleId) {
       <button type="button" class="btn accent" id="continue">${draft.status === 'published' ? 'Update' : 'Continue'}</button>
     </div>
     <div id="editor"></div>
-    <div class="writer-foot"><div class="info-wrap"><button type="button" class="icon-btn boxed" id="post-info" aria-label="Post info" title="Post info" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button><div class="info-pop" id="info-pop" hidden></div></div><span class="wc-line" id="wc-line"></span>${trackTime?'<span id="writing-time" title="Counts while this editor is visible and focused; pauses in preview or another tab.">Writing / editing time: 0:00:00</span>':''}<span class="grow"></span><button type="button" class="btn ghost small" id="details">Post details</button></div>
+    <div class="writer-foot"><div class="info-wrap"><button type="button" class="icon-btn boxed" id="post-info" aria-label="Post info" title="Post info" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button><div class="info-pop" id="info-pop" hidden></div></div><span class="wc-line" id="wc-line"></span><span class="grow"></span><button type="button" class="btn ghost small" id="details">Post details</button></div>
   </div>
   <dialog class="sheet" id="sheet"><form method="dialog" class="sheet-form"><button class="close" value="cancel" formnovalidate aria-label="Close">×</button>
     <h2>${draft.status === 'published' ? 'Update your post' : needsReview ? 'Submit for review' : 'Ready to publish?'}</h2>
@@ -388,7 +389,7 @@ async function editorView(id, moduleId) {
   const stop = () => { writingTimer?.stop();clearTimeout(saveTimer); removeEventListener('beforeunload', leave);removeEventListener('pagehide',stop); removeEventListener('hashchange', stop); liveView = null; };
   addEventListener('hashchange', stop);
   addEventListener('pagehide',stop);
-  if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor'),onTick:(n,error)=>{const el=document.getElementById('writing-time');if(el)el.textContent=`Writing / editing time: ${formatWritingTime(n)}${error?' (sync pending)':''}`;}});
+  if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor')});
 }
 
 // ---------- my posts ----------
@@ -487,8 +488,9 @@ async function admin(tab = 'users',moduleId='') {
   const u = user();
   if (!u || rank(u.role) < 2) { $app.innerHTML = `<p class="empty">Admin access required.</p>`; return; }
   tab = tab || 'users';
-  const tabs = `<div class="tabs"><a href="#/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="#/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
+  const tabs = `<div class="tabs"><a href="#/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="#/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="#/admin/grading" class="${tab==='grading'?'active':''}">AI grading</a><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
   if(tab==='people'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:true});return;}
+  if(tab==='grading'){await renderGrading($app,{moduleId});return;}
   let body = '';
   if(tab==='guide')body=store.mode==='firebase'?sanitize(await store.getAdminGuide()):'<p>The private admin guide is available on the live Firebase platform.</p>';
   if (tab === 'users') {

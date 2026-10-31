@@ -10,7 +10,7 @@ const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
 let state, listeners = new Set();
 
 function fresh() {
-  return {users: structuredClone(SEED_USERS), blogs: structuredClone(SEED_BLOGS), modules: structuredClone(SEED_MODULES), memberships: structuredClone(SEED_MEMBERSHIPS), posts: structuredClone(SEED_POSTS), comments: structuredClone(SEED_COMMENTS), likes: [{postId: 'p1', uid: 'u-s2'}, {postId: 'p1', uid: 'u-s3'}, {postId: 'p6', uid: 'u-s1'}], settings: structuredClone(DEFAULT_SETTINGS)};
+  return {users: structuredClone(SEED_USERS), blogs: structuredClone(SEED_BLOGS), modules: structuredClone(SEED_MODULES), memberships: structuredClone(SEED_MEMBERSHIPS), posts: structuredClone(SEED_POSTS), comments: structuredClone(SEED_COMMENTS), likes: [{postId: 'p1', uid: 'u-s2'}, {postId: 'p1', uid: 'u-s3'}, {postId: 'p6', uid: 'u-s1'}], settings: structuredClone(DEFAULT_SETTINGS), grader: null, aiReviews: {}};
 }
 function load() {
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.posts) && Array.isArray(s.blogs)) return {...fresh(), ...s, settings: {...DEFAULT_SETTINGS, ...s.settings}}; } catch {}
@@ -155,6 +155,12 @@ export const local = {
     save(); return structuredClone(u);
   },
   async setRole(uid, role) { const u = state.users.find(x => x.uid === uid); if (u) { u.role = role; save(); } },
+
+  // ---- AI grading assistant (admin only) ----
+  async getGraderConfig() { return delay(structuredClone(state.grader || null)); },
+  async saveGraderConfig(cfg) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.grader = {persona: String(cfg.persona || ''), instructions: String(cfg.instructions || ''), polish: String(cfg.polish || ''), updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.grader); },
+  async listAiReviews(moduleId = '') { const u = me(); if (u?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.aiReviews || {}).filter(r => !moduleId || r.moduleId === moduleId))); },
+  async saveAiReview(postId, patch) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.aiReviews = state.aiReviews || {}; state.aiReviews[postId] = {...(state.aiReviews[postId] || {}), ...patch, postId, updatedAt: Date.now()}; save(); return structuredClone(state.aiReviews[postId]); },
 
   // ---- site ----
   async saveSettings(patch) { Object.assign(state.settings, patch); save(); return state.settings; },

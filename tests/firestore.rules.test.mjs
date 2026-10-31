@@ -53,6 +53,22 @@ test('writing time is private, author-owned, monotonic and bounded by elapsed ti
  await assertFails(setDoc(doc(d,'writingSessions/forged'),{...row,uid:'peer'}));
  await assertFails(setDoc(doc(d,'writingSessions/wrong-module'),{...row,moduleId:'two'}));
 });
+test('AI reviews and the grader persona are private to the platform administrator',async()=>{
+ const admin=db('admin','kstouras@gmail.com'),review={postId:'published',moduleId:'one',blogId:'pm',authorId:'student',provider:'anthropic',model:'claude-fable-5-1',effort:'high',grade:7.5,summary:'S',feedback:'F',raw:'{}',usage:{input:1,output:1},reviewedAt:time,updatedAt:time};
+ await assertSucceeds(setDoc(doc(admin,'aiReviews/published'),review));
+ await assertSucceeds(setDoc(doc(admin,'aiReviews/published'),{finalGrade:'A',finalFeedback:'Well done',finalEditedAt:time,postId:'published'},{merge:true}));
+ await assertSucceeds(getDocs(query(collection(admin,'aiReviews'),where('moduleId','==','one'))));
+ await assertFails(setDoc(doc(admin,'aiReviews/published'),{...review,postId:'draft'}));
+ await assertFails(setDoc(doc(admin,'aiReviews/missing'),{...review,postId:'missing'}));
+ await assertFails(setDoc(doc(admin,'aiReviews/published'),{...review,apiKey:'sk-secret'}));
+ await assertSucceeds(setDoc(doc(admin,'adminContent/grader'),{persona:'P',instructions:'I',polish:'Q',updatedAt:time,updatedBy:'admin'}));
+ for(const d of [db('teacher-one'),db('student'),env.unauthenticatedContext().firestore()]){
+  await assertFails(getDoc(doc(d,'aiReviews/published')));
+  await assertFails(getDocs(query(collection(d,'aiReviews'),where('moduleId','==','one'))));
+  await assertFails(setDoc(doc(d,'aiReviews/published'),review));
+  await assertFails(getDoc(doc(d,'adminContent/grader')));
+ }
+});
 test('admin guide is private to the platform administrator',async()=>{
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'adminContent/guide'),{html:'Private guide'}));
  await assertSucceeds(getDoc(doc(db('admin','kstouras@gmail.com'),'adminContent/guide')));

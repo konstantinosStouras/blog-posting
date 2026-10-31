@@ -11,18 +11,29 @@ export function writingReport(posts=[],sessions=[],modules=[],users=[]){
  });
 }
 
-// Only the visible, focused editor counts. One origin-wide lock per account
+export class EditingActivityClock {
+ constructor(idleMs=30000){this.idleMs=idleMs;this.seconds=0;this.previous=0;this.deadline=0;}
+ sample(now,eligible=true){const end=Math.min(now,this.deadline);if(eligible&&end>this.previous)this.seconds+=Math.min(2000,end-this.previous)/1000;this.previous=now;if(!eligible)this.deadline=0;return this.seconds;}
+ activity(now,eligible=true){this.sample(now,eligible);if(eligible)this.deadline=now+this.idleMs;}
+ pause(now){this.sample(now);this.deadline=0;}
+ active(now){return now<this.deadline;}
+}
+
+// Only recent editing in the visible, focused editor counts. One lock per account
 // prevents two editor tabs counting the same student's time simultaneously.
 export function startWritingTimer({uid,postId,moduleId,store,baseSeconds=0,onTick=()=>{},isEditing=()=>true}){
  const key=`ucd-writing:${uid}:${postId}`,sessionId=crypto.randomUUID();
- let seconds=0,previous=performance.now(),stopped=false,busy=false,owned=false,release,ready=false,error=false;
+ const clock=new EditingActivityClock();clock.previous=performance.now();
+ let stopped=false,busy=false,owned=false,release,ready=false,error=false,claiming=false;
  const pending=new Map();
  try{for(const row of JSON.parse(localStorage.getItem(key)||'[]'))pending.set(row.id,row);}catch{}
  const row={id:sessionId,uid,postId,moduleId,seconds:0,startedAt:Date.now()};pending.set(sessionId,row);
  const stash=()=>{try{localStorage.setItem(key,JSON.stringify([...pending.values()]));}catch{}};
- const total=()=>baseSeconds+Math.floor(seconds);
+ const total=()=>baseSeconds+Math.floor(clock.seconds);
  const show=()=>onTick(total(),error);
- const sample=()=>{const now=performance.now();if(!stopped&&owned&&document.visibilityState==='visible'&&document.hasFocus()&&isEditing())seconds+=Math.min(2000,Math.max(0,now-previous))/1000;previous=now;row.seconds=Math.floor(seconds);stash();show();};
+ const eligible=()=>!stopped&&document.visibilityState==='visible'&&document.hasFocus()&&isEditing();
+ const unlock=()=>{owned=false;release?.();release=null;};
+ const sample=()=>{const now=performance.now();clock.sample(now,owned&&eligible());row.seconds=Math.floor(clock.seconds);if(!clock.active(now))unlock();stash();show();};
  async function flush(){
   if(busy)return;busy=true;
   try{
@@ -31,17 +42,23 @@ export function startWritingTimer({uid,postId,moduleId,store,baseSeconds=0,onTic
    error=false;stash();
   }catch{error=true;}finally{busy=false;show();}
  }
-  if(navigator.locks){navigator.locks.request(`ucd-writing-${uid}`,lock=>{if(stopped)return;owned=true;previous=performance.now();return new Promise(r=>{release=r;});}).catch(()=>{});}
- else { // Lease fallback for browsers without Web Locks.
-  const leaseKey=`ucd-writing-lock:${uid}`;
-  const claim=()=>{let lease;try{lease=JSON.parse(localStorage.getItem(leaseKey)||'null');if(!lease||lease.id===sessionId||lease.until<Date.now()){localStorage.setItem(leaseKey,JSON.stringify({id:sessionId,until:Date.now()+2500}));owned=true;}else owned=false;}catch{owned=false;}};
-  claim();const leaseTimer=setInterval(claim,1000);release=()=>{clearInterval(leaseTimer);try{if(JSON.parse(localStorage.getItem(leaseKey)||'null')?.id===sessionId)localStorage.removeItem(leaseKey);}catch{}};
+ const leaseKey=`ucd-writing-lock:${uid}`;
+ function claim(){
+  if(owned||claiming||!eligible())return;
+  if(navigator.locks){claiming=true;navigator.locks.request(`ucd-writing-${uid}`,{ifAvailable:true},lock=>{claiming=false;if(!lock||!eligible())return;owned=true;clock.activity(performance.now());return new Promise(r=>{release=r;});}).catch(()=>{claiming=false;});}
+  else try{const lease=JSON.parse(localStorage.getItem(leaseKey)||'null');if(!lease||lease.id===sessionId||lease.until<Date.now()){localStorage.setItem(leaseKey,JSON.stringify({id:sessionId,until:Date.now()+2500}));owned=true;clock.activity(performance.now());release=()=>{try{if(JSON.parse(localStorage.getItem(leaseKey)||'null')?.id===sessionId)localStorage.removeItem(leaseKey);}catch{}};}}catch{}
  }
+ function activity(event){
+  if(!event.isTrusted||!event.target?.closest?.('.writer, #sheet')||!eligible())return;
+  if(event.type==='keydown'&&!(['Backspace','Delete','Enter'].includes(event.key)||event.key.length===1))return;
+  if(event.type==='pointerdown'&&!event.target.closest('.toolbar [data-cmd]'))return;
+  if(owned)clock.activity(performance.now());else claim();
+ }
+ const leaseTimer=setInterval(()=>{if(!navigator.locks&&owned)try{localStorage.setItem(leaseKey,JSON.stringify({id:sessionId,until:Date.now()+2500}));}catch{}},1000);
  const tick=setInterval(sample,1000),sync=setInterval(flush,15000);
- const pause=()=>{sample();void flush();};
- document.addEventListener('visibilitychange',pause);addEventListener('blur',pause);addEventListener('focus',()=>{previous=performance.now();},{signal:(row.controller=new AbortController()).signal});
- // AbortController is deliberately excluded from the persisted payload.
- const controller=row.controller;delete row.controller;
+ const pause=()=>{clock.pause(performance.now());sample();unlock();void flush();};
+ document.addEventListener('visibilitychange',pause);addEventListener('blur',pause);
+ for(const type of ['input','keydown','pointerdown'])document.addEventListener(type,activity,true);
  void flush();show();
- return {sample,flush,stop(){if(stopped)return;sample();stopped=true;clearInterval(tick);clearInterval(sync);document.removeEventListener('visibilitychange',pause);removeEventListener('blur',pause);controller.abort();release?.();void flush();},total};
+ return {sample,flush,stop(){if(stopped)return;sample();stopped=true;clearInterval(tick);clearInterval(sync);clearInterval(leaseTimer);document.removeEventListener('visibilitychange',pause);removeEventListener('blur',pause);for(const type of ['input','keydown','pointerdown'])document.removeEventListener(type,activity,true);unlock();void flush();},total};
 }
