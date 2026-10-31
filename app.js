@@ -29,7 +29,11 @@ const routes = [
   [/^\/admin\/?([a-z]*)$/, admin],
 ];
 
-async function render() {
+// Renders run one after another: a slow page (waiting for the database) must not
+// finish AFTER a later navigation and paint over it.
+let queue = Promise.resolve();
+function render() { queue = queue.then(doRender).catch(e => console.error(e)); return queue; }
+async function doRender() {
   const path = location.hash.replace(/^#/, '') || '/';
   liveView = null;
   renderHeader(path);
