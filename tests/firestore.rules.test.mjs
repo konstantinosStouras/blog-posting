@@ -39,6 +39,18 @@ test('admin guide is private to the platform administrator',async()=>{
  await assertFails(getDoc(doc(db('student'),'adminContent/guide')));
  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'adminContent/guide')));
 });
+test('named student invitations can only be read and redeemed by the intended university email',async()=>{
+ await env.withSecurityRulesDisabled(async c=>{
+  const d=c.firestore();await setDoc(doc(d,'moduleInvites/named'),{moduleId:'one',code:'paris',recipientEmail:'new@university.ie',createdBy:'teacher-one',createdAt:time,expiresAt:time+86400000,revoked:false});
+  await setDoc(doc(d,'profiles/new'),profile('new@university.ie'));
+ });
+ await assertSucceeds(getDoc(doc(db('teacher-one'),'moduleInvites/named')));
+ await assertSucceeds(getDoc(doc(db('new','new@university.ie'),'moduleInvites/named')));
+ await assertFails(getDoc(doc(db('student','student@ucdconnect.ie'),'moduleInvites/named')));
+ const ownMember={...member('new'),contactEmail:'new@university.ie',email:'new@university.ie',inviteId:'named'};
+ await assertSucceeds(setDoc(doc(db('new','new@university.ie'),'modules/one/members/new'),ownMember));
+ await assertFails(setDoc(doc(db('outsider','outsider@university.ie'),'modules/one/members/outsider'),{...member('outsider'),email:'outsider@university.ie',contactEmail:'outsider@university.ie',inviteId:'named'}));
+});
 test('public readers see modules and published posts, not drafts, rosters, profiles or invites',async()=>{
  const d=env.unauthenticatedContext().firestore();
  await assertSucceeds(getDocs(collection(d,'modules')));
