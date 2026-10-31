@@ -316,7 +316,7 @@ export const firebase = {
     doc.authorName = existing && existing.authorId !== u.uid ? existing.authorName : (u.penName || 'student');
     doc.slug = doc.slug || slugify(doc.title);
     if (!existing || existing.slug !== doc.slug) { const clash = await this.getPostBySlug(doc.slug); if (clash && clash.id !== id) doc.slug += '-' + id.slice(0, 4); }
-    doc.wordCount = wordCount(doc.body); doc.excerpt = doc.excerpt || excerptOf(doc.body);
+    doc.wordCount = wordCount(doc.body); doc.excerpt = String(doc.excerpt || '').trim();   // the subtitle; cards fall back to an excerpt of the body
     if (doc.status === 'published' && !doc.publishedAt) doc.publishedAt = now;
     if (doc.status !== 'published') doc.publishedAt = existing?.publishedAt || null;
     await F.setDoc(F.doc(db, 'posts', id), doc);
@@ -325,6 +325,17 @@ export const firebase = {
   async deletePost(id) {
     const [cs, ls] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes'))]);
     const b = F.writeBatch(db); cs.forEach(c => b.delete(c.ref)); ls.forEach(l => b.delete(l.ref)); b.delete(F.doc(db, 'posts', id)); await b.commit(); notify();
+  },
+  async pollVotes(postId, pollId, u) {
+    const s = await F.getDocs(F.query(F.collection(db, 'posts', postId, 'votes'), F.where('pollId', '==', pollId)));
+    const counts = {}; let mine = null, total = 0;
+    s.forEach(d => { const v = d.data(); counts[v.option] = (counts[v.option] || 0) + 1; total++; if (u && v.uid === u.uid) mine = v.option; });
+    return {counts, mine, total};
+  },
+  async votePoll(postId, pollId, option, u) {
+    if (!user?.emailVerified) throw Error('Verify your sign-in email to vote.');
+    await F.setDoc(F.doc(db, 'posts', postId, 'votes', pollId + '_' + u.uid), {pollId, uid: u.uid, option, t: Date.now()});
+    return this.pollVotes(postId, pollId, u);
   },
   async listLikes(postId) { try { const s = await F.getDocs(F.collection(db, 'posts', postId, 'likes')); return s.docs.map(d => d.id); } catch { return []; } },
   async toggleLike(postId, u) {

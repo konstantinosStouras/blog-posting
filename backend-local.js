@@ -109,13 +109,23 @@ export const local = {
     const doc = {...(existing || {createdAt: now, authorId: user.uid}), ...post, id: existing?.id || post.id || newId(), moduleId: module.id, blogId: module.blogId, academicYear: existing?.academicYear || module.academicYear || '', updatedAt: now};
     doc.authorName = state.users.find(u => u.uid === doc.authorId)?.penName || doc.authorName || 'anonymous';
     doc.slug = uniqueSlug(doc.slug || slugify(doc.title), doc.id);
-    doc.wordCount = wordCount(doc.body); doc.excerpt = doc.excerpt || excerptOf(doc.body);
+    doc.wordCount = wordCount(doc.body); doc.excerpt = String(doc.excerpt || '').trim();
     if (doc.status === 'published' && !doc.publishedAt) doc.publishedAt = now;
     if (doc.status !== 'published') doc.publishedAt = existing?.status === 'published' ? existing.publishedAt : doc.publishedAt || null;
     if (existing) Object.assign(existing, doc); else state.posts.unshift(doc);
     save(); return structuredClone(doc);
   },
   async deletePost(id) { state.posts = state.posts.filter(p => p.id !== id); state.comments = state.comments.filter(c => c.postId !== id); state.likes = (state.likes || []).filter(l => l.postId !== id); save(); },
+  async pollVotes(postId, pollId, u) {
+    const rows = (state.votes || []).filter(v => v.postId === postId && v.pollId === pollId), counts = {};
+    for (const v of rows) counts[v.option] = (counts[v.option] || 0) + 1;
+    return {counts, mine: rows.find(v => v.uid === u?.uid)?.option ?? null, total: rows.length};
+  },
+  async votePoll(postId, pollId, option, u) {
+    state.votes = (state.votes || []).filter(v => !(v.postId === postId && v.pollId === pollId && v.uid === u.uid));
+    state.votes.push({postId, pollId, uid: u.uid, option, t: Date.now()}); save();
+    return this.pollVotes(postId, pollId, u);
+  },
   async listLikes(postId) { return (state.likes || []).filter(l => l.postId === postId).map(l => l.uid); },
   async toggleLike(postId, u) {
     state.likes = state.likes || [];

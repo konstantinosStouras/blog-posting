@@ -26,7 +26,7 @@ export const plainText = html => (toDom(html).textContent || '').replace(/\s+/g,
 // The study guide counts words EXCLUDING tables, captions, appendices and links used.
 export function wordCount(html) {
   const d = toDom(html);
-  d.querySelectorAll('table, figcaption, .caption, .appendix').forEach(n => n.remove());
+  d.querySelectorAll('table, figcaption, .caption, .appendix, .math, .tv-chart, .poll, .lang-tag, section.footnotes hr').forEach(n => n.remove());
   return (d.textContent || '').trim().split(/\s+/).filter(w => /[A-Za-z0-9Ͱ-Ͽ一-鿿]/.test(w)).length;
 }
 export function excerptOf(html, n = 180) {

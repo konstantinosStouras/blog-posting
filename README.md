@@ -64,6 +64,20 @@ opens the details step (featured image, category, organisation, tags, word
 target, checklist) whose button is Publish, or Submit for review when the module
 requires approval. Published posts are not edited live: changes wait for Update.
 
+Beyond text formatting (headings, bold, italic, strikethrough, inline code, text
+colour, highlight, superscript and subscript, links, images with a legend, block
+and pull quotes, callouts, bulleted and numbered lists, alignment), the **More**
+menu inserts rich blocks: a code block with a language picker (highlight.js), a
+divider, a live **financial chart** (TradingView embed by symbol and interval),
+**footnotes** collected at the end of the post, **LaTeX** with a live preview
+(KaTeX), and a **poll** readers vote on (one vote per account, optional time
+limit, optional hidden counts). Blocks are stored as plain HTML with their source
+in data attributes and rendered by `blocks.js` on the post page, in the preview
+and in the writer; the libraries load from cdnjs only when a page needs them.
+Tables are not built in the writer: bring them as images with a legend. The ⓘ
+button at the bottom left shows characters, words, sentences, reading and
+speaking time.
+
 ## Canvas filters
 
 Every canvas (a module's public page, All posts, an author or month archive) is

@@ -173,6 +173,16 @@ test('likes are one per verified account on published posts and publicly countab
  await assertSucceeds(getDocs(collection(env.unauthenticatedContext().firestore(),'posts/published/likes')));
  await assertSucceeds(deleteDoc(doc(d,'posts/published/likes/peer')));
 });
+test('poll votes are one per poll and account on published posts, changeable, publicly countable',async()=>{
+ const d=db('peer','peer@ucd.ie'),vote={pollId:'poll-a',uid:'peer',option:0,t:time};
+ await assertSucceeds(setDoc(doc(d,'posts/published/votes/poll-a_peer'),vote));
+ await assertSucceeds(setDoc(doc(d,'posts/published/votes/poll-a_peer'),{...vote,option:1}));
+ await assertFails(setDoc(doc(d,'posts/published/votes/poll-a_student'),{...vote,uid:'student'}));
+ await assertFails(setDoc(doc(d,'posts/published/votes/poll-b_peer'),vote));
+ await assertFails(setDoc(doc(d,'posts/published/votes/poll-a_peer'),{...vote,option:42}));
+ await assertFails(setDoc(doc(d,'posts/draft/votes/poll-a_peer'),vote));
+ await assertSucceeds(getDocs(query(collection(env.unauthenticatedContext().firestore(),'posts/published/votes'),where('pollId','==','poll-a'))));
+});
 test('student identity is private; self-written teacher profile does not grant access',async()=>{
  const d=db('student','student@ucdconnect.ie');
  await assertSucceeds(updateDoc(doc(d,'profiles/student'),{registrationKind:'teacher'}));

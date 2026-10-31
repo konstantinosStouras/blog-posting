@@ -7,7 +7,8 @@ import {configurePlatform, blogDirectory, myModules, blogCanvas, moduleRedirect,
 import {renderPeople} from './people.js';
 import {startWritingTimer,formatWritingTime} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
-import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify,newId} from './util.js';
+import {enhance} from './blocks.js';
+import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId} from './util.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
@@ -197,6 +198,7 @@ async function postView(slug) {
     e.preventDefault(); const body = e.target.body.value.trim(); if (!body) return;
     try { await store.addComment({postId: p.id, body}, u); toast('Comment posted.'); render(); } catch (err) { toast(err.message, 'error'); }
   });
+  enhance($app.querySelector('.post .body'), {post: p, user: u, store});
   $app.querySelector('[data-share]').onclick = () => shareLink(location.origin + location.pathname + postPath(p), p.title);
   $app.querySelector('[data-like]').onclick = async e => {
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
@@ -269,7 +271,7 @@ async function editorView(id, moduleId) {
       <button type="button" class="btn accent" id="continue">${draft.status === 'published' ? 'Update' : 'Continue'}</button>
     </div>
     <div id="editor"></div>
-    <div class="writer-foot"><span class="wc-line" id="wc-line"></span>${trackTime?'<span id="writing-time" title="Counts while this editor is visible and focused; pauses in preview or another tab.">Writing / editing time: 0:00:00</span>':''}<button type="button" class="btn ghost small" id="details">Post details</button></div>
+    <div class="writer-foot"><div class="info-wrap"><button type="button" class="icon-btn boxed" id="post-info" aria-label="Post info" title="Post info" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button><div class="info-pop" id="info-pop" hidden></div></div><span class="wc-line" id="wc-line"></span>${trackTime?'<span id="writing-time" title="Counts while this editor is visible and focused; pauses in preview or another tab.">Writing / editing time: 0:00:00</span>':''}<span class="grow"></span><button type="button" class="btn ghost small" id="details">Post details</button></div>
   </div>
   <dialog class="sheet" id="sheet"><form method="dialog" class="sheet-form"><button class="close" value="cancel" formnovalidate aria-label="Close">×</button>
     <h2>${draft.status === 'published' ? 'Update your post' : needsReview ? 'Submit for review' : 'Ready to publish?'}</h2>
@@ -323,6 +325,17 @@ async function editorView(id, moduleId) {
     save(needsReview ? 'pending' : 'published').then(ok => { if (!ok) return; $('sheet').close(); if (draft.status === 'published') { toast('Published! Your post is live.'); location.hash = postPath(draft); } else { toast('Submitted for review.'); location.hash = '#/mine'; } });
   };
   $('preview').onclick = () => showPreview();
+  // Post info (characters, words, sentences, reading and speaking time), as on Substack.
+  const fmtTime = secs => secs < 60 ? `${Math.max(1, Math.round(secs))}s` : `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
+  $('post-info').onclick = () => {
+    const pop = $('info-pop'), open = pop.hidden;
+    if (!open) { pop.hidden = true; $('post-info').setAttribute('aria-expanded', 'false'); return; }
+    const text = plainText(draft.body), words = wordCount(draft.body), sentences = (text.match(/[^.!?…]+[.!?…]+(\s|$)/g) || []).length || (text.trim() ? 1 : 0);
+    const row = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+    pop.innerHTML = `<h4>Post info</h4>${row('Characters', text.length.toLocaleString('en-IE'))}${row('Words', words.toLocaleString('en-IE'))}${row('Sentences', sentences)}<hr>${row('Reading time', fmtTime(words / 220 * 60))}${row('Speaking time', fmtTime(words / 150 * 60))}${blog.maxWords ? `<hr>${row('Target', `${blog.minWords}–${blog.maxWords} words`)}${row('Remaining', words >= blog.minWords ? 'reached' : blog.minWords - words)}` : ''}`;
+    pop.hidden = false; $('post-info').setAttribute('aria-expanded', 'true');
+  };
+  document.addEventListener('click', e => { const pop = $('info-pop'); if (pop && !pop.hidden && !e.target.closest('.info-wrap')) { pop.hidden = true; $('post-info')?.setAttribute('aria-expanded', 'false'); } });
   function problem(msg, focusId) { $('status-line').textContent = msg; if (focusId) { $('sheet').close(); $(focusId).focus(); } toast(msg, 'error'); }
 
   function chip(state, text) { const c = $('save-chip'); if (!c) return; c.dataset.state = state; c.querySelector('span').textContent = text; if (state === 'saved') { c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash'); } }
@@ -365,6 +378,7 @@ async function editorView(id, moduleId) {
     shell.innerHTML = `<div class="preview-bar"><div class="seg" role="tablist"><button type="button" role="tab" data-dev="mobile" aria-selected="true">Mobile</button><button type="button" role="tab" data-dev="desktop" aria-selected="false">Desktop</button></div><span class="muted small">This is how readers will see your post.</span><span class="grow"></span><button type="button" class="btn ghost" id="pv-share">Share</button><button type="button" class="btn accent" id="pv-done">Done</button></div>
       <div class="preview-stage mobile"><div class="device"><div class="device-bar"><span>9:41</span><i></i><span>●●●</span></div><div class="device-chrome"><span class="dots"><i></i><i></i><i></i></span><span class="url">${esc(location.host + location.pathname)}</span></div><div class="device-screen"><div class="mini-mast">${esc(S.title)}</div><article class="post">${articleHtml({...draft, authorName: u.penName, authorId: u.uid, publishedAt: draft.publishedAt || Date.now()}, {blog, words, preview: true})}</article></div></div></div>`;
     $app.replaceChildren(shell, sheet);
+    enhance(shell.querySelector('.post .body'), {preview: true, post: draft});
     shell.querySelectorAll('[data-dev]').forEach(b => b.onclick = () => { shell.querySelectorAll('[data-dev]').forEach(x => x.setAttribute('aria-selected', x === b)); shell.querySelector('.preview-stage').className = 'preview-stage ' + b.dataset.dev; });
     shell.querySelector('#pv-done').onclick = () => $app.replaceChildren(editorRoot, sheet);
     shell.querySelector('#pv-share').onclick = () => draft.status === 'published' && draft.slug ? shareLink(location.origin + location.pathname + postPath(draft), draft.title) : toast('Publish first, then share the public link.');
@@ -374,7 +388,8 @@ async function editorView(id, moduleId) {
   const stop = () => { writingTimer?.stop();clearTimeout(saveTimer); removeEventListener('beforeunload', leave);removeEventListener('pagehide',stop); removeEventListener('hashchange', stop); liveView = null; };
   addEventListener('hashchange', stop);
   addEventListener('pagehide',stop);
-  if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor'),onTick:(n,error)=>{const el=document.getElementById('writing-time');if(el)el.textContent=`Writing / editing time: ${formatWritingTime(n)}${error?' (sync pending)':''}`;}});}
+  if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor'),onTick:(n,error)=>{const el=document.getElementById('writing-time');if(el)el.textContent=`Writing / editing time: ${formatWritingTime(n)}${error?' (sync pending)':''}`;}});
+}
 
 // ---------- my posts ----------
 async function mine() {
