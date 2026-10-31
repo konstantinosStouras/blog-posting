@@ -11,6 +11,7 @@ import {DEFAULT_SETTINGS} from './seed.js';
 import {newId, slugify, wordCount, excerptOf} from './util.js';
 import {registrationProfile} from './registration.js';
 import {randomCity, normalizeCode} from './invitation-codes.js';
+import {buildPeopleReport} from './people-model.js';
 
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
 let app, auth, db, A, F, user = null, profile = null, role = 'student', settings = {...DEFAULT_SETTINGS};
@@ -53,10 +54,18 @@ async function ensureProfile(u) {
 async function touchDirectory(u, p) {
   const ref = F.doc(db, 'userDirectory', u.uid);
   const snap = await F.getDoc(ref).catch(() => null);
-    const row = {name: [p.firstName, p.lastName].filter(Boolean).join(' ') || p.penName, penName: p.penName, affiliation: p.affiliation || '', contactEmail: p.contactEmail || '', first: snap?.exists() ? snap.data().first : Date.now(), seen: Date.now()};
+  const now=Date.now(),signedInAt=Date.parse(u.metadata?.lastSignInTime || '') || now;
+  const row = {name: [p.firstName, p.lastName].filter(Boolean).join(' ') || p.penName, firstName:p.firstName || '',lastName:p.lastName || '',studentId:p.studentId || '',penName: p.penName, affiliation: p.affiliation || '', contactEmail: p.contactEmail || '', first: snap?.exists() ? snap.data().first : now, seen:now,signedInAt,emailVerified:!!u.emailVerified};
   if (u.email) row.email = u.email;
-  await F.setDoc(ref, row).catch(() => {});
+  await F.setDoc(ref, row);
   await F.setDoc(F.doc(db, 'registeredUsers', u.uid), {t: Date.now()}).catch(() => {});
+  if(u.emailVerified){
+    const modules=await F.getDocs(F.collection(db,'modules'));
+    await Promise.all(modules.docs.map(async m=>{
+      const ref=F.doc(db,'modules',m.id,'members',u.uid),member=await F.getDoc(ref);
+      if(member.exists()) await F.updateDoc(ref,{firstName:p.firstName || '',lastName:p.lastName || '',studentId:p.studentId || '',affiliation:p.affiliation || '',contactEmail:p.contactEmail || '',penName:p.penName,email:u.email,lastSeenAt:now,lastSignInAt:signedInAt});
+    }));
+  }
 }
 
 export const firebase = {
@@ -69,7 +78,7 @@ export const firebase = {
     await new Promise(resolve => {
       A.onAuthStateChanged(auth, async u => {
         user = u;
-        if (u) { try { profile = await ensureProfile(u); role = await loadRole(u.uid, u.email, u.emailVerified); managedModuleIds = (await this.listModules()).filter(m => m.teacherIds.includes(u.uid)).map(m => m.id); touchDirectory(u, profile); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
+        if (u) { try { profile = await ensureProfile(u); role = await loadRole(u.uid, u.email, u.emailVerified); managedModuleIds = (await this.listModules()).filter(m => m.teacherIds.includes(u.uid)).map(m => m.id); await touchDirectory(u, profile); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
         else { profile = null; role = 'student'; managedModuleIds = []; }
         notify(); resolve();
       });
@@ -157,12 +166,15 @@ export const firebase = {
     const m = await this.getModule(id); if (!m) throw Error('Module not found.');
     if (m.teacherIds.includes(user.uid) || role === 'admin') return;
     const ref=F.doc(db,'modules',id,'members',user.uid),existing=await F.getDoc(ref);
-    inviteId=inviteId || existing.data()?.inviteId || '';
+    inviteId=existing.data()?.inviteId || inviteId || '';
     if(!inviteId)throw Error('An invitation from your instructor is required to join this module.');
-    const invite=await F.getDoc(F.doc(db,'moduleInvites',inviteId));
-    if(!existing.exists() && (!invite.exists() || invite.data().moduleId!==id || invite.data().revoked || invite.data().expiresAt<Date.now()))throw Error('This module invitation has expired or is not valid.');
+    if(!existing.exists()){
+      const invite=await F.getDoc(F.doc(db,'moduleInvites',inviteId));
+      if(!invite.exists() || invite.data().moduleId!==id || invite.data().revoked || invite.data().expiresAt<Date.now())throw Error('This module invitation has expired or is not valid.');
+    }
     const details = registrationProfile(profile, ['teacher','instructor'].includes(profile?.registrationKind));
-    await F.setDoc(ref, {uid:user.uid, ...details, penName:profile.penName, email:user.email, joinedAt:existing.data()?.joinedAt || Date.now(),inviteId});
+    const now=Date.now();
+    await F.setDoc(ref, {uid:user.uid, ...details, penName:profile.penName, email:user.email, joinedAt:existing.data()?.joinedAt || now,inviteId,lastSeenAt:now,lastSignInAt:Date.parse(user.metadata?.lastSignInTime || '') || now});
     notify();
   },
   async resolveRegistrationCode(code) {
@@ -172,8 +184,10 @@ export const firebase = {
     if(!s.exists() || s.data().revoked || s.data().expiresAt<Date.now())throw Error('That registration code is invalid, revoked or expired.');
     return s.data();
   },
-  async createModuleInvite(moduleId) {
-    return createCodedInvite('student',{moduleId,createdBy:user.uid,createdAt:Date.now(),expiresAt:Date.now()+30*86400000,revoked:false});
+  async createModuleInvite(moduleId, recipientEmail='') {
+    recipientEmail=recipientEmail.trim().toLowerCase();
+    if(recipientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail))throw Error('Enter a valid student university email or leave it blank for a shared class link.');
+    return createCodedInvite('student',{moduleId,recipientEmail,createdBy:user.uid,createdAt:Date.now(),expiresAt:Date.now()+30*86400000,revoked:false});
   },
   async listModuleInvites(moduleId) {const s=await F.getDocs(F.query(F.collection(db,'moduleInvites'),F.where('moduleId','==',moduleId)));return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt);},
   async revokeModuleInvite(id) {const ref=F.doc(db,'moduleInvites',id),s=await F.getDoc(ref),batch=F.writeBatch(db);batch.update(ref,{revoked:true});if(s.data()?.code)batch.update(F.doc(db,'registrationCodes',s.data().code),{revoked:true});await batch.commit();},
@@ -273,8 +287,26 @@ export const firebase = {
     const [dir, roles, profiles] = await Promise.all([F.getDocs(F.collection(db, 'userDirectory')), F.getDocs(F.collection(db, 'roles')), F.getDocs(F.collection(db, 'profiles'))]);
     const r = {}; roles.forEach(d => r[d.id] = d.data().role);
     const p = {}; profiles.forEach(d => p[d.id] = d.data());
-    return dir.docs.map(d => ({uid: d.id, ...p[d.id], ...d.data(), role: r[d.id] || ((d.data().email === ADMIN_EMAIL) ? 'admin' : 'student')}));
+    const directory=Object.fromEntries(dir.docs.map(d=>[d.id,d.data()]));
+    return [...new Set([...Object.keys(p),...Object.keys(directory)])].map(uid=>({uid,...p[uid],...directory[uid],role:directory[uid]?.email===ADMIN_EMAIL?'admin':r[uid] || 'student'}));
   },
+  async peopleReport(moduleId='') {
+    if(!user?.emailVerified || !['admin','lecturer'].includes(role))throw Error('Admin or instructor access required.');
+    const all=await this.listModules();
+    const modules=all.filter(m=>(!moduleId || m.id===moduleId) && (role==='admin' || m.teacherIds.includes(user.uid)));
+    if(moduleId&&!modules.length)throw Error('You do not have access to this module’s records.');
+    const memberships=(await Promise.all(modules.map(async m=>{
+      const s=await F.getDocs(F.collection(db,'modules',m.id,'members'));
+      return s.docs.map(d=>({uid:d.id,...d.data(),moduleId:m.id}));
+    }))).flat();
+    const [users,instructorInvites,studentInvites]=await Promise.all([
+      role==='admin'&&!moduleId?this.listUsers():Promise.resolve([]),
+      role==='admin'&&!moduleId?this.listTeacherInvites():Promise.resolve([]),
+      Promise.all(modules.map(m=>this.listModuleInvites(m.id))).then(a=>a.flat())
+    ]);
+    return buildPeopleReport({users,memberships,modules,instructorInvites,studentInvites,includePlatformUsers:role==='admin'&&!moduleId});
+  },
+  async getAdminGuide(){const s=await F.getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
   async getProfile(uid) { const s = await F.getDoc(F.doc(db, 'profiles', uid)); return s.exists() ? {uid, ...s.data()} : null; },
   async saveProfile(uid, patch) {
     await F.setDoc(F.doc(db, 'profiles', uid), patch, {merge: true});

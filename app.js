@@ -4,6 +4,7 @@ import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './aut
 import {can, ROLES, rank} from './permissions.js';
 import {mountEditor, OUTLINE} from './editor.js';
 import {configurePlatform, moduleDirectory, moduleCanvas, manageModule, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
+import {renderPeople} from './people.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify} from './util.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
@@ -38,7 +39,7 @@ const routes = [
   [/^\/mine$/, mine],
   [/^\/profile$/, profileView],
   [/^\/review\/?([a-z]*)(?:\?module=([a-z0-9-]+))?$/, lecturer],
-  [/^\/admin\/?([a-z]*)$/, admin],
+  [/^\/admin\/?([a-z]*)(?:\?module=([a-z0-9-]+))?$/, admin],
 ];
 
 // Renders run one after another: a slow page (waiting for the database) must not
@@ -347,6 +348,7 @@ async function profileView() {
 async function lecturer(tab = 'posts', moduleId = '') {
   const u = user();
   if (!u || rank(u.role) < 1) { $app.innerHTML = `<p class="empty">Instructor access required.</p>`; return; }
+  if(tab==='roster'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:false});return;}
   tab = tab || 'posts';
   let [posts, users] = await Promise.all([store.mode === 'firebase' ? store.listAllPosts() : store.listPosts(), store.listUsers(moduleId)]);
   const teachingModules=store.mode==='firebase'?(await store.listModules()).filter(m=>u.role==='admin'||m.teacherIds.includes(u.uid)):[];
@@ -387,12 +389,14 @@ async function lecturer(tab = 'posts', moduleId = '') {
 }
 
 // ---------- admin area ----------
-async function admin(tab = 'users') {
+async function admin(tab = 'users',moduleId='') {
   const u = user();
   if (!u || rank(u.role) < 2) { $app.innerHTML = `<p class="empty">Admin access required.</p>`; return; }
   tab = tab || 'users';
-  const tabs = `<div class="tabs"><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
+  const tabs = `<div class="tabs"><a href="#/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="#/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
+  if(tab==='people'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:true});return;}
   let body = '';
+  if(tab==='guide')body=store.mode==='firebase'?sanitize(await store.getAdminGuide()):'<p>The private admin guide is available on the live Firebase platform.</p>';
   if (tab === 'users') {
     const users = (await store.listUsers()).sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || ''));
     body = `<p class="muted">Everyone who has signed in. Instructors get everything a student has plus the Instructor area; admins get everything plus this page.</p>

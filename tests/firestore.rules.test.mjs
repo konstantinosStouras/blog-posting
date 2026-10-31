@@ -32,6 +32,13 @@ beforeEach(async()=>{
   await b.commit();
  });
 });
+test('admin guide is private to the platform administrator',async()=>{
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'adminContent/guide'),{html:'Private guide'}));
+ await assertSucceeds(getDoc(doc(db('admin','kstouras@gmail.com'),'adminContent/guide')));
+ await assertFails(getDoc(doc(db('teacher-one'),'adminContent/guide')));
+ await assertFails(getDoc(doc(db('student'),'adminContent/guide')));
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'adminContent/guide')));
+});
 test('public readers see modules and published posts, not drafts, rosters, profiles or invites',async()=>{
  const d=env.unauthenticatedContext().firestore();
  await assertSucceeds(getDocs(collection(d,'modules')));

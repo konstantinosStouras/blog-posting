@@ -30,9 +30,11 @@ service cloud.firestore {
     match /userDirectory/{uid} {
       allow read: if own(uid) || isAdmin();
       allow create, update: if own(uid)
-        && request.resource.data.keys().hasOnly(['name','penName','email','first','seen','affiliation','contactEmail'])
+        && request.resource.data.keys().hasOnly(['name','firstName','lastName','studentId','penName','email','first','seen','signedInAt','emailVerified','affiliation','contactEmail'])
         && request.resource.data.email == request.auth.token.email
-        && str('name',200) && str('penName',40) && str('affiliation',300) && str('contactEmail',200)
+        && str('name',200) && str('firstName',120) && str('lastName',120) && str('studentId',40) && str('penName',40) && str('affiliation',300) && str('contactEmail',200)
+        && request.resource.data.get('signedInAt',0) is number
+        && (!('emailVerified' in request.resource.data) || request.resource.data.emailVerified == request.auth.token.email_verified)
         && request.resource.data.first is number && request.resource.data.seen is number;
       allow delete: if isAdmin();
     }
@@ -103,10 +105,14 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /moduleInvites/{inviteId} {
-      allow get: if verified();
+      allow get: if staffOf(resource.data.moduleId) || (verified()
+        && (resource.data.get('recipientEmail','') == ''
+          || get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.contactEmail == resource.data.recipientEmail));
       allow list: if staffOf(resource.data.moduleId);
       allow create: if staffOf(request.resource.data.moduleId)
-        && request.resource.data.keys().hasOnly(['moduleId','code','createdBy','createdAt','expiresAt','revoked'])
+        && request.resource.data.keys().hasOnly(['moduleId','code','createdBy','createdAt','expiresAt','revoked','recipientEmail'])
+        && str('recipientEmail',200)
+        && (request.resource.data.get('recipientEmail','') == '' || universityEmail(request.resource.data.recipientEmail))
         && request.resource.data.code.matches('^[a-z]{3,30}$')
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt is number && request.resource.data.expiresAt is number
@@ -121,7 +127,8 @@ service cloud.firestore {
     function validModuleInvite(moduleId, inviteId) {
       let path = /databases/$(database)/documents/moduleInvites/$(inviteId);
       return inviteId is string && exists(path) && get(path).data.moduleId == moduleId
-        && get(path).data.revoked == false && get(path).data.expiresAt > request.time.toMillis();
+        && get(path).data.revoked == false && get(path).data.expiresAt > request.time.toMillis()
+        && (get(path).data.get('recipientEmail','') == '' || get(path).data.recipientEmail == request.resource.data.contactEmail);
     }
     function moduleShape() {
       let d = request.resource.data;
@@ -144,12 +151,13 @@ service cloud.firestore {
       match /members/{uid} {
         allow read: if own(uid) || staffOf(moduleId);
         function memberShape() { return own(uid) && verified() && moduleExists(moduleId)
-          && request.resource.data.keys().hasOnly(['uid','firstName','lastName','contactEmail','studentId','registrationKind','penName','email','joinedAt','inviteId','affiliation'])
+          && request.resource.data.keys().hasOnly(['uid','firstName','lastName','contactEmail','studentId','registrationKind','penName','email','joinedAt','inviteId','affiliation','lastSeenAt','lastSignInAt'])
           && request.resource.data.uid == uid && request.resource.data.email == request.auth.token.email
           && universityEmail(request.resource.data.contactEmail)
           && str('firstName',120) && str('lastName',120) && str('studentId',40) && str('penName',40)
           && str('affiliation',200) && request.resource.data.affiliation.size() > 0
           && request.resource.data.joinedAt is number
+          && request.resource.data.get('lastSeenAt',0) is number && request.resource.data.get('lastSignInAt',0) is number
           && request.resource.data.registrationKind in ['student','teacher','instructor']
           && ((request.resource.data.registrationKind == 'student' && request.resource.data.studentId.size() > 0)
             || (request.resource.data.registrationKind in ['teacher','instructor'] && (hasRole('lecturer') || isAdmin()))); }
@@ -201,6 +209,7 @@ service cloud.firestore {
       allow delete: if own(resource.data.authorId) || staffOf(resource.data.moduleId);
     }
     match /settings/site { allow read: if true; allow write: if isAdmin(); }
+    match /adminContent/{id} { allow read, write: if isAdmin(); }
     match /{document=**} { allow read, write: if false; }
   }
 }

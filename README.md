@@ -1,5 +1,7 @@
 # UCD blog
 
+Admins have a private walkthrough at `#/admin/guide` and searchable user and invitation records at `#/admin/people`. Instructors use `#/review/roster` for their assigned modules only. Both records views export `.xlsx` files with bold column headings, normal body text, frozen headings and text-formatted university IDs. Filters apply to downloads. Named student invitations track pending email recipients; shared class links track enrolments without inventing recipient identities. The guide content is stored in the admin-only Firestore document `adminContent/guide`.
+
 Live platform: https://www.stouras.com/ucd-blog/
 
 UCD blog hosts a separate public blog canvas for each instructor's module.

@@ -220,3 +220,7 @@ table.list select { padding: 3px 6px; border: 1px solid var(--line); border-radi
 .module-card .page-sub { margin-bottom:4px; }
 .module-card .actions { margin-top:18px; }
 .auth-form .provider { width:100%; margin-top:8px; }
+.people-filters { display:grid; grid-template-columns:1fr 2fr 1fr; gap:16px; }
+.table-scroll { overflow-x:auto; margin:12px 0 30px; }
+.table-scroll table { min-width:1100px; }
+@media(max-width:700px) { .people-filters { grid-template-columns:1fr; gap:0; } }
