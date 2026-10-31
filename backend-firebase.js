@@ -103,7 +103,17 @@ export const firebase = {
   },
   async listAllPosts() { const snap = await F.getDocs(F.collection(db, 'posts')); return snap.docs.map(norm); },
   async getPost(id) { const s = await F.getDoc(F.doc(db, 'posts', id)); return s.exists() ? norm(s) : null; },
-  async getPostBySlug(slug) { const s = await F.getDocs(F.query(F.collection(db, 'posts'), F.where('slug', '==', slug), F.where('status', '==', 'published'), F.limit(1))); return s.empty ? null : norm(s.docs[0]); },
+  async getPostBySlug(slug) {
+    const col = F.collection(db, 'posts'), bySlug = F.where('slug', '==', slug);
+    const staff = user && (role === 'admin' || role === 'lecturer');
+    if (user && !staff) {
+      const own = await F.getDocs(F.query(col, bySlug, F.where('authorId', '==', user.uid), F.limit(1)));
+      if (!own.empty) return norm(own.docs[0]);
+    }
+    const filters = staff ? [bySlug] : [bySlug, F.where('status', '==', 'published')];
+    const s = await F.getDocs(F.query(col, ...filters, F.limit(1)));
+    return s.empty ? null : norm(s.docs[0]);
+  },
   async savePost(post, u) {
     const id = post.id || newId();
     const existing = post.id ? await this.getPost(id) : null;
