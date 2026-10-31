@@ -14,7 +14,7 @@ export function sanitize(html) {
   const clean=DOMPurify.sanitize(String(html ?? ''), {USE_PROFILES: {html: true}, ADD_ATTR: ['target', 'rel'], FORBID_TAGS: ['style', 'script', 'iframe', 'form', 'input']});
   const template=document.createElement('template');template.innerHTML=clean;
   for(const el of template.content.querySelectorAll('[style],font')){
-    for(const name of ['font','font-family','font-size','font-size-adjust'])el.style.removeProperty(name);
+    for(const name of ['font-family','font-size','font-size-adjust','line-height'])el.style.removeProperty(name);   // never the `font` shorthand: that would drop bold and italic
     el.removeAttribute('face');el.removeAttribute('size');
     if(!el.getAttribute('style')?.trim())el.removeAttribute('style');
   }

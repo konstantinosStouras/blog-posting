@@ -57,6 +57,9 @@ function matches(p, f, skip = '') {
   if (skip !== 'q' && f.q) { const words = norm(f.q).split(/\s+/).filter(Boolean), t = textOf(p); if (!words.every(w => t.includes(w))) return false; }
   return true;
 }
+// The category facet is named by the blog (Megatrend on the PM blog, Category elsewhere).
+const catLabel = st => st.opts?.categoryLabel || 'Category';
+const allLabel = st => { const l = catLabel(st).toLowerCase(); return 'All ' + (l.endsWith('y') ? l.slice(0, -1) + 'ies' : l + 's'); };
 // Category names come from the post's own blog when several blogs share a page.
 const catName = (st, slug, p) => ((p && st.blogs?.get(p.blogId)?.categories) || st.cats).find(c => c.slug === slug)?.name || st.cats.find(c => c.slug === slug)?.name || slug || '';
 function sorted(posts, sort) {
@@ -113,8 +116,8 @@ function filtersHtml(st) {
   const pills = [];
   if (f.q) pills.push(['q', '', `“${f.q}”`]); if (f.trend) pills.push(['trend', '', catName(st, f.trend)]); if (f.org) pills.push(['org', '', f.org]); if (f.year) pills.push(['year', '', f.year]);
   if (f.module) pills.push(['module', '', st.modules.get(f.module)?.title || f.module]); if (f.blog) pills.push(['blog', '', st.blogs.get(f.blog)?.title || f.blog]); for (const t of f.tags) pills.push(['tag', t, '#' + t]);
-  return `${fx.allCats.length ? `<div class="chips" role="group" aria-label="Megatrend">${chip('', 'All megatrends', fx.totalForTrend, !f.trend)}${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trend === c.slug)).join('')}</div>` : ''}
-    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
+  return `${fx.allCats.length ? `<div class="chips" role="group" aria-label="${esc(catLabel(st))}">${chip('', allLabel(st), fx.totalForTrend, !f.trend)}${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trend === c.slug)).join('')}</div>` : ''}
+    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${st.modules.size > 1 || fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
     ${fx.tags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}
     ${pills.length ? `<div class="active-filters"><span class="lbl">Showing</span>${pills.map(([k, v, label]) => `<span class="pill">${esc(label)}<button type="button" data-remove="${k}" data-v="${esc(v)}" aria-label="Remove filter ${esc(label)}">×</button></span>`).join('')}<button type="button" class="linkish clear-all" data-clear>Clear all</button></div>` : ''}`;
 }
@@ -127,7 +130,7 @@ export function card(p, st = current || {f: parseFilters(''), base: '#/posts', c
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));
   const img = p.featuredImage ? `<a href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
   const org = String(p.organisation || '').trim(), words = p.wordCount ?? wordCount(p.body), module = st.modules?.get(p.moduleId);
-  const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trend: p.category})}" data-set="trend" data-v="${esc(p.category)}" class="trend" title="All posts on this megatrend">${esc(catName(st, p.category, p))}</a>` : ''].filter(Boolean).join('');
+  const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trend: p.category})}" data-set="trend" data-v="${esc(p.category)}" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : ''].filter(Boolean).join('');
   return `<article class="card ${img ? '' : 'noimage'}">${img}
     ${kicker ? `<div class="kicker">${kicker}</div>` : ''}
     <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}${p.featured ? '<span class="badge featured">Featured</span>' : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
@@ -145,6 +148,7 @@ function apply(r, patch) {
   r.querySelector('.canvas-grid').innerHTML = gridHtml(current);
   r.querySelector('.canvas-count').textContent = countText(current);
   r.querySelector('.canvas-search .clear').hidden = !current.f.q;
+  if (!current.f.q) r.querySelector('.canvas-search input').value = '';
 }
 document.addEventListener('click', e => {
   const r = root(e.target); if (!r) return;

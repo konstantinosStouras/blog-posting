@@ -44,6 +44,11 @@ all of its posts.
 - Module settings → Invite students generates a city code and registration link
   for that module. Student invitations are reusable for a class, expire after
   30 days, and can be revoked. Existing members remain enrolled after revocation.
+- Students write and comment under an **alias** generated at random when their
+  account is created (adjective-noun-number, `aliases.js`). It is shown on posts
+  and comments with the publication date, cannot be edited by the student, and
+  the rules reject any other pen name on a student profile. Instructors keep an
+  editable pen name and see the real name behind each alias in the roster.
 - Registration requires an invitation code. Instructors enter name, school or
   university, university email, and optionally Gmail. Students also enter their
   university ID. Email/password and Google sign-in are supported.
@@ -107,6 +112,32 @@ controls live in `firestore.rules`.
 
 Firebase project: `stouras-ucd-blog` (display name **UCD blog**), database `eur3`.
 The public web configuration is in `firebase-config.js`. See `_SETUP-FIREBASE.md`.
+
+## Feedback button
+
+Every page carries a **Feedback** button at the bottom right, for visitors,
+students, instructors and the admin alike, signed in or not (the same idea as
+the Feedback page on stouras.com/lit). The dialog takes any mix of three inputs:
+a written note, up to five **screenshots** (dropped, browsed or pasted with
+Ctrl+V; downscaled and JPEG-compressed in the browser) and one **voice note**
+recorded with the microphone (MediaRecorder: Opus/WebM in Chrome and Firefox,
+AAC/MP4 in Safari; it stops itself at three minutes or at the size limit). Name
+and e-mail are optional and prefilled for a signed-in account. Each submission
+gets a ticket such as `BLOG-261031-K3QP`, shown on the thank-you panel.
+
+Storage is Firestore only, no Storage bucket: `feedback/{id}` holds the text,
+ticket, who, page, browser and counts; each screenshot or voice note is its own
+data-URL document in `feedback/{id}/attachments/{n}`, so nothing approaches
+the 1 MB document limit. The rules let anyone create one bounded submission
+(a signed-in submitter may record only their own uid) and let the admin alone
+read, close, reopen or delete. The admin reads them at `#/admin/feedback`:
+newest first by day, Open / Closed / All, thumbnails that enlarge, inline audio
+players, **Mark complete & reply** (records the resolution, closes the ticket
+and opens a pre-composed e-mail when the submitter left an address),
+**Download .md** (the layout of the private lit-feedback-log mirror, for handing
+a ticket to an assistant) and Delete. Limits, validation and the ticket format
+live in `feedback-model.js` and are unit-tested; the widget and inbox are in
+`feedback.js`. Deploy `firestore.rules` after pulling this change.
 
 ## Validation
 

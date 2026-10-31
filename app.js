@@ -6,15 +6,18 @@ import {mountEditor, fillOutline} from './editor.js';
 import {configurePlatform, blogDirectory, myModules, blogCanvas, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {renderPeople} from './people.js';
 import {renderGrading} from './ai-grading.js';
+import {mountFeedbackButton, renderFeedbackInbox} from './feedback.js';
 import {startWritingTimer} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
+import {makeTablesSortable} from './sortable-tables.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId} from './util.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
 let BLOGS = [];             // every blog, refreshed on each navigation: category names, titles, comment policy
 let liveView = null;        // the mounted view, when it must not be re-rendered on data changes (the editor)
+let lastRouteHash = '#/', renderSeq = 0;   // the last real route (in-page anchors restore it) and a stamp for async renders
 const blogOf = p => BLOGS.find(b => b.id === (p?.blogId || p)) || null;
 const allCategories = () => { const seen = new Map(); for (const b of BLOGS) for (const c of b.categories || []) if (!seen.has(c.slug)) seen.set(c.slug, c); return [...seen.values()]; };
 // A category slug is named by the post's own blog (two blogs may use the same slug differently).
@@ -35,19 +38,19 @@ const routes = [
   [/^\/modules\/edit\/([a-z0-9-]+)$/, manageModule],
   [/^\/modules\/invite\/([a-z0-9-]+)$/, studentInvitationsPage],
   [/^\/invitations$/, invitationsPage],
-  [/^\/invite\/([a-zA-Z0-9-]+)(?:\/([a-z]+))?$/i, (id,code)=>acceptInvitationPage(id,code,'instructor')],
-  [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
-  [/^\/(\d{4})\/(\d{2})\/([^/]+)\/?$/, (y, m, slug) => postView(slug)],
-  [/^\/post\/([^/]+)$/, postView],
-  [/^\/category\/([^/]+)$/, slug => location.replace('#/posts' + filterQuery({trend: slug}))],   // old links keep working
-  [/^\/tag\/([^/]+)$/, tag => location.replace('#/posts' + filterQuery({tags: [decodeURIComponent(tag)]}))],
-  [/^\/author\/([^/]+)$/, uid => browse({author: uid})],
+  [/^\/invite\/([a-zA-Z0-9-]+)(?:\/([a-z]+(?:-[0-9]{3})?))?$/i, (id,code)=>acceptInvitationPage(id,code,'instructor')],
+  [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+(?:-[0-9]{3})?)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
+  [/^\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (y, m, slug) => postView(slug)],
+  [/^\/post\/([^/?]+)$/, postView],
+  [/^\/category\/([^/?]+)$/, slug => location.replace('#/posts' + filterQuery({trend: slug}))],   // old links keep working
+  [/^\/tag\/([^/?]+)$/, tag => location.replace('#/posts' + filterQuery({tags: [decodeURIComponent(tag)]}))],
+  [/^\/author\/([^/?]+)$/, uid => browse({author: uid})],
   [/^\/archive\/(\d{4}-\d{2})$/, month => browse({month})],
   [/^\/search\/?(.*)$/, q => location.replace('#/posts' + filterQuery({q: decodeURIComponent(q || '')}))],
   [/^\/challenge$/, () => location.replace('#/blogs')],
   [/^\/write$/, () => editorView(null)],
   [/^\/write\/([a-z0-9-]+)$/, moduleId => editorView(null,moduleId)],
-  [/^\/edit\/([^/]+)$/, editorView],
+  [/^\/edit\/([^/?]+)$/, editorView],
   [/^\/mine$/, mine],
   [/^\/profile$/, profileView],
   [/^\/review\/?([a-z]*)(?:\?(.*))?$/, lecturer],
@@ -59,14 +62,19 @@ const routes = [
 let queue = Promise.resolve();
 function render() { queue = queue.then(doRender).catch(e => console.error(e)); return queue; }
 async function doRender() {
+  // A hash that is not a route (#comments, #fn-3, #app) is an in-page anchor: scroll, keep the page.
+  const raw = location.hash.slice(1);
+  if (raw && !raw.startsWith('/')) { const go = () => document.getElementById(raw)?.scrollIntoView({block: 'start'}); go(); setTimeout(go, 400); setTimeout(go, 1200); history.replaceState(null, '', lastRouteHash); return; }   // repeated: images and embeds shift the layout as they load
+  lastRouteHash = location.hash || '#/';
+  const seq = ++renderSeq;
   const path = location.hash.replace(/^#/, '') || '/';
-  liveView = null;
+  liveView = null; $app.onclick = null;
   try { BLOGS = await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
   renderHeader(path);
   window.scrollTo(0, 0);
   const bare = path.split('?')[0];   // canvas filters live in a ?query after the route; routes that expect their own query match first
-  for (const [re, fn] of routes) { const m = path.match(re) || bare.match(re); if (m) { try { await fn(...m.slice(1)); } catch (e) { console.error(e); $app.innerHTML = `<p class="empty">Something went wrong: ${esc(e.message)}</p>`; } renderFooter(); return; } }
-  $app.innerHTML = `<p class="empty">That page does not exist. <a href="#/">Back to the blog</a></p>`; renderFooter();
+  for (const [re, fn] of routes) { const m = path.match(re) || bare.match(re); if (m) { try { await fn(...m.slice(1)); } catch (e) { console.error(e); $app.innerHTML = `<p class="empty">Something went wrong: ${esc(e.message)}</p>`; } renderFooter(seq); return; } }
+  $app.innerHTML = `<p class="empty">That page does not exist. <a href="#/">Back to the blog</a></p>`; renderFooter(seq);
 }
 
 // ---------- header & footer ----------
@@ -86,9 +94,12 @@ function renderHeader(path = location.hash.slice(1) || '/') {
   renderAccountControl($header.querySelector('#account'));
   $header.querySelector('.searchbox').onsubmit = e => { e.preventDefault(); location.hash = '#/posts' + filterQuery({q: e.target.q.value.trim()}); };
 }
-async function renderFooter() {
+async function renderFooter(seq = renderSeq) {
+  document.body.classList.toggle('writing', liveView === 'editor');   // lifts the Feedback button above the writer's sticky footer
   if (liveView === 'editor') { $footer.innerHTML = ''; return; }   // the writer page is full-bleed
-  const [posts, comments] = await Promise.all([store.listPosts({status: 'published'}), store.recentComments(5)]);
+  let posts, comments;
+  try { [posts, comments] = await Promise.all([store.listPosts({status: 'published'}), store.recentComments(5)]); } catch (e) { console.warn('footer', e); return; }
+  if (seq !== renderSeq || liveView === 'editor') { if (liveView === 'editor') $footer.innerHTML = ''; return; }   // a later navigation won; do not paint over it
   posts.sort(by('publishedAt'));
   const byPost = Object.fromEntries(posts.map(p => [p.id, p]));
   const perMonth = groupBy(posts, p => monthKey(p.publishedAt));
@@ -109,7 +120,7 @@ async function renderFooter() {
 // ---------- cards ----------
 // Cards, facets and search live in canvas.js. Pages render the string it returns;
 // its own document-level listeners handle every filter interaction afterwards.
-const canvas = (posts, o = {}) => renderCanvas(posts, {categories: allCategories(), blogs: BLOGS, ...o});
+const canvas = (posts, o = {}) => { const labels = [...new Set(BLOGS.filter(b => (b.categories || []).length).map(b => b.categoryLabel || 'Category'))]; return renderCanvas(posts, {categories: allCategories(), categoryLabel: labels.length === 1 ? labels[0] : 'Category', blogs: BLOGS, ...o}); };
 configurePlatform($app,canvas);
 
 // ---------- pages ----------
@@ -148,7 +159,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
   const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
   const liked = !!me && likes.includes(me.uid);
   return `<header class="post-head">
-    ${p.category ? `<div class="cat"><a href="#/blog/${esc(p.blogId || '')}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a></div>` : ''}
+    ${p.category ? `<div class="cat"><a href="${p.blogId ? '#/blog/' + esc(p.blogId) : '#/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a></div>` : ''}
     <h1>${esc(p.title || 'Untitled')}</h1>
     ${p.excerpt ? `<p class="subtitle">${esc(p.excerpt)}</p>` : ''}
     <div class="byline"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div><a href="#/author/${esc(p.authorId || '')}"><b>${esc(p.authorName || 'you')}</b></a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}<br><span class="muted">${fmtDate(p.publishedAt || p.updatedAt || Date.now())} · ${readingTime(w)}${blog ? ` · <a href="#/blog/${esc(blog.id)}">${esc(blog.title)}</a>` : ''}</span></div></div>
@@ -160,11 +171,11 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
     </div></header>
     ${p.featuredImage ? `<img class="hero" src="${esc(p.featuredImage)}" alt="">` : ''}
     <div class="body">${sanitize(p.body || '')}</div>
-    ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="#/blog/${esc(p.blogId || '')}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
+    ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="${p.blogId ? '#/blog/' + esc(p.blogId) : '#/posts'}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
 }
 async function shareLink(url, title) {
   try { if (navigator.share) { await navigator.share({title, url}); return; } } catch { return; }
-  try { await navigator.clipboard.writeText(url); toast('Link copied.'); } catch { prompt('Link to this post', url); }
+  try { await navigator.clipboard.writeText(url); toast('Link copied.'); } catch { try { prompt('Link to this post', url); } catch { toast(url); } }
 }
 
 async function postView(slug) {
@@ -174,11 +185,11 @@ async function postView(slug) {
   const [module, blog, mine] = await Promise.all([p.moduleId ? store.getModule(p.moduleId) : null, store.getBlog(p.blogId), u ? store.listMyModules() : []]);
   // Cohort rules (approval, open/closed) come from the module; the comments policy from the blog.
   const context = {...S, ...(module || {}), allowComments: blog ? blog.allowComments !== false : true};
-  const canParticipate = u && (rank(u.role) >= 2 || mine.some(m => m.id === p.moduleId || (p.blogId && m.blogId === p.blogId)));
+  const canParticipate = u && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId || (p.blogId && m.blogId === p.blogId)));
   const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const [comments, likes] = await Promise.all([store.listComments(p.id), store.listLikes(p.id)]);
-  const words = p.wordCount ?? wordCount(p.body);
+  const words = wordCount(p.body);
   $app.innerHTML = `${blog ? `<p class="page-sub"><a href="#/blog/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<article class="post">
     ${u && can(u, 'edit', p, context) ? `<div class="post-actions"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span>
       <a class="btn small" href="#/edit/${p.id}">Edit</a>
@@ -200,10 +211,11 @@ async function postView(slug) {
     try { await store.addComment({postId: p.id, body}, u); toast('Comment posted.'); render(); } catch (err) { toast(err.message, 'error'); }
   });
   enhance($app.querySelector('.post .body'), {post: p, user: u, store});
-  $app.querySelector('[data-share]').onclick = () => shareLink(location.origin + location.pathname + postPath(p), p.title);
+  $app.querySelector('[data-share]').onclick = () => shareLink(location.origin + location.pathname + location.search + postPath(p), p.title);
   $app.querySelector('[data-like]').onclick = async e => {
+    const b = e.currentTarget;
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
-    try { const n = await store.toggleLike(p.id, u); const b = e.currentTarget; b.classList.toggle('on', n.liked); b.setAttribute('aria-pressed', n.liked); b.querySelector('span').textContent = n.count || ''; } catch (err) { toast(err.message, 'error'); }
+    try { const n = await store.toggleLike(p.id, u); b.classList.toggle('on', n.liked); b.setAttribute('aria-pressed', n.liked); b.querySelector('span').textContent = n.count || ''; } catch (err) { toast(err.message, 'error'); }
   };
   $app.onclick = async e => {
     const del = e.target.closest('[data-del-comment]');
@@ -224,6 +236,7 @@ function commentHtml(c, u, p) {
 }
 
 // ---------- the writer (laid out like Substack's post editor) ----------
+document.addEventListener('click', e => { const pop = document.getElementById('info-pop'); if (pop && !pop.hidden && !e.target.closest('.info-wrap')) { pop.hidden = true; document.getElementById('post-info')?.setAttribute('aria-expanded', 'false'); } });
 // Top bar: ‹ back · Saved chip … Preview · Continue. Toolbar. A centred column with
 // Title, subtitle, byline and the text. Drafts autosave two seconds after a change.
 // Continue opens the details step (featured image, category, organisation, tags,
@@ -260,7 +273,8 @@ async function editorView(id, moduleId) {
   let writingTimer;
   const approver = can(u, 'approve', draft, context), needsReview = context.requireApproval && !approver;
   const hasCats = (blog.categories || []).length > 0, catLabel = blog.categoryLabel || 'Category', orgLabel = blog.organisationLabel || '';
-  let dirty = false, saving = false, ed, saveTimer = null;
+  let dirty = false, saving = false, ed, saveTimer = null, revision = 0, pendingStatus = null;
+  const targetText = blog.minWords && blog.maxWords ? `${blog.minWords}–${blog.maxWords}` : `up to ${blog.maxWords}`;
   liveView = 'editor';
 
   $app.innerHTML = `<div class="writer">
@@ -274,7 +288,7 @@ async function editorView(id, moduleId) {
     <div id="editor"></div>
     <div class="writer-foot"><div class="info-wrap"><button type="button" class="icon-btn boxed" id="post-info" aria-label="Post info" title="Post info" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button><div class="info-pop" id="info-pop" hidden></div></div><span class="wc-line" id="wc-line"></span><span class="grow"></span><button type="button" class="btn ghost small" id="details">Post details</button></div>
   </div>
-  <dialog class="sheet" id="sheet"><form method="dialog" class="sheet-form"><button class="close" value="cancel" formnovalidate aria-label="Close">×</button>
+  <dialog class="sheet" id="sheet"><form method="dialog" class="sheet-form" onsubmit="return false"><button type="button" class="close" data-close aria-label="Close">×</button>
     <h2>${draft.status === 'published' ? 'Update your post' : needsReview ? 'Submit for review' : 'Ready to publish?'}</h2>
     <p class="muted small">${esc(blog.title)} · ${esc(module.code || module.title)}${module.academicYear ? ' · ' + esc(module.academicYear) : ''}${module.deadline ? ' · deadline ' + fmtDate(module.deadline) : ''}</p>
     <div class="sheet-grid">
@@ -289,16 +303,16 @@ async function editorView(id, moduleId) {
         <label class="field">Tags<input id="tags" value="${esc(draft.tags.join(', '))}" placeholder="Climate Action, ESG, Supply Chain"><p class="hint">Comma-separated keywords readers browse by.</p></label>
       </div>
       <div>
-        ${blog.maxWords ? `<h3>Length</h3><div class="wc"><span><b id="wc">0</b> words</span><span class="muted">target ${blog.minWords}–${blog.maxWords}</span></div><div class="meter" id="meter"><i style="width:0"></i></div><p class="hint" id="wc-hint"></p>` : ''}
+        ${blog.maxWords ? `<h3>Length</h3><div class="wc"><span><b id="wc">0</b> words</span><span class="muted">target ${targetText}</span></div><div class="meter" id="meter"><i style="width:0"></i></div><p class="hint" id="wc-hint"></p>` : ''}
         ${(blog.checklist || []).length ? `<h3>Before you publish</h3><ul class="checklist">${blog.checklist.map((t, i) => `<li><input type="checkbox" id="chk${i}"><label for="chk${i}">${esc(t)}</label></li>`).join('')}</ul>` : ''}
         ${blog.brief ? `<p class="hint"><a href="#/blog/${esc(blog.id)}/brief" target="_blank">Read the brief</a></p>` : ''}
       </div>
     </div>
-    <div class="actions sheet-actions"><button type="button" class="btn accent" id="publish">${draft.status === 'published' ? 'Update post' : needsReview ? 'Submit for review' : 'Publish'}</button><button type="button" class="btn" id="save-draft">${draft.status === 'published' ? 'Unpublish to draft' : 'Save draft'}</button><button class="btn ghost" value="cancel" formnovalidate>Back to editing</button></div>
+    <div class="actions sheet-actions"><button type="button" class="btn accent" id="publish">${draft.status === 'published' ? 'Update post' : needsReview ? 'Submit for review' : 'Publish'}</button><button type="button" class="btn" id="save-draft">${draft.status === 'published' ? 'Unpublish to draft' : 'Save draft'}</button><button type="button" class="btn ghost" data-close>Back to editing</button></div>
     <p class="status-line" id="status-line"></p></form></dialog>`;
 
   const $ = sel => document.getElementById(sel);
-  const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.insertHTML(fillOutline(blog.outline, draft.organisation || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : (catLabel || 'the topic').toLowerCase())); }}] : [];
+  const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.insertHTML(fillOutline(blog.outline, draft.organisation || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : 'the ' + (catLabel || 'topic').toLowerCase())); }}] : [];
   ed = mountEditor($('editor'), {html: draft.body, placeholder: 'Start writing…', extras, onChange: html => { draft.body = html; touched(); }});
   // Title, subtitle and byline sit between the toolbar and the text, as on Substack.
   const head = document.createElement('div'); head.className = 'writer-head';
@@ -312,18 +326,19 @@ async function editorView(id, moduleId) {
   $('excerpt').oninput = e => { draft.excerpt = e.target.value; touched(); };
   $('category') && ($('category').onchange = e => { draft.category = e.target.value; touched(); });
   $('organisation') && ($('organisation').oninput = e => { draft.organisation = e.target.value; touched(); });
-  $('tags').onchange = e => { draft.tags = e.target.value.split(/[,;]/).map(t => t.trim()).filter(Boolean).slice(0, 12); e.target.value = draft.tags.join(', '); touched(); };
+  $('tags').onchange = e => { const seen = new Set(); draft.tags = e.target.value.split(/[,;]/).map(t => t.trim()).filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 12); e.target.value = draft.tags.join(', '); touched(); };
   $('pick-image').onclick = () => $('image-file').click();
   $('image-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { draft.featuredImage = await shrinkImage(f, 1400); $('thumb').src = draft.featuredImage; $('thumb').hidden = false; $('remove-image').hidden = false; touched(); } catch (err) { toast(err.message, 'error'); } };
   $('remove-image').onclick = () => { draft.featuredImage = ''; $('thumb').hidden = true; $('remove-image').hidden = true; touched(); };
   $('continue').onclick = $('details').onclick = () => { updateMeter(); $('status-line').textContent = ''; $('sheet').showModal(); };
-  $('save-draft').onclick = () => save(draft.status === 'pending' ? 'pending' : 'draft').then(ok => { if (ok) { $('sheet').close(); toast(draft.status === 'published' ? 'Draft saved.' : 'Draft saved.'); } });
+  const settle = async () => { clearTimeout(saveTimer); while (saving) await new Promise(r => setTimeout(r, 100)); };
+  $('save-draft').onclick = () => settle().then(() => save(draft.status === 'pending' ? 'pending' : 'draft')).then(ok => { if (ok) { $('sheet').close(); toast(draft.status === 'published' ? 'Draft saved.' : 'Draft saved.'); } });
   $('publish').onclick = () => {
     const words = wordCount(draft.body);
     if (!draft.title.trim()) return problem('Give your post a title first.', 'title');
     if (hasCats && !draft.category) return problem(`Choose the ${catLabel.toLowerCase()} your post is about.`);
     if (blog.minWords && words < blog.minWords * 0.5 && draft.status !== 'published' && !confirm(`Your post has only ${words} words; the target is ${blog.minWords}–${blog.maxWords}. Publish anyway?`)) return;
-    save(needsReview ? 'pending' : 'published').then(ok => { if (!ok) return; $('sheet').close(); if (draft.status === 'published') { toast('Published! Your post is live.'); location.hash = postPath(draft); } else { toast('Submitted for review.'); location.hash = '#/mine'; } });
+    settle().then(() => save(needsReview ? 'pending' : 'published')).then(ok => { if (!ok) return; const wasLive = p.status === 'published' && draft.status === 'published'; $('sheet').close(); if (draft.status === 'published') { toast(wasLive ? 'Updated.' : 'Published! Your post is live.'); location.hash = postPath(draft); } else { toast('Submitted for review.'); location.hash = '#/mine'; } });
   };
   $('preview').onclick = () => showPreview();
   // Post info (characters, words, sentences, reading and speaking time), as on Substack.
@@ -336,19 +351,19 @@ async function editorView(id, moduleId) {
     pop.innerHTML = `<h4>Post info</h4>${row('Characters', text.length.toLocaleString('en-IE'))}${row('Words', words.toLocaleString('en-IE'))}${row('Sentences', sentences)}<hr>${row('Reading time', fmtTime(words / 220 * 60))}${row('Speaking time', fmtTime(words / 150 * 60))}${blog.maxWords ? `<hr>${row('Target', `${blog.minWords}–${blog.maxWords} words`)}${row('Remaining', words >= blog.minWords ? 'reached' : blog.minWords - words)}` : ''}`;
     pop.hidden = false; $('post-info').setAttribute('aria-expanded', 'true');
   };
-  document.addEventListener('click', e => { const pop = $('info-pop'); if (pop && !pop.hidden && !e.target.closest('.info-wrap')) { pop.hidden = true; $('post-info')?.setAttribute('aria-expanded', 'false'); } });
+  $('sheet').querySelectorAll('[data-close]').forEach(b => b.onclick = () => $('sheet').close());
   function problem(msg, focusId) { $('status-line').textContent = msg; if (focusId) { $('sheet').close(); $(focusId).focus(); } toast(msg, 'error'); }
 
   function chip(state, text) { const c = $('save-chip'); if (!c) return; c.dataset.state = state; c.querySelector('span').textContent = text; if (state === 'saved') { c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash'); } }
   function touched() {
-    dirty = true; updateMeter();
+    dirty = true; revision++; updateMeter();
     // Published posts are not edited live: changes wait for Update. Drafts autosave after 2 s.
     if (draft.status === 'published') { chip('unsaved', 'Unsaved changes'); return; }
     chip('unsaved', 'Unsaved'); clearTimeout(saveTimer); saveTimer = setTimeout(() => save(draft.status === 'pending' ? 'pending' : 'draft', true), 2000);
   }
   function updateMeter() {
     const w = wordCount(draft.body);
-    $('wc-line').textContent = blog.maxWords ? `${w} words · target ${blog.minWords}–${blog.maxWords}` : `${w} words`;
+    $('wc-line').textContent = blog.maxWords ? `${w} words · target ${targetText}` : `${w} words`;
     if ($('wc')) {
       const m = $('meter'), pct = Math.min(100, w / blog.maxWords * 100);
       $('wc').textContent = w; m.querySelector('i').style.width = pct + '%';
@@ -358,17 +373,22 @@ async function editorView(id, moduleId) {
   }
   updateMeter();
   async function save(status, quiet = false) {
-    if (saving) return false; saving = true; chip('saving', 'Saving…');
+    if (saving) { pendingStatus = status; return false; }   // queued: runs as soon as the current save lands
+    saving = true; chip('saving', 'Saving…');
+    const rev = revision; let ok = false;
     try {
-      if (!draft.title.trim()) draft.title = 'Untitled draft';
-      const saved = await store.savePost({...draft, id: p.id, status, excerpt: (draft.excerpt || '').trim()}, u);
-      p = saved; Object.assign(draft, {id: saved.id, slug: saved.slug, status: saved.status, publishedAt: saved.publishedAt, updatedAt: saved.updatedAt, blogId: saved.blogId, academicYear: saved.academicYear}); dirty = false;
+      const saved = await store.savePost({...draft, id: p.id, status, title: draft.title.trim() || 'Untitled draft', excerpt: (draft.excerpt || '').trim()}, u);
+      p = saved; Object.assign(draft, {id: saved.id, slug: saved.slug, status: saved.status, publishedAt: saved.publishedAt, updatedAt: saved.updatedAt, blogId: saved.blogId, academicYear: saved.academicYear}); if (revision === rev) dirty = false; ok = true;
       chip(status === 'published' ? 'published' : 'saved', status === 'published' ? 'Published' : status === 'pending' ? 'Submitted' : 'Saved');
       $('continue').textContent = status === 'published' ? 'Update' : 'Continue';
-      if (!id && !location.hash.startsWith('#/edit/')) history.replaceState(null, '', '#/edit/' + saved.id);
-      return true;
-    } catch (e) { chip('error', 'Not saved'); if (!quiet) toast(e.message, 'error'); else toast(e.message, 'error'); return false; }
+      if (!id && !location.hash.startsWith('#/edit/')) { history.replaceState(null, '', '#/edit/' + saved.id); lastRouteHash = location.hash; }
+      $('publish').textContent = draft.status === 'published' ? 'Update post' : needsReview ? 'Submit for review' : 'Publish';
+      $('save-draft').textContent = draft.status === 'published' ? 'Unpublish to draft' : 'Save draft';
+      if (revision !== rev) { chip('unsaved', 'Unsaved'); if (draft.status !== 'published') { clearTimeout(saveTimer); saveTimer = setTimeout(() => save(draft.status === 'pending' ? 'pending' : 'draft', true), 1500); } }
+    } catch (e) { chip('error', 'Not saved'); toast(e.message, 'error'); }
     finally { saving = false; }
+    if (pendingStatus) { const next = pendingStatus; pendingStatus = null; return save(next, true); }
+    return ok;
   }
   // Preview: the post as readers will see it, on a phone or a desktop. The editor
   // is detached while the preview shows and put back untouched on Done.
@@ -382,7 +402,7 @@ async function editorView(id, moduleId) {
     enhance(shell.querySelector('.post .body'), {preview: true, post: draft});
     shell.querySelectorAll('[data-dev]').forEach(b => b.onclick = () => { shell.querySelectorAll('[data-dev]').forEach(x => x.setAttribute('aria-selected', x === b)); shell.querySelector('.preview-stage').className = 'preview-stage ' + b.dataset.dev; });
     shell.querySelector('#pv-done').onclick = () => $app.replaceChildren(editorRoot, sheet);
-    shell.querySelector('#pv-share').onclick = () => draft.status === 'published' && draft.slug ? shareLink(location.origin + location.pathname + postPath(draft), draft.title) : toast('Publish first, then share the public link.');
+    shell.querySelector('#pv-share').onclick = () => draft.status === 'published' && draft.slug ? shareLink(location.origin + location.pathname + location.search + postPath(draft), draft.title) : toast('Publish first, then share the public link.');
   }
   const leave = e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
   addEventListener('beforeunload', leave);
@@ -400,7 +420,7 @@ async function mine() {
   $app.innerHTML = `<h1 class="page-title">My posts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="#/profile">Edit profile</a></p>
     <p class="actions"><a class="btn primary" href="#/write">Write a new post</a><a class="btn" href="#/my-modules">My modules</a></p>
     ${posts.length ? `<table class="list"><thead><tr><th>Title</th><th>Blog</th><th>Status</th><th>Words</th><th>Category</th><th>Updated</th><th></th></tr></thead><tbody>
-      ${posts.map(p => `<tr><td><a href="#/edit/${p.id}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${p.wordCount ?? wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
+      ${posts.map(p => `<tr><td><a href="#/edit/${p.id}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
         <td class="actions"><a href="#/edit/${p.id}">Edit</a>${p.status === 'published' ? ` <a href="${postPath(p)}">View</a>` : ''}${can(u, 'delete', p, S) ? ` <button class="linkish danger" data-del="${p.id}">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">You have not written anything yet.</p>`}`;
   $app.onclick = async e => { const b = e.target.closest('[data-del]'); if (b && confirm('Delete this post?')) { await store.deletePost(b.dataset.del); toast('Deleted.'); mine(); } };
 }
@@ -408,15 +428,16 @@ async function mine() {
 async function profileView() {
   const u = user();
   if (!u) { $app.innerHTML = `<p class="empty">Log in to edit your profile.</p>`; return; }
-  const f = (name, label, hint = '', type = 'text') => `<label class="field">${label}<input name="${name}" type="${type}" value="${esc(u[name] || '')}" maxlength="120">${hint ? `<p class="hint">${hint}</p>` : ''}</label>`;
+  const student = u.registrationKind !== 'teacher' && u.registrationKind !== 'instructor' && u.role === 'student';
+  const f = (name, label, hint = '', type = 'text') => `<label class="field">${label}<input name="${name}" type="${type}" value="${esc(u[name] || '')}" maxlength="${name === 'studentId' ? 40 : 120}" ${student && (name === 'studentId' || name === 'contactEmail' || name === 'firstName' || name === 'lastName' || name === 'affiliation') ? 'required' : ''}>${hint ? `<p class="hint">${hint}</p>` : ''}</label>`;
   $app.innerHTML = `<div class="guide"><h1 class="page-title">Your profile</h1><p class="page-sub">Role: <b>${esc(roleLabel(u.role))}</b>${u.email ? ` · signed in as ${esc(u.email)}` : ''}</p>
     <form id="profile" class="two-col">
-      <div>${f('penName', 'Pen name', 'Shown on your posts and comments. Keep it non-identifying so peer review stays anonymous.')}${f('firstName', 'First name')}${f('lastName', 'Last name')}</div>
+      <div>${rank(u.role) >= 1 ? f('penName', 'Pen name', 'Shown on your posts and comments.') : `<label class="field">Alias<input value="${esc(u.penName || '')}" disabled><p class="hint">Assigned at random when your account was created and shown on your posts and comments instead of your name. It cannot be changed, so classmates cannot identify you; your instructor alone sees who is behind it.</p></label>`}${f('firstName', 'First name')}${f('lastName', 'Last name')}</div>
       <div>${f('contactEmail', 'University email', 'Your university contact address, separate from your Google sign-in email.', 'email')}${u.registrationKind !== 'teacher' && u.role === 'student' ? f('studentId', 'University ID', 'Seen only by you and your module teachers.') : ''}${f('affiliation', 'School / university')}${f('website', 'Website or LinkedIn (optional)', '', 'url')}<label class="field">Short bio (optional)<textarea name="bio" maxlength="400" rows="3">${esc(u.bio || '')}</textarea></label></div>
       <div class="actions"><button class="btn primary">Save profile</button></div></form></div>`;
   document.getElementById('profile').onsubmit = async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));
-    d.penName = d.penName.trim().replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 24); if (!d.penName) return toast('Choose a pen name.', 'error');
+    if (rank(u.role) >= 1) { d.penName = (d.penName || '').trim().replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 24); if (!d.penName) return toast('Choose a pen name.', 'error'); } else delete d.penName;   // students keep their generated alias
     try { await store.saveProfile(u.uid, d); toast('Profile saved.'); renderHeader(); } catch (err) { toast(err.message, 'error'); }
   };
 }
@@ -430,7 +451,8 @@ async function lecturer(tab = 'posts', query = '') {
   if (!u || rank(u.role) < 1) { $app.innerHTML = `<p class="empty">Instructor access required.</p>`; return; }
   if(tab==='roster'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:false});return;}
   tab = tab || 'posts';
-  let [posts, users, allModules] = await Promise.all([store.listAllPosts(), store.listUsers(moduleId), store.listModules()]);
+  const canRoster = !moduleId || u.role === 'admin' || (u.managedModuleIds || []).includes(moduleId);   // blog owners see posts of guest modules, not their rosters
+  let [posts, users, allModules] = await Promise.all([store.listAllPosts(), canRoster ? store.listUsers(moduleId) : Promise.resolve([]), store.listModules()]);
   const teachingModules = allModules.filter(m => u.role === 'admin' || m.teacherIds.includes(u.uid) || (u.managedBlogIds || []).includes(m.blogId));
   const myBlogs = BLOGS.filter(b => u.role === 'admin' || b.teacherIds.includes(u.uid) || teachingModules.some(m => m.blogId === b.id));
   const modOf = id => allModules.find(m => m.id === id);
@@ -442,31 +464,33 @@ async function lecturer(tab = 'posts', query = '') {
   const real = uid => { const x = who[uid]; return x ? `${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || '—')}${x.studentId ? ` <span class="muted">${esc(x.studentId)}</span>` : ''}` : '<span class="muted">unknown</span>'; };
   const pending = posts.filter(p => p.status === 'pending');
   const tabs = `<div class="tabs"><a href="#/review/posts${qs({})}" class="${tab === 'posts' ? 'active' : ''}">All posts (${posts.length})</a><a href="#/review/queue${qs({})}" class="${tab === 'queue' ? 'active' : ''}">Review queue (${pending.length})</a><a href="#/review/comments${qs({})}" class="${tab === 'comments' ? 'active' : ''}">Comments</a><a href="#/review/roster${qs({})}" class="${tab === 'roster' ? 'active' : ''}">Roster (${users.length})</a></div>`;
-  const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + (p.wordCount ?? wordCount(p.body)), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
+  const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + (wordCount(p.body)), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
   // Posts per module and academic year, for the whole scope (before the year filter).
   const cells = groupBy(scope, p => (p.moduleId || '?') + '|' + (p.academicYear || '—'));
   const summaryYears = [...new Set(scope.map(p => p.academicYear || '—'))].sort().reverse();
   const summaryModules = [...new Set(scope.map(p => p.moduleId))];
   const summary = summaryModules.length ? `<table class="list compact"><thead><tr><th>Posts by module and year</th>${summaryYears.map(y => `<th><a href="#/review/${tab}${qs({year: y === '—' ? '' : y})}">${esc(y)}</a></th>`).join('')}<th>Total</th></tr></thead><tbody>${summaryModules.map(mid => { const m = modOf(mid); return `<tr><td><a href="#/review/${tab}${qs({module: mid})}">${esc(m ? [m.code, m.title].filter(Boolean).join(' ') : mid)}</a></td>${summaryYears.map(y => `<td>${(cells[mid + '|' + y] || []).filter(p => p.status === 'published').length}<span class="muted small"> / ${(cells[mid + '|' + y] || []).length}</span></td>`).join('')}<td><b>${scope.filter(p => p.moduleId === mid && p.status === 'published').length}</b><span class="muted small"> / ${scope.filter(p => p.moduleId === mid).length}</span></td></tr>`; }).join('')}</tbody></table><p class="hint">published / all posts</p>` : '';
   let body = '';
-  const row = p => { const m = modOf(p.moduleId); return `<tr><td>${p.featured ? '<span class="badge featured">★</span>' : ''}<a href="${p.status === 'published' ? postPath(p) : '#/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b><br><span class="small">${real(p.authorId)}</span></td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${p.wordCount ?? wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
+  const row = p => { const m = modOf(p.moduleId); return `<tr><td>${p.featured ? '<span class="badge featured">★</span>' : ''}<a href="${p.status === 'published' ? postPath(p) : '#/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b><br><span class="small">${real(p.authorId)}</span></td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
     <td class="actions"><a href="#/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ` <button class="linkish" data-act="unpublish" data-id="${p.id}">Unpublish</button>`} <button class="linkish" data-act="feature" data-id="${p.id}">${p.featured ? 'Unfeature' : 'Feature'}</button>${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`; };
   const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name / student</th><th>Module · year</th><th>Status</th><th>Words</th><th>Category</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
   if (tab === 'posts') body = summary + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
   if (tab === 'queue') body = '<p class="muted">Posts submitted for review. Approval is switched on per module in its settings.</p>' + table(pending);
   if (tab === 'comments') { const cs = (await store.recentComments(100)).filter(c=>posts.some(p=>p.id===c.postId)); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
-  if (tab === 'roster') { const count = groupBy(posts, p => p.authorId); body = `<table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th></tr></thead><tbody>${users.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td></tr>`).join('')}</tbody></table>`; }
+  if (tab === 'roster' && blogId && !moduleId && canRoster) { const lists = await Promise.all(teachingModules.filter(m => m.blogId === blogId && (u.role === 'admin' || (u.managedModuleIds || []).includes(m.id))).map(m => store.listUsers(m.id))); users = [...new Map(lists.flat().map(x => [x.uid, x])).values()]; }
+  if (tab === 'roster') { users = users.filter(x => rank(x.role || 'student') === 0); const count = groupBy(posts, p => p.authorId); body = `<table class="list sortable"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th></tr></thead><tbody>${users.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td></tr>`).join('')}</tbody></table>`; }
   const sel = (id, label, rows, value, all) => `<label class="field">${label}<select id="${id}"><option value="">${all}</option>${rows.map(([v, l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
   $app.innerHTML = `<h1 class="page-title">Instructor area</h1><p class="page-sub">Posts, review queue, comments and rosters for your modules, by blog, module and academic year.</p>
     <div class="review-filters">${sel('review-blog', 'Blog', myBlogs.map(b => [b.id, b.title]), blogId, 'All my blogs')}${sel('review-module', 'Module', teachingModules.filter(m => !blogId || m.blogId === blogId).map(m => [m.id, [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '')]), moduleId, 'All modules')}${sel('review-year', 'Academic year', years.map(y => [y, y]), year, 'All years')}</div>
     ${stats}${tabs}${body}`;
+  if (tab === 'roster') makeTablesSortable($app);
   const go = patch => { location.hash = '#/review/' + tab + qs(patch); };
   $app.querySelector('#review-blog').onchange = e => go({blog: e.target.value, module: ''});
   $app.querySelector('#review-module').onchange = e => go({module: e.target.value});
   $app.querySelector('#review-year').onchange = e => go({year: e.target.value});
   $app.querySelector('#export-csv')?.addEventListener('click', () => {
     const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, location.origin + location.pathname + postPath(p), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, p.wordCount ?? wordCount(p.body), catName(p.category, p), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
+    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, location.origin + location.pathname + postPath(p), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, wordCount(p.body), catName(p.category, p), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
     const blob = new Blob([rows.map(r => r.map(esc2).join(',')).join('\n')], {type: 'text/csv'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ucd-blog-posts${moduleId ? '-' + moduleId : ''}${year ? '-' + year.replace('/', '-') : ''}.csv`; a.click();
   });
   $app.onclick = async e => {
@@ -488,9 +512,11 @@ async function admin(tab = 'users',moduleId='') {
   const u = user();
   if (!u || rank(u.role) < 2) { $app.innerHTML = `<p class="empty">Admin access required.</p>`; return; }
   tab = tab || 'users';
-  const tabs = `<div class="tabs"><a href="#/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="#/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="#/admin/grading" class="${tab==='grading'?'active':''}">AI grading</a><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
+  const tabs = `<div class="tabs"><a href="#/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="#/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="#/admin/grading" class="${tab==='grading'?'active':''}">AI grading</a><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/admin/feedback" class="${tab === 'feedback' ? 'active' : ''}">Feedback</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
   if(tab==='people'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:true});return;}
+  if(tab==='people'){$app.innerHTML='<h1 class="page-title">Admin area</h1><p class="muted">People and invitation records exist only on the live platform.</p>';return;}
   if(tab==='grading'){await renderGrading($app,{moduleId});return;}
+  if (tab === 'feedback') { $app.innerHTML = `<h1 class="page-title">Feedback inbox</h1><p class="page-sub">What visitors, students and instructors sent with the Feedback button: notes, screenshots and voice notes.</p>${tabs}<div id="fb-inbox"></div>`; await renderFeedbackInbox($app.querySelector('#fb-inbox')); return; }
   let body = '';
   if(tab==='guide')body=store.mode==='firebase'?sanitize(await store.getAdminGuide()):'<p>The private admin guide is available on the live Firebase platform.</p>';
   if (tab === 'users') {
@@ -529,5 +555,6 @@ async function admin(tab = 'users',moduleId='') {
   catch (e) { $app.innerHTML = `<p class="empty">The blog could not start: ${esc(e.message)}</p>`; return; }
   store.onChange(() => { S = store.settings(); renderHeader(); if (liveView !== 'editor') render(); });
   addEventListener('hashchange', render);
+  mountFeedbackButton();
   render();
 })();

@@ -65,7 +65,7 @@ export async function blogCanvas(id) {
   app.innerHTML = `<p class="page-sub">${onBlog.length ? esc(onBlog.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h1 class="page-title">${esc(blog.title)}</h1><p>${esc(blog.description || '')}</p>
     <p class="actions">${u ? writing ? `<a class="btn primary" href="#/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>' : '<button class="btn primary" id="join-signin">Log in</button><button class="btn" id="join-module">Register with an invitation</button>'}${blog.brief ? `<a class="btn" href="#/blog/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="#/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="#/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy public link</button></p>
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="#/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
-    <p class="muted small">This blog and all published posts are publicly readable.</p>${canvas(posts, {categories: blog.categories || [], modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
+    <p class="muted small">This blog and all published posts are publicly readable.</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
   app.querySelector('#join-signin')?.addEventListener('click', () => openAuthModal());
   app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register'));
   app.querySelector('#copy-blog-link').onclick = async () => { try { await navigator.clipboard.writeText(blogUrl(id)); toast('Public link copied.'); } catch { prompt('Public blog link', blogUrl(id)); } };
@@ -75,7 +75,7 @@ export async function blogCanvas(id) {
 export async function moduleRedirect(id) {
   const m = await store.getModule(id), u = currentUser();
   if (!m) { app.innerHTML = '<p class="empty">Module not found. <a href="#/blogs">Explore blogs</a></p>'; return; }
-  if (m.blogId) { location.replace('#/blog/' + m.blogId + (location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '')); return; }
+  if (m.blogId) { const q = new URLSearchParams(location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?') + 1) : ''); if (!q.get('module')) q.set('module', id); location.replace('#/blog/' + m.blogId + '?' + q.toString()); return; }
   app.innerHTML = `<p class="page-sub">${esc(m.code || '')}</p><h1 class="page-title">${esc(m.title)}</h1><p class="empty">This module’s blog is not set up yet.${instructs(u, m) ? ` <a href="#/modules/edit/${esc(id)}">Attach it to a blog</a>.` : ''}</p>`;
 }
 
@@ -90,7 +90,7 @@ export async function briefPage(id) {
     ${blog.brief ? `<div class="body">${sanitize(blog.brief)}</div>` : '<p class="muted">The instructor has not written a brief for this blog yet.</p>'}
     <h2 class="page-title" style="font-size:20px;margin-top:30px">How publishing works here</h2>
     <ol class="steps">
-      <li><b>Log in</b> and choose a <b>pen name</b> in your profile. Posts and comments show the pen name; your instructor alone sees who is behind it.</li>
+      <li><b>Log in.</b> Your posts and comments appear under an <b>alias</b> generated at random when your account was created, with the date of publication; your instructor alone sees who is behind it.</li>
       <li><b>Write</b> your post in the editor: a title, a subtitle and the text, with hyperlinks to your sources, images and tables.${words ? ` The word meter follows the ${words} target (tables and captions are not counted).` : ''}</li>
       <li><b>Save a draft</b> as often as you like. Drafts are private to you and your instructor.</li>
       <li><b>Publish</b> when you are done.${cohort?.requireApproval ? ' Your instructor checks each post before it appears on the blog.' : ' Your post appears on the blog immediately and its address never changes.'}</li>
@@ -121,7 +121,7 @@ export async function manageModule(id) {
       <label class="field indent">Blog<select name="blogId">${existingBlogs.map(b => `<option value="${esc(b.id)}" ${m?.blogId === b.id ? 'selected' : ''}>${esc(b.title)}</option>`).join('')}</select></label>` : ''}
       <label class="check"><input type="radio" name="blogMode" value="new" ${chooseExisting ? '' : 'checked'}> Create a new, separate blog for this module</label>
       <div class="indent new-blog"><label class="field">Blog title<input name="blogTitle" maxlength="160" placeholder="e.g. Operations"></label>
-      <label class="field">Public URL name<input name="blogUrl" minlength="2" maxlength="80" pattern="[a-z0-9][a-z0-9-]+" placeholder="e.g. operations"><p class="hint">${esc(location.origin + location.pathname)}#/blog/<b>url-name</b> — lowercase letters, numbers and hyphens; fixed after creation. The brief, categories and word target are set afterwards in Blog settings.</p></label></div>
+      <label class="field">Public URL name<input name="blogUrl" minlength="2" maxlength="80" pattern="[a-z0-9][a-z0-9\\-]+" placeholder="e.g. operations"><p class="hint">${esc(location.origin + location.pathname)}#/blog/<b>url-name</b> — lowercase letters, numbers and hyphens; fixed after creation. The brief, categories and word target are set afterwards in Blog settings.</p></label></div>
     </fieldset>
     <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(m?.deadline || '')}"></label>
     <label class="check"><input type="checkbox" name="submissionsOpen" ${m?.submissionsOpen !== false ? 'checked' : ''}> Students can write and publish</label>
@@ -180,8 +180,9 @@ export async function manageBlog(id) {
   app.querySelector('#blog-form').onsubmit = async e => {
     e.preventDefault(); const f = e.target, d = Object.fromEntries(new FormData(f)), button = f.querySelector('button'); button.disabled = true;
     try {
+      if (+d.minWords > +d.maxWords && +d.maxWords > 0) throw Error('The minimum word count cannot exceed the maximum.');
       await store.saveBlog({id, title: d.title.trim(), description: d.description.trim(), brief: d.brief, categoryLabel: d.categoryLabel.trim() || 'Category', organisationLabel: d.organisationLabel.trim(), minWords: +d.minWords || 0, maxWords: +d.maxWords || 0, outline: d.outline, allowComments: !!d.allowComments,
-        categories: d.categories.split('\n').map(l => l.split('|')).filter(a => a[0]?.trim()).map(a => ({slug: slugify(a[0]), name: (a[1] || a[0]).trim()})),
+        categories: d.categories.split('\n').map(l => l.split('|')).filter(a => a[0]?.trim()).map(a => ({slug: slugify(a[0]), name: (a[1] || a[0]).trim()})).slice(0, 30),
         checklist: d.checklist.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 12)});
       toast('Blog saved.'); location.hash = '#/blog/' + id;
     } catch (err) { f.querySelector('.auth-msg').textContent = err.message; } finally { button.disabled = false; }

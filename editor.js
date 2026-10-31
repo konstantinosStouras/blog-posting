@@ -39,6 +39,8 @@ const ALIGNS = [['justifyLeft', 'Left', 'alignLeft'], ['justifyCenter', 'Center'
 const DURATIONS = [[1, '1 day'], [3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '1 month'], [0, 'No time limit']];
 const BLOCK_SEL = 'p,h2,h3,h4,blockquote,pre,li,aside,div.math,div.tv-chart,div.poll,figure,table';
 
+document.addEventListener('click', e => { for (const c of document.querySelectorAll('.editor')) if (!c.contains(e.target)) c.closeMenus?.(); });
+
 export function mountEditor(container, {html = '', onChange = () => {}, placeholder = 'Start writing…', extras = []} = {}) {
   container.classList.add('editor');
   const btn = (cmd, title, icon) => `<button type="button" data-cmd="${cmd}" title="${esc(title)}" aria-label="${esc(title)}">${icon}</button>`;
@@ -80,7 +82,8 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     placeCaret(after); return node;
   };
   surface.innerHTML = sanitize(html);
-  try { document.execCommand('styleWithCSS', false, true); } catch {}
+  try { document.execCommand('styleWithCSS', false, true); document.execCommand('defaultParagraphSeparator', false, 'p'); } catch {}
+  const ensureParagraph = () => { if (!surface.firstElementChild && !surface.textContent.trim()) { surface.innerHTML = '<p><br></p>'; placeCaret(surface.firstElementChild); } };
   pinFootnotes(); enhance(surface, {editor: true});
 
   // ---------- toolbar ----------
@@ -93,7 +96,7 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     closeMenus();
     run(b.dataset.cmd);
   });
-  document.addEventListener('click', e => { if (!container.contains(e.target)) closeMenus(); });
+  container.closeMenus = closeMenus;   // the module-level listener below closes menus on outside clicks
   function run(c) {
     if (c.startsWith('style:')) { exec('formatBlock', c.slice(6)); return; }
     if (c.startsWith('color:')) { const v = c.slice(6); exec('foreColor', v === 'default' ? 'inherit' : v); return; }
@@ -109,8 +112,8 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
       case 'hr': insertHTML('<hr><p><br></p>'); break;
       case 'chart': chartDialog(); break;
       case 'footnote': footnote(); break;
-      case 'latex': { const el = document.createElement('div'); el.className = 'math'; el.dataset.tex = ''; insertBlockAfterCurrent(el); enhance(surface, {editor: true}).then(() => { changed(); latexDialog(el); }); break; }
-      case 'poll': { const el = document.createElement('div'); el.className = 'poll'; el.dataset.poll = writePoll({id: newId(), q: 'New poll', options: ['Option 1', 'Option 2'], days: 7, hide: false}); insertBlockAfterCurrent(el); enhance(surface, {editor: true}).then(() => { changed(); pollDialog(el); }); break; }
+      case 'latex': { const el = document.createElement('div'); el.className = 'math'; el.dataset.tex = ''; insertBlockAfterCurrent(el); enhance(surface, {editor: true}).then(() => { changed(); latexDialog(el, true); }); break; }
+      case 'poll': { const el = document.createElement('div'); el.className = 'poll'; el.dataset.poll = writePoll({id: newId(), q: 'New poll', options: ['Option 1', 'Option 2'], days: 7, hide: false}); insertBlockAfterCurrent(el); enhance(surface, {editor: true}).then(() => { changed(); pollDialog(el, true); }); break; }
       case 'caption': {
         const fig = inside('figure') || blockOf()?.previousElementSibling?.closest?.('figure');
         if (fig) { let cap = fig.querySelector('figcaption'); if (!cap) { cap = document.createElement('figcaption'); cap.textContent = 'Figure: describe what this shows and cite the source'; fig.append(cap); } placeCaret(cap, true); const r = document.createRange(); r.selectNodeContents(cap); const ss = sel(); ss.removeAllRanges(); ss.addRange(r); changed(); break; }
@@ -164,23 +167,26 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
   // ---------- dialogs ----------
   function dialog(html, cls = '') {
     const d = document.createElement('dialog'); d.className = 'sheet small ' + cls; d.innerHTML = `<form method="dialog" class="sheet-form">${html}</form>`; document.body.append(d);
-    const close = d.close.bind(d); d.close = () => { if (d.open) close(); d.remove(); surface.focus(); };
+    const close = d.close.bind(d); d.onClosed = []; d.close = () => { if (d.open) close(); d.remove(); surface.focus(); const fns = d.onClosed.splice(0); fns.forEach(f => f()); };
     d.addEventListener('close', () => d.close());
     d.querySelector('[value=cancel]')?.addEventListener('click', () => d.close());
     d.showModal(); return d;
   }
-  const dialogFoot = (ok, remove = false) => `<div class="actions sheet-actions"><button type="button" class="btn accent" data-ok>${ok}</button><button class="btn" value="cancel" formnovalidate>Cancel</button>${remove ? '<button type="button" class="linkish danger" data-remove>Remove</button>' : ''}</div>`;
+  const dialogFoot = (ok, remove = false) => `<div class="actions sheet-actions"><button type="button" class="btn accent" data-ok>${ok}</button><button type="button" class="btn" value="cancel">Cancel</button>${remove ? '<button type="button" class="linkish danger" data-remove>Remove</button>' : ''}</div>`;
   function removeWidget(el) { el.remove(); changed(); }
 
-  function latexDialog(el) {
+  function latexDialog(el, fresh = false) {
+    let kept = false;
     const d = dialog(`<h2>Add LaTeX</h2><textarea class="tex-src" rows="5" placeholder="e.g. \\frac{a}{b} = \\sum_{i=1}^n x_i" spellcheck="false">${esc(el.dataset.tex || '')}</textarea><div class="tex-preview"><span class="muted small">Preview</span></div>${dialogFoot('Save', true)}`);
     const src = d.querySelector('.tex-src'), pv = d.querySelector('.tex-preview');
     const render = async () => { const K = await katex().catch(() => null); if (!K) { pv.textContent = src.value; return; } pv.innerHTML = ''; try { K.render(src.value || '\\text{…}', pv, {displayMode: true, throwOnError: false}); } catch { pv.textContent = src.value; } };
     src.addEventListener('input', render); render(); src.focus();
-    d.querySelector('[data-ok]').onclick = () => { el.dataset.tex = src.value.trim(); d.close(); enhance(surface, {editor: true}).then(changed); };
+    d.querySelector('[data-ok]').onclick = () => { kept = true; el.dataset.tex = src.value.trim(); d.close(); enhance(surface, {editor: true}).then(changed); };
     d.querySelector('[data-remove]').onclick = () => { d.close(); removeWidget(el); };
+    d.onClosed.push(() => { if (fresh && !kept && el.isConnected) removeWidget(el); });
   }
-  function pollDialog(el) {
+  function pollDialog(el, fresh = false) {
+    let kept = false;
     const p = readPoll(el);
     const d = dialog(`<h2>Edit poll</h2><label class="field">Poll question<input class="poll-q" maxlength="300" placeholder="Enter your question…" value="${esc(p.q === 'New poll' ? '' : p.q)}"></label>
       <div class="field"><span>Poll options</span><div class="poll-opts">${(p.options.length ? p.options : ['', '']).map((o, i) => `<input maxlength="120" placeholder="Option ${i + 1}" value="${esc(o)}">`).join('')}</div><button type="button" class="linkish small" data-add-opt>+ Add option</button></div>
@@ -192,10 +198,11 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     d.querySelector('[data-ok]').onclick = () => {
       const q = d.querySelector('.poll-q').value.trim(), options = [...opts.querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean);
       if (!q) return toast('Enter the poll question.', 'error'); if (options.length < 2) return toast('Give the poll at least two options.', 'error');
-      el.dataset.poll = writePoll({id: p.id, q, options, days: +d.querySelector('.poll-days').value, hide: d.querySelector('.poll-hide').checked});
+      kept = true; el.dataset.poll = writePoll({id: p.id, q, options, days: +d.querySelector('.poll-days').value, hide: d.querySelector('.poll-hide').checked});
       d.close(); enhance(surface, {editor: true}).then(changed);
     };
     d.querySelector('[data-remove]').onclick = () => { d.close(); removeWidget(el); };
+    d.onClosed.push(() => { if (fresh && !kept && el.isConnected) removeWidget(el); });
   }
   function chartDialog(el = null) {
     const cur = el ? {symbol: el.dataset.symbol || 'AAPL', interval: el.dataset.interval || 'D'} : {symbol: 'AAPL', interval: 'D'};
@@ -238,9 +245,10 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     const h = e.clipboardData.getData('text/html'), t = e.clipboardData.getData('text/plain');
     if (inside('pre')) { exec('insertText', t); return; }
     if (h) { const clean = sanitize(h).replace(/ style="[^"]*"/g, '').replace(/<(\/?)(span|font|div)[^>]*>/g, (m, s, tag) => tag === 'div' ? (s ? '</p>' : '<p>') : ''); insertHTML(clean); }
-    else insertHTML(esc(t).replace(/\r?\n\r?\n/g, '</p><p>').replace(/\r?\n/g, '<br>'));
+    else { const paras = t.split(/\r?\n\r?\n/).map(x => esc(x).replace(/\r?\n/g, '<br>')).filter(Boolean); insertHTML(paras.length > 1 ? '<p>' + paras.join('</p><p>') + '</p>' : paras[0] || ''); }
   });
-  surface.addEventListener('input', () => { renumberFootnotes(surface, true); changed(); });
+  surface.addEventListener('focus', ensureParagraph);
+  surface.addEventListener('input', () => { if (!surface.firstElementChild && surface.textContent) { document.execCommand('formatBlock', false, 'P'); } renumberFootnotes(surface, true); changed(); });
   surface.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openLinkPop(); }
     if (e.key === 'Escape') closeMenus();

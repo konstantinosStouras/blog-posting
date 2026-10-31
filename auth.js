@@ -6,9 +6,9 @@ export const currentUser=()=>store.currentUser();
 let activeInvitation=null;
 export const roleLabel=role=>role==='lecturer'?'instructor':role;
 export function invitationRoute(info){return `#/${info.kind==='instructor'?'invite':'join'}/${info.inviteId}/${info.code}`;}
-export const teacherInviteId=()=>location.hash.match(/^#\/invite\/([a-zA-Z0-9-]+)(?:\/[a-z]+)?$/i)?.[1]||'';
+export const teacherInviteId=()=>location.hash.match(/^#\/invite\/([a-zA-Z0-9-]+)(?:\/[a-z]+(?:-[0-9]{3})?)?$/i)?.[1]||'';
 async function routeInvitation(){
- const code=location.hash.match(/^#\/(?:invite|join)\/[a-zA-Z0-9-]+\/([a-z]+)$/i)?.[1];
+ const code=location.hash.match(/^#\/(?:invite|join)\/[a-zA-Z0-9-]+\/([a-z]+(?:-[0-9]{3})?)$/i)?.[1];
  return code?store.resolveRegistrationCode(code):null;
 }
 export function renderAccountControl(el){
@@ -34,13 +34,13 @@ function accountMenu(u){return `<details class="account-menu"><summary><span cla
  const menu=document.querySelector('.account-menu[open]');if(menu&&!menu.contains(e.target))menu.removeAttribute('open');
 });
 export async function openAuthModal(view='signin',invitation=null){
- let m=document.getElementById('auth-modal');if(!m){m=document.createElement('dialog');m.id='auth-modal';document.body.append(m);}
+ let m=document.getElementById('auth-modal');if(!m){m=document.createElement('dialog');m.id='auth-modal';document.body.append(m);m.addEventListener('click',e=>{if(e.target.closest('.close'))m.close();});}
  if(view==='register'&&!invitation&&!/^#\/(invite|join)\//.test(location.hash))activeInvitation=null;
  if(invitation)activeInvitation=invitation;
  if(!activeInvitation){try{activeInvitation=await routeInvitation();}catch{}}
  const collecting=view==='register'||view==='complete',u=currentUser();
  if(collecting&&!activeInvitation){
-  m.innerHTML=`<form method="dialog" class="auth-form"><button class="close" value="cancel" formnovalidate aria-label="Close">×</button><h2>Enter your invitation code</h2><p class="muted">Use the city name supplied by the platform admin or your module instructor.</p><label>Registration code<input name="registrationCode" required autocomplete="off" placeholder="e.g. Madrid"></label><button class="btn primary" value="submit">Continue</button><p class="auth-msg" aria-live="polite"></p></form>`;
+  m.innerHTML=`<form method="dialog" class="auth-form"><button type="button" class="close" aria-label="Close">×</button><h2>Enter your invitation code</h2><p class="muted">Use the city name supplied by the platform admin or your module instructor.</p><label>Registration code<input name="registrationCode" required autocomplete="off" placeholder="e.g. Madrid-483"></label><button class="btn primary" value="submit">Continue</button><p class="auth-msg" aria-live="polite"></p></form>`;
   m.querySelector('form').onsubmit=async e=>{if(e.submitter?.value!=='submit')return;e.preventDefault();try{const data=Object.fromEntries(new FormData(e.target));const info=await store.resolveRegistrationCode(data.registrationCode);activeInvitation=info;location.hash=invitationRoute(info);await openAuthModal(u?'complete':'register',info);}catch(err){m.querySelector('.auth-msg').textContent=friendly(err);}};
   if(!m.open)m.showModal();return;
  }
@@ -52,7 +52,7 @@ export async function openAuthModal(view='signin',invitation=null){
   <label>School / university<input name="affiliation" required maxlength="200" autocomplete="organization" value="${esc(u?.affiliation||'')}"></label>
   <label>University email<input name="universityEmail" type="email" required autocomplete="email" value="${esc(u?.contactEmail||'')}"></label>
   ${teacher?'':`<label>University ID number<input name="studentId" required maxlength="40" value="${esc(u?.studentId||'')}"></label>`}`:'';
- m.innerHTML=`<form method="dialog" class="auth-form"><button class="close" value="cancel" formnovalidate aria-label="Close">×</button>
+ m.innerHTML=`<form method="dialog" class="auth-form"><button type="button" class="close" aria-label="Close">×</button>
   <h2>${view==='complete'?'Complete your profile':view==='register'?teacher?'Instructor registration':'Module student registration':view==='reset'?'Reset password':'Log in'}</h2>
   <p class="muted">${collecting?'Your invitation determines which space you can access. Your university details remain private to you and authorised teaching staff.':'Sign in with the same email or Google account you registered with.'}</p>${fields}
   ${google&&view!=='reset'&&view!=='complete'?`${collecting?'<label>Gmail for Google sign-in (optional)<input name="googleEmail" type="email" autocomplete="off" placeholder="yourname@gmail.com"></label><p class="hint">Choose this account in the next window. No password below is needed when using Google.</p>':''}<button type="button" class="btn provider" data-provider="google.com">Continue with Google</button>`:''}

@@ -28,9 +28,14 @@ service cloud.firestore {
         && str('studentId',40) && str('website',300) && str('bio',800) && str('contactEmail',200) && str('photo',120000)
         && request.resource.data.get('registrationKind','student') in ['student','teacher','instructor'];
     }
+    // Students write under a generated alias (adjective-noun-number, see aliases.js):
+    // a student profile may be created only with one, and may change its pen name only to one.
+    function staffProfile() { return request.resource.data.get('registrationKind','student') in ['teacher','instructor'] || hasRole('lecturer') || isAdmin(); }
+    function aliasName() { return request.resource.data.get('penName','').matches('^[a-z]+-[a-z]+-[0-9]{3}$'); }
     match /profiles/{uid} {
       allow read: if own(uid) || isAdmin();
-      allow create, update: if own(uid) && profileShape();
+      allow create: if own(uid) && profileShape() && (staffProfile() || aliasName());
+      allow update: if own(uid) && profileShape() && (staffProfile() || aliasName() || request.resource.data.get('penName','') == resource.data.get('penName',''));
       allow delete: if isAdmin();
     }
     match /userDirectory/{uid} {
@@ -92,7 +97,7 @@ service cloud.firestore {
     match /registrationCodes/{code} {
       allow get: if true;
       allow list: if false;
-      allow create: if code.matches('^[a-z]{3,30}$')
+      allow create: if code.matches('^[a-z]{3,30}(-[0-9]{3})?$')
         && request.resource.data.keys().hasOnly(['code','kind','inviteId','moduleId','expiresAt','revoked'])
         && request.resource.data.revoked == false
         && request.resource.data.code == code && request.resource.data.expiresAt is number
@@ -119,7 +124,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['moduleId','code','createdBy','createdAt','expiresAt','revoked','recipientEmail'])
         && str('recipientEmail',200)
         && (request.resource.data.get('recipientEmail','') == '' || universityEmail(request.resource.data.recipientEmail))
-        && request.resource.data.code.matches('^[a-z]{3,30}$')
+        && request.resource.data.code.matches('^[a-z]{3,30}(-[0-9]{3})?$')
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt is number && request.resource.data.expiresAt is number
         && request.resource.data.expiresAt > request.time.toMillis()
@@ -202,7 +207,7 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['uid','moduleId','joinedAt'])
           && request.resource.data.uid == uid && request.resource.data.joinedAt is number
           && moduleExists(request.resource.data.moduleId) && moduleBlog(request.resource.data.moduleId) == blogId
-          && existsAfter(/databases/$(database)/documents/modules/$(request.resource.data.moduleId)/members/$(uid));
+          && (existsAfter(/databases/$(database)/documents/modules/$(request.resource.data.moduleId)/members/$(uid)) || staffOf(request.resource.data.moduleId));
         allow delete: if own(uid) || isAdmin();
       }
     }
@@ -219,10 +224,12 @@ service cloud.firestore {
         && d.blogId == moduleBlog(d.moduleId) && str('academicYear',20);
     }
     match /posts/{id} {
+      allow get: if signedIn() && resource == null;   // the writer checks a fresh id before its first save
       allow read: if resource.data.status == 'published' || own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId);
       allow create: if verified() && postShape() && request.resource.data.authorId == request.auth.uid
         && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
           || (memberOf(request.resource.data.moduleId) && openSubmissions(request.resource.data.moduleId)
+            && request.resource.data.authorName == get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('penName','') && request.resource.data.authorName.matches('^([a-z]+-[a-z]+-[0-9]{3}|student_[a-z0-9]+)$')
             && request.resource.data.get('featured',false) == false
             && (request.resource.data.status != 'published' || !approvalRequired(request.resource.data.moduleId))));
       allow update: if verified() && postShape()
@@ -230,6 +237,9 @@ service cloud.firestore {
         && request.resource.data.authorId == resource.data.authorId
         && (staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId)
           || (own(resource.data.authorId) && memberOf(resource.data.moduleId) && openSubmissions(resource.data.moduleId)
+            && request.resource.data.authorName == get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('penName','') && request.resource.data.authorName.matches('^([a-z]+-[a-z]+-[0-9]{3}|student_[a-z0-9]+)$')
+            && request.resource.data.createdAt == resource.data.createdAt
+            && (request.resource.data.get('publishedAt', null) == resource.data.get('publishedAt', null) || (resource.data.status != 'published' && request.resource.data.status == 'published'))
             && request.resource.data.get('featured',false) == resource.data.get('featured',false)
             && (request.resource.data.status != 'published' || !approvalRequired(resource.data.moduleId))));
       allow delete: if isAdmin() || (verified() && own(resource.data.authorId) && resource.data.status != 'published');
@@ -259,8 +269,9 @@ service cloud.firestore {
       allow create: if verified()
         && request.resource.data.keys().hasOnly(['postId','moduleId','blogId','body','authorId','authorName','createdAt'])
         && request.resource.data.authorId == request.auth.uid
-        && (memberOf(request.resource.data.moduleId) || staffOf(request.resource.data.moduleId)
-          || blogMember(request.resource.data.blogId) || blogStaff(request.resource.data.blogId))
+        && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
+          || ((memberOf(request.resource.data.moduleId) || blogMember(request.resource.data.blogId))
+            && request.resource.data.authorName == get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('penName','') && request.resource.data.authorName.matches('^([a-z]+-[a-z]+-[0-9]{3}|student_[a-z0-9]+)$')))
         && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
         && str('authorName',60) && request.resource.data.createdAt is number
         && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
@@ -300,6 +311,37 @@ service cloud.firestore {
         && str('moduleId',100) && str('blogId',100) && str('authorId',100) && str('provider',40) && str('model',120) && str('effort',20)
         && str('summary',4000) && str('feedback',20000) && str('raw',40000) && str('error',2000) && str('finalGrade',20) && str('finalFeedback',20000)
         && (request.resource.data.get('grade',0) == null || request.resource.data.get('grade',0) is number);
+    }
+    // Feedback button. ANYONE — signed in or not — may create one bounded submission
+    // (as on stouras.com/lit/feedback); only the admin reads, closes or deletes it.
+    // A signed-in submitter may record their own uid, nobody else's. Screenshots
+    // and voice notes sit in an attachments subcollection, one data URL per
+    // document, so no document approaches the 1 MB limit; each must be written
+    // in the same batch as (or after) its parent.
+    match /feedback/{id} {
+      function feedbackShape() { let d = request.resource.data; return d.keys().hasOnly(['text','name','email','uid','role','ticket','url','route','ua','viewport','imageCount','audioCount','status','createdAt'])
+        && str('text', 20000) && str('name', 200) && str('email', 320) && str('role', 20) && str('ticket', 64) && str('url', 2000) && str('route', 300) && str('ua', 1000) && str('viewport', 40)
+        && (d.get('uid', null) == null || (signedIn() && d.uid == request.auth.uid))
+        && d.imageCount is int && d.imageCount >= 0 && d.imageCount <= 5
+        && d.audioCount is int && d.audioCount >= 0 && d.audioCount <= 1
+        && d.status == 'new' && d.createdAt is number
+        && (d.get('text', '').size() > 0 || d.imageCount + d.audioCount > 0); }
+      allow create: if feedbackShape();
+      allow read, delete: if isAdmin();
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','resolution','closedAt'])
+        && request.resource.data.status in ['new','reopened','closed'] && str('resolution', 4000);
+      match /attachments/{n} {
+        function attachmentShape() { let d = request.resource.data; return d.keys().hasOnly(['kind','mime','dataUrl','bytes','seconds','order'])
+          && d.kind in ['image','audio'] && str('mime', 100)
+          && d.dataUrl is string && d.dataUrl.size() <= 921600 && d.dataUrl.matches('^data:' + d.kind + '/.*')
+          && d.bytes is int && d.seconds is int && d.seconds >= 0 && d.seconds <= 180 && d.order is int && d.order >= 0 && d.order < 6
+          && n == string(d.order)
+          && existsAfter(/databases/$(database)/documents/feedback/$(id))
+          && d.order < getAfter(/databases/$(database)/documents/feedback/$(id)).data.imageCount + getAfter(/databases/$(database)/documents/feedback/$(id)).data.audioCount; }
+        allow create: if attachmentShape();
+        allow read, delete: if isAdmin();
+        allow update: if false;
+      }
     }
     match /{document=**} { allow read, write: if false; }
   }

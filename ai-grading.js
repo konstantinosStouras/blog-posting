@@ -171,11 +171,13 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
     catch (e) { if (status) status.textContent = 'Not saved: ' + e.message; toast(e.message, 'error'); }
   }
   const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); toast(`${what} copied.`); } catch { prompt(what, text); } };
-  target.addEventListener('change', e => {
+  if (target._gradingChange) target.removeEventListener('change', target._gradingChange);
+  if (target._gradingClick) target.removeEventListener('click', target._gradingClick);
+  target.addEventListener('change', target._gradingChange = e => {
     const g = e.target.closest('[data-final-grade]'); if (g) { const r = byId.get(g.dataset.finalGrade); g.closest('td').dataset.sortValue = g.value.trim(); return saveFinal(r, {finalGrade: g.value.trim().slice(0, 20)}); }
     const t = e.target.closest('[data-final-text]'); if (t) return saveFinal(byId.get(t.dataset.finalText), {finalFeedback: t.value.trim().slice(0, 20000)});
   });
-  target.addEventListener('click', async e => {
+  target.addEventListener('click', target._gradingClick = async e => {
     const b = e.target.closest('button[data-grade],[data-copy-ai],[data-use-ai],[data-polish],[data-copy-final]'); if (!b) return;
     const id = b.dataset.grade || b.dataset.copyAi || b.dataset.useAi || b.dataset.polish || b.dataset.copyFinal, r = byId.get(id); if (!r) return;
     const area = target.querySelector(`[data-final-text="${id}"]`);

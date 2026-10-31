@@ -70,6 +70,7 @@ export const local = {
     if (data.newBlog) blogId = (await this.saveBlog({title: data.newBlog.title, urlName: data.newBlog.urlName, description: data.description || ''})).id;
     const blog = state.blogs.find(b => b.id === blogId);
     if (!blog || !teaches(u, blog)) throw Error('Choose one of your own blogs for this module, or create a new one.');
+    if (!existing && data.code && state.modules.some(m => m.code.toLowerCase() === String(data.code).trim().toLowerCase() && m.academicYear === String(data.academicYear || '').trim())) throw Error('A module with this code and academic year already exists. Open it from My modules instead.');
     const id = existing?.id || uniqueId(state.modules, slugify([data.code || data.title, data.academicYear].filter(Boolean).join(' ')));
     const doc = {...(existing || {createdBy: u.uid, createdAt: Date.now(), teacherIds: [u.uid], teacherName: [u.firstName, u.lastName].filter(Boolean).join(' ')}), id, title: String(data.title || '').trim(), code: String(data.code || '').trim(), academicYear: String(data.academicYear || '').trim(), description: String(data.description || '').trim(), blogId, submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, deadline: data.deadline || '', updatedAt: Date.now()};
     if (!doc.title) throw Error('Enter a module title.');
@@ -82,6 +83,14 @@ export const local = {
   },
   async joinModule(id) { const u = me(); if (!u) throw Error('Sign in to join a module.'); if (!state.memberships.some(x => x.uid === u.uid && x.moduleId === id)) { state.memberships.push({uid: u.uid, moduleId: id}); save(); } },
   async resolveRegistrationCode() { throw Error('Invitation codes exist only on the live platform.'); },
+  // Sign-in exists only on the live platform; here "View as" stands in for it.
+  async signIn() { throw Error('Sign-in exists only on the live platform. Use "View as" at the top right.'); },
+  async register() { throw Error('Registration exists only on the live platform. Use "View as" at the top right.'); },
+  async completeRegistration(data) { const u = me(); if (u) Object.assign(state.users.find(x => x.uid === u.uid), data); save(); return data; },
+  async resetPassword() { throw Error('Password reset exists only on the live platform.'); },
+  async resendVerification() {}, async refreshVerification() { return true; },
+  async signOut() { this.viewAs(''); },
+  async acceptTeacherInvite() { throw Error('Invitations exist only on the live platform.'); },
   async listModuleInvites() { return []; },
   async createModuleInvite() { throw Error('Invitations exist only on the live platform.'); },
   async revokeModuleInvite() {},
@@ -108,7 +117,7 @@ export const local = {
     if (!module) throw Error('Choose a module before saving.');
     const doc = {...(existing || {createdAt: now, authorId: user.uid}), ...post, id: existing?.id || post.id || newId(), moduleId: module.id, blogId: module.blogId, academicYear: existing?.academicYear || module.academicYear || '', updatedAt: now};
     doc.authorName = state.users.find(u => u.uid === doc.authorId)?.penName || doc.authorName || 'anonymous';
-    doc.slug = uniqueSlug(doc.slug || slugify(doc.title), doc.id);
+    doc.slug = uniqueSlug(existing?.publishedAt ? existing.slug : slugify(doc.title), doc.id);
     doc.wordCount = wordCount(doc.body); doc.excerpt = String(doc.excerpt || '').trim();
     if (doc.status === 'published' && !doc.publishedAt) doc.publishedAt = now;
     if (doc.status !== 'published') doc.publishedAt = existing?.status === 'published' ? existing.publishedAt : doc.publishedAt || null;
@@ -161,6 +170,13 @@ export const local = {
   async saveGraderConfig(cfg) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.grader = {persona: String(cfg.persona || ''), instructions: String(cfg.instructions || ''), polish: String(cfg.polish || ''), updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.grader); },
   async listAiReviews(moduleId = '') { const u = me(); if (u?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.aiReviews || {}).filter(r => !moduleId || r.moduleId === moduleId))); },
   async saveAiReview(postId, patch) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.aiReviews = state.aiReviews || {}; state.aiReviews[postId] = {...(state.aiReviews[postId] || {}), ...patch, postId, updatedAt: Date.now()}; save(); return structuredClone(state.aiReviews[postId]); },
+
+  // ---- feedback button (anyone submits; the admin reads) ----
+  async submitFeedback(doc, attachments = []) { const id = newId(); state.feedback = state.feedback || []; state.feedback.push({id, ...doc, attachments: attachments.map((a, i) => ({id: String(i), ...a}))}); save(); return delay({id, ticket: doc.ticket}); },
+  async listFeedback() { if (me()?.role !== 'admin') return []; return delay((state.feedback || []).map(({attachments, ...f}) => structuredClone(f)).sort((a, b) => b.createdAt - a.createdAt)); },
+  async listFeedbackAttachments(id) { if (me()?.role !== 'admin') return []; return delay(structuredClone((state.feedback || []).find(f => f.id === id)?.attachments || [])); },
+  async updateFeedback(id, patch) { if (me()?.role !== 'admin') throw Error('Admin access required.'); const f = (state.feedback || []).find(x => x.id === id); if (!f) throw Error('Not found.'); Object.assign(f, patch); save(); },
+  async deleteFeedback(id) { if (me()?.role !== 'admin') throw Error('Admin access required.'); state.feedback = (state.feedback || []).filter(f => f.id !== id); save(); },
 
   // ---- site ----
   async saveSettings(patch) { Object.assign(state.settings, patch); save(); return state.settings; },

@@ -4,14 +4,14 @@ import {initializeTestEnvironment,assertSucceeds,assertFails} from '@firebase/ru
 import {doc,setDoc,getDoc,getDocs,collection,query,where,updateDoc,deleteDoc,writeBatch} from 'firebase/firestore';
 let env;
 const time=Date.now();
-const profile=(email='student@ucdconnect.ie')=>({firstName:'Student',lastName:'Example',penName:'student_alias',studentId:'12345678',contactEmail:email,affiliation:'Example University',registrationKind:'student'});
+const profile=(email='student@ucdconnect.ie')=>({firstName:'Student',lastName:'Example',penName:'quiet-heron-482',studentId:'12345678',contactEmail:email,affiliation:'Example University',registrationKind:'student'});
 // Blogs are the public canvases (and exercises); modules are cohorts attached to one blog.
 const blog=(uid)=>({title:'Test blog',description:'',teacherIds:[uid],createdBy:uid,createdAt:time,updatedAt:time,brief:'',categoryLabel:'Megatrend',categories:[{slug:'sustainability',name:'Sustainability'}],organisationLabel:'Organisation',minWords:900,maxWords:1100,outline:'',checklist:[],allowComments:true});
 const mod=(uid,blogId='pm')=>({title:'Test module',code:'TEST',description:'',teacherName:'Teacher',teacherIds:[uid],createdBy:uid,createdAt:time,updatedAt:time,submissionsOpen:true,requireApproval:false,blogId,academicYear:'2026/27',deadline:''});
-const post=(moduleId='one',authorId='student',status='draft',blogId='pm')=>({moduleId,blogId,academicYear:'2026/27',authorId,status,title:'Test post',slug:'test-post',body:'<p>Test content</p>',featured:false,authorName:'student_alias',createdAt:time,updatedAt:time});
-const member=(uid='student')=>({uid,...profile(),penName:'student_alias',email:'student@ucdconnect.ie',joinedAt:time,inviteId:'student-valid'});
+const post=(moduleId='one',authorId='student',status='draft',blogId='pm')=>({moduleId,blogId,academicYear:'2026/27',authorId,status,title:'Test post',slug:'test-post',body:'<p>Test content</p>',featured:false,authorName:'quiet-heron-482',createdAt:time,updatedAt:time});
+const member=(uid='student')=>({uid,...profile(),penName:'quiet-heron-482',email:'student@ucdconnect.ie',joinedAt:time,inviteId:'student-valid'});
 const invite=(extra={})=>({ucdEmail:'invited@ucd.ie',gmail:'invited@gmail.com',createdBy:'admin',createdAt:time,expiresAt:time+86400000,acceptedBy:'',revoked:false,...extra});
-const comment=(extra={})=>({postId:'published',moduleId:'one',blogId:'pm',authorId:'student',authorName:'alias',body:'Hello',createdAt:time,...extra});
+const comment=(extra={})=>({postId:'published',moduleId:'one',blogId:'pm',authorId:'student',authorName:'quiet-heron-482',body:'Hello',createdAt:time,...extra});
 const db=(uid,email=uid+'@ucd.ie',verified=true)=>env.authenticatedContext(uid,{email,email_verified:verified,firebase:{sign_in_provider:'password'}}).firestore();
 before(async()=>{env=await initializeTestEnvironment({projectId:'demo-ucd-blog',firestore:{rules:await readFile(new URL('../firestore.rules',import.meta.url),'utf8')}});});
 after(async()=>{await env?.cleanup();});
@@ -68,6 +68,19 @@ test('AI reviews and the grader persona are private to the platform administrato
   await assertFails(setDoc(doc(d,'aiReviews/published'),review));
   await assertFails(getDoc(doc(d,'adminContent/grader')));
  }
+});
+test('students write under generated aliases and cannot pick an identifying pen name',async()=>{
+ const d=db('student','student@ucdconnect.ie');
+ await assertFails(updateDoc(doc(d,'profiles/student'),{penName:'Aoife Byrne'}));
+ await assertFails(updateDoc(doc(d,'profiles/student'),{penName:'student_26000001'}));
+ await assertSucceeds(updateDoc(doc(d,'profiles/student'),{penName:'amber-falcon-731'}));
+ await assertSucceeds(updateDoc(doc(d,'profiles/student'),{bio:'Hello'}));
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'profiles/legacy'),{...profile('legacy@ucd.ie'),penName:'student_legacy12'}));
+ await assertSucceeds(updateDoc(doc(db('legacy','legacy@ucd.ie'),'profiles/legacy'),{bio:'Kept my old pen name'}));
+ await assertFails(updateDoc(doc(db('legacy','legacy@ucd.ie'),'profiles/legacy'),{penName:'Legacy Name'}));
+ await assertFails(setDoc(doc(db('fresh','fresh@ucd.ie'),'profiles/fresh'),{...profile('fresh@ucd.ie'),penName:'Fresh Name'}));
+ await assertSucceeds(setDoc(doc(db('fresh','fresh@ucd.ie'),'profiles/fresh'),{...profile('fresh@ucd.ie'),penName:'sunny-reef-105'}));
+ await assertSucceeds(setDoc(doc(db('staff','staff@ucd.ie'),'profiles/staff'),{...profile('staff@ucd.ie'),studentId:'',registrationKind:'teacher',penName:'dr_staff'}));
 });
 test('admin guide is private to the platform administrator',async()=>{
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'adminContent/guide'),{html:'Private guide'}));
@@ -199,6 +212,35 @@ test('poll votes are one per poll and account on published posts, changeable, pu
  await assertFails(setDoc(doc(d,'posts/draft/votes/poll-a_peer'),vote));
  await assertSucceeds(getDocs(query(collection(env.unauthenticatedContext().firestore(),'posts/published/votes'),where('pollId','==','poll-a'))));
 });
+test('the writer may probe a fresh post id and save a first draft under it',async()=>{
+ const d=db('student','student@ucdconnect.ie');
+ await assertSucceeds(getDoc(doc(d,'posts/fresh-client-id')));
+ await assertSucceeds(setDoc(doc(d,'posts/fresh-client-id'),post()));
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'posts/another-fresh-id')));
+});
+test('student bylines are their alias; registrationKind cannot be self-declared to escape it; dates stay honest',async()=>{
+ const d=db('student','student@ucdconnect.ie');
+ await assertFails(setDoc(doc(d,'posts/named'),{...post(),authorName:'Konstantinos Stouras'}));
+ await assertFails(setDoc(doc(d,'comments/named'),comment({authorName:'Aoife Byrne (12345678)'})));
+ await assertFails(updateDoc(doc(d,'posts/published'),{createdAt:time-30*86400000}));
+ await assertFails(updateDoc(doc(d,'posts/published'),{publishedAt:time-30*86400000}));
+ await assertSucceeds(updateDoc(doc(db('teacher-one'),'posts/published'),{publishedAt:time-30*86400000}));
+ // declaring oneself a teacher renames the private profile but cannot put a real name on a post
+ await assertSucceeds(updateDoc(doc(d,'profiles/student'),{registrationKind:'teacher',penName:'Aoife Byrne'}));
+ await assertFails(setDoc(doc(d,'posts/real-name'),{...post(),authorName:'Aoife Byrne'}));
+ await assertFails(setDoc(doc(d,'comments/real-name'),comment({authorName:'Aoife Byrne'})));
+ // staff by role may use their own name
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'profiles/admin'),{...profile('kstouras@gmail.com'),studentId:'',penName:'kstouras'}));
+ await assertSucceeds(updateDoc(doc(db('admin','kstouras@gmail.com'),'profiles/admin'),{penName:'Konstantinos'}));
+ await assertSucceeds(updateDoc(doc(db('teacher-one'),'profiles/teacher-one'),{penName:'Dr Teacher'}).catch(async e=>{await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'profiles/teacher-one'),{...profile('teacher-one@ucd.ie'),studentId:'',penName:'quiet-heron-482'}));return updateDoc(doc(db('teacher-one'),'profiles/teacher-one'),{penName:'Dr Teacher'});}));
+});
+test('an instructor becomes a member of the blog their module writes on',async()=>{
+ const d=db('teacher-two');
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'modules/guest'),mod('teacher-two','pm')));
+ await assertSucceeds(setDoc(doc(d,'blogs/pm/members/teacher-two'),{uid:'teacher-two',moduleId:'guest',joinedAt:time}));
+ await assertFails(setDoc(doc(d,'blogs/ops/members/teacher-two'),{uid:'teacher-two',moduleId:'guest',joinedAt:time}));
+ await assertFails(setDoc(doc(db('teacher-one'),'blogs/pm/members/teacher-one'),{uid:'teacher-one',moduleId:'guest',joinedAt:time}));
+});
 test('student identity is private; self-written teacher profile does not grant access',async()=>{
  const d=db('student','student@ucdconnect.ie');
  await assertSucceeds(updateDoc(doc(d,'profiles/student'),{registrationKind:'teacher'}));
@@ -263,4 +305,39 @@ test('only assigned instructors can generate and revoke module city-code invitat
 });
 test('non-members cannot comment simply by creating a platform account',async()=>{
  await assertFails(setDoc(doc(db('outsider'),'comments/no-invitation'),comment({authorId:'outsider'})));
+});
+test('feedback: anyone submits one bounded message with attachments in a batch; only the admin reads, closes and deletes',async()=>{
+ const entry=(extra={})=>({text:'The Publish button is hidden on my phone.',name:'Ada',email:'ada@ucd.ie',uid:null,role:'visitor',ticket:'BLOG-261031-K3QP',url:'https://www.stouras.com/ucd-blog/#/write',route:'#/write',ua:'UA',viewport:'390×844',imageCount:1,audioCount:1,status:'new',createdAt:time,...extra});
+ const shot={kind:'image',mime:'image/jpeg',dataUrl:'data:image/jpeg;base64,AAAA',bytes:27,seconds:0,order:0},note={kind:'audio',mime:'audio/webm',dataUrl:'data:audio/webm;base64,AAAA',bytes:27,seconds:42,order:1};
+ const anon=env.unauthenticatedContext().firestore(),b=writeBatch(anon);
+ b.set(doc(anon,'feedback/anon'),entry());b.set(doc(anon,'feedback/anon/attachments/0'),shot);b.set(doc(anon,'feedback/anon/attachments/1'),note);
+ await assertSucceeds(b.commit());
+ const student=db('student','student@ucdconnect.ie');
+ await assertSucceeds(setDoc(doc(student,'feedback/mine'),entry({uid:'student',role:'student',imageCount:0,audioCount:0})));
+ await assertFails(setDoc(doc(student,'feedback/forged'),entry({uid:'peer'})));
+ await assertFails(setDoc(doc(anon,'feedback/claims-uid'),entry({uid:'student'})));
+ await assertFails(setDoc(doc(anon,'feedback/empty'),entry({text:'',imageCount:0,audioCount:0})));
+ await assertFails(setDoc(doc(anon,'feedback/closed'),entry({status:'closed'})));
+ await assertFails(setDoc(doc(anon,'feedback/too-many'),entry({imageCount:6})));
+ await assertFails(setDoc(doc(anon,'feedback/extra'),entry({resolution:'self-closed'})));
+ await assertFails(setDoc(doc(anon,'feedback/anon/attachments/2'),{...shot,kind:'video',dataUrl:'data:video/mp4;base64,AAAA'}));
+ await assertFails(setDoc(doc(anon,'feedback/anon/attachments/3'),{...shot,dataUrl:'data:text/html;base64,AAAA'}));
+ await assertFails(setDoc(doc(anon,'feedback/orphan/attachments/0'),shot));
+ await assertFails(setDoc(doc(anon,'feedback/anon/attachments/4'),{...note,seconds:999}));
+ for(const d of [anon,student,db('teacher-one')]){
+  await assertFails(getDoc(doc(d,'feedback/anon')));
+  await assertFails(getDocs(collection(d,'feedback')));
+  await assertFails(getDoc(doc(d,'feedback/anon/attachments/0')));
+  await assertFails(updateDoc(doc(d,'feedback/anon'),{status:'closed'}));
+  await assertFails(deleteDoc(doc(d,'feedback/anon')));
+ }
+ const admin=db('admin','kstouras@gmail.com');
+ await assertSucceeds(getDocs(collection(admin,'feedback')));
+ await assertSucceeds(getDocs(collection(admin,'feedback/anon/attachments')));
+ await assertSucceeds(updateDoc(doc(admin,'feedback/anon'),{status:'closed',resolution:'Fixed.',closedAt:time}));
+ await assertSucceeds(updateDoc(doc(admin,'feedback/anon'),{status:'reopened'}));
+ await assertFails(updateDoc(doc(admin,'feedback/anon'),{text:'rewritten'}));
+ await assertFails(updateDoc(doc(admin,'feedback/anon/attachments/0'),{dataUrl:'data:image/jpeg;base64,BBBB'}));
+ const del=writeBatch(admin);del.delete(doc(admin,'feedback/anon/attachments/0'));del.delete(doc(admin,'feedback/anon/attachments/1'));del.delete(doc(admin,'feedback/anon'));
+ await assertSucceeds(del.commit());
 });
