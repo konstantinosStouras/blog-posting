@@ -1,138 +1,206 @@
 rules_version = '2';
-
-// ---------------------------------------------------------------------------
-// UCD's Project Management Blog (stouras.com/ucd-blog) — Firestore security rules.
-//
-// Deploy with:   firebase deploy --only firestore:rules --project <project-id>
-// (ALWAYS pass --project; see the lesson recorded in OperationsAcademia's setup doc.)
-//
-// Three levels. Each has everything the one below has, plus more:
-//   student   read published posts; write and publish their OWN posts; comment
-//   lecturer  + read drafts, edit/unpublish/feature ANY post, approve queued
-//               posts, delete any comment, read the roster (who is behind a pen name)
-//   admin     + assign roles, change site settings, delete any post
-//
-// The admin is pinned to the maintainer's verified e-mail AND/OR a roles/{uid}
-// document saying 'admin'. Lecturers exist only through roles/{uid}.
-// ---------------------------------------------------------------------------
 service cloud.firestore {
   match /databases/{database}/documents {
-
     function signedIn() { return request.auth != null; }
-    // Password accounts must verify their address; Google sign-ins arrive verified.
-    function verified() {
-      return signedIn() && (request.auth.token.email_verified == true
-                            || request.auth.token.firebase.sign_in_provider != 'password');
-    }
-    function roleDoc() { return /databases/$(database)/documents/roles/$(request.auth.uid); }
-    function role() { return exists(roleDoc()) ? get(roleDoc()).data.get('role', 'student') : 'student'; }
-    function isAdmin() {
-      return signedIn() && (
-        (request.auth.token.email == 'kstouras@gmail.com' && request.auth.token.email_verified == true)
-        || role() == 'admin');
-    }
-    function isStaff() { return isAdmin() || (verified() && role() == 'lecturer'); }
-    function isOwner(uid) { return verified() && request.auth.uid == uid; }
-    function siteSettings() { return get(/databases/$(database)/documents/settings/site).data; }
-    function approvalRequired() {
-      return exists(/databases/$(database)/documents/settings/site) && siteSettings().get('requireApproval', false) == true;
-    }
-    function submissionsOpen() {
-      return !exists(/databases/$(database)/documents/settings/site) || siteSettings().get('submissionsOpen', true) == true;
-    }
+    function verified() { return signedIn() && request.auth.token.email_verified == true; }
+    function role() { return get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.get('role', 'student'); }
+    function hasRole(value) { return signedIn() && exists(/databases/$(database)/documents/roles/$(request.auth.uid)) && role() == value; }
+    function isAdmin() { return verified() && (request.auth.token.email == 'kstouras@gmail.com' || hasRole('admin')); }
+    function modulePath(id) { return /databases/$(database)/documents/modules/$(id); }
+    function moduleExists(id) { return id is string && exists(modulePath(id)); }
+    function staffOf(id) { return isAdmin() || (verified() && hasRole('lecturer') && moduleExists(id) && request.auth.uid in get(modulePath(id)).data.teacherIds); }
+    function own(uid) { return signedIn() && request.auth.uid == uid; }
     function str(field, max) { let v = request.resource.data.get(field, ''); return v is string && v.size() <= max; }
-
-    // ---- accounts ------------------------------------------------------------
-    // The account's own profile. Same shape as the other sites' profiles plus the
-    // blog's penName (public) and studentId (staff-visible only, through the roster).
-    function profileKeys() { return ['firstName', 'lastName', 'penName', 'affiliation', 'studentId', 'website', 'bio', 'contactEmail', 'photo']; }
+    function universityEmail(value) { return value is string && value.matches('^[^@ ]+@[^@ ]+[.][^@ ]+$'); }
+    function memberOf(id) { return signedIn() && exists(/databases/$(database)/documents/modules/$(id)/members/$(request.auth.uid)); }
+    function openSubmissions(id) { return moduleExists(id) && get(modulePath(id)).data.get('submissionsOpen', true); }
+    function approvalRequired(id) { return get(modulePath(id)).data.get('requireApproval', false); }
+    function profileKeys() { return ['firstName','lastName','penName','affiliation','studentId','website','bio','contactEmail','photo','registrationKind']; }
     function profileShape() {
-      return str('firstName', 120) && str('lastName', 120) && str('penName', 40) && str('affiliation', 200)
-          && str('studentId', 40) && str('website', 300) && str('bio', 800) && str('contactEmail', 200) && str('photo', 120000);
+      return request.resource.data.keys().hasOnly(profileKeys())
+        && str('firstName',120) && str('lastName',120) && str('penName',40) && str('affiliation',200)
+        && str('studentId',40) && str('website',300) && str('bio',800) && str('contactEmail',200) && str('photo',120000)
+        && request.resource.data.get('registrationKind','student') in ['student','teacher','instructor'];
     }
     match /profiles/{uid} {
-      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
-      // The one write an unverified account may make: the registration form writes
-      // the profile in the same breath as it creates the account.
-      allow create: if signedIn() && request.auth.uid == uid
-                    && request.resource.data.keys().hasOnly(profileKeys()) && profileShape();
-      allow update: if signedIn() && request.auth.uid == uid
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileKeys()) && profileShape();
-      allow delete: if isOwner(uid) || isAdmin();
+      allow read: if own(uid) || isAdmin();
+      allow create, update: if own(uid) && profileShape();
+      allow delete: if isAdmin();
     }
-    // Roster row, written by the account about itself; `email` is pinned to the token.
     match /userDirectory/{uid} {
-      function rowOk() {
-        return request.resource.data.keys().hasOnly(['name', 'penName', 'email', 'first', 'seen', 'affiliation', 'contactEmail'])
-          && str('name', 200) && str('penName', 40) && str('affiliation', 300) && str('contactEmail', 200)
-          && (!('email' in request.resource.data) || request.resource.data.email == request.auth.token.email)
-          && request.resource.data.first is number && request.resource.data.seen is number;
-      }
-      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
-      allow create: if signedIn() && request.auth.uid == uid && rowOk();
-      allow update: if signedIn() && request.auth.uid == uid && rowOk() && request.resource.data.first == resource.data.first;
-      allow delete: if isOwner(uid) || isAdmin();
+      allow read: if own(uid) || isAdmin();
+      allow create, update: if own(uid)
+        && request.resource.data.keys().hasOnly(['name','penName','email','first','seen','affiliation','contactEmail'])
+        && request.resource.data.email == request.auth.token.email
+        && str('name',200) && str('penName',40) && str('affiliation',300) && str('contactEmail',200)
+        && request.resource.data.first is number && request.resource.data.seen is number;
+      allow delete: if isAdmin();
     }
     match /registeredUsers/{uid} {
-      allow read: if isStaff();
-      allow create, update: if signedIn() && request.auth.uid == uid
-                            && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t is number;
-      allow delete: if isOwner(uid) || isAdmin();
+      allow read: if isAdmin();
+      allow create, update: if own(uid) && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t is number;
+      allow delete: if isAdmin();
     }
-    // Roles: the admin assigns them; a person may read their own; staff may list.
+    function invitationMatches(d) { return verified() && (request.auth.token.email == d.ucdEmail || (d.gmail != '' && request.auth.token.email == d.gmail)); }
+    function invitationValid(d) { return invitationMatches(d) && !d.revoked && d.expiresAt > request.time.toMillis() && d.acceptedBy == ''; }
+    match /teacherInvites/{inviteId} {
+      allow get: if isAdmin() || invitationMatches(resource.data);
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['ucdEmail','gmail','createdBy','createdAt','expiresAt','acceptedBy','revoked','code'])
+        && universityEmail(request.resource.data.ucdEmail) && str('gmail',200)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is number && request.resource.data.expiresAt is number
+        && request.resource.data.expiresAt > request.time.toMillis()
+        && request.resource.data.expiresAt <= request.time.toMillis() + 8 * 86400000
+        && request.resource.data.acceptedBy == '' && request.resource.data.revoked == false;
+      allow update: if (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked']) && request.resource.data.revoked is bool)
+        || (invitationValid(resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acceptedBy'])
+          && request.resource.data.acceptedBy == request.auth.uid
+          && getAfter(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'lecturer'
+          && getAfter(/databases/$(database)/documents/roles/$(request.auth.uid)).data.inviteId == inviteId);
+      allow delete: if false;
+    }
+    function invitationRole(uid) {
+      let id = request.resource.data.get('inviteId','');
+      let path = /databases/$(database)/documents/teacherInvites/$(id);
+      return own(uid) && verified() && id is string && exists(path)
+        && invitationValid(get(path).data)
+        && getAfter(path).data.acceptedBy == uid
+        && get(/databases/$(database)/documents/profiles/$(uid)).data.contactEmail == get(path).data.ucdEmail
+        && request.resource.data.keys().hasOnly(['role','inviteId','setBy','setAt'])
+        && request.resource.data.role == 'lecturer'
+        && request.resource.data.setBy == 'invitation' && request.resource.data.setAt is number;
+    }
     match /roles/{uid} {
-      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
-      allow write: if isAdmin() && request.resource.data.keys().hasOnly(['role', 'setBy', 'setAt'])
-                   && request.resource.data.role in ['student', 'lecturer', 'admin'];
+      allow read: if own(uid) || isAdmin();
+      allow create, update: if (isAdmin() && request.resource.data.keys().hasOnly(['role','setBy','setAt','inviteId']) && request.resource.data.role in ['student','lecturer','admin'])
+        || invitationRole(uid);
+      allow delete: if isAdmin();
     }
-
-    // ---- content -------------------------------------------------------------
-    function postKeys() { return ['title', 'slug', 'body', 'excerpt', 'category', 'organisation', 'tags', 'featuredImage', 'status', 'featured', 'authorId', 'authorName', 'wordCount', 'createdAt', 'updatedAt', 'publishedAt', 'reviewNote']; }
+    // This index contains only code-routing metadata, never names or emails.
+    // Individual codes can be resolved; listing every active code is forbidden.
+    match /registrationCodes/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if code.matches('^[a-z]{3,30}$')
+        && request.resource.data.keys().hasOnly(['code','kind','inviteId','moduleId','expiresAt','revoked'])
+        && request.resource.data.revoked == false
+        && request.resource.data.code == code && request.resource.data.expiresAt is number
+        && ((isAdmin() && request.resource.data.kind == 'instructor'
+          && getAfter(/databases/$(database)/documents/teacherInvites/$(request.resource.data.inviteId)).data.code == code
+          && request.resource.data.moduleId == '')
+        || (request.resource.data.kind == 'student' && staffOf(request.resource.data.moduleId)
+          && getAfter(/databases/$(database)/documents/moduleInvites/$(request.resource.data.inviteId)).data.code == code
+          && getAfter(/databases/$(database)/documents/moduleInvites/$(request.resource.data.inviteId)).data.moduleId == request.resource.data.moduleId));
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked'])
+        && request.resource.data.revoked == true
+        && ((isAdmin() && resource.data.kind == 'instructor'
+          && getAfter(/databases/$(database)/documents/teacherInvites/$(resource.data.inviteId)).data.revoked == true)
+        || (resource.data.kind == 'student' && staffOf(resource.data.moduleId)
+          && getAfter(/databases/$(database)/documents/moduleInvites/$(resource.data.inviteId)).data.revoked == true));
+      allow delete: if false;
+    }
+    match /moduleInvites/{inviteId} {
+      allow get: if verified();
+      allow list: if staffOf(resource.data.moduleId);
+      allow create: if staffOf(request.resource.data.moduleId)
+        && request.resource.data.keys().hasOnly(['moduleId','code','createdBy','createdAt','expiresAt','revoked'])
+        && request.resource.data.code.matches('^[a-z]{3,30}$')
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is number && request.resource.data.expiresAt is number
+        && request.resource.data.expiresAt > request.time.toMillis()
+        && request.resource.data.expiresAt <= request.time.toMillis() + 31 * 86400000
+        && request.resource.data.revoked == false;
+      allow update: if staffOf(resource.data.moduleId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked'])
+        && request.resource.data.revoked is bool;
+      allow delete: if false;
+    }
+    function validModuleInvite(moduleId, inviteId) {
+      let path = /databases/$(database)/documents/moduleInvites/$(inviteId);
+      return inviteId is string && exists(path) && get(path).data.moduleId == moduleId
+        && get(path).data.revoked == false && get(path).data.expiresAt > request.time.toMillis();
+    }
+    function moduleShape() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['title','code','description','teacherName','teacherIds','createdBy','createdAt','updatedAt','submissionsOpen','requireApproval','allowComments'])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 160
+        && str('code',40) && str('description',1200) && str('teacherName',200)
+        && d.teacherIds is list && d.teacherIds.size() > 0 && d.teacherIds.size() <= 20
+        && d.createdBy is string && d.createdAt is number && d.updatedAt is number
+        && d.submissionsOpen is bool && d.requireApproval is bool && d.allowComments is bool;
+    }
+    match /modules/{moduleId} {
+      allow read: if true;
+      allow create: if moduleShape() && moduleId.matches('^[a-z0-9][a-z0-9-]{1,79}$')
+        && request.resource.data.createdBy == request.auth.uid
+        && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid]));
+      allow update: if moduleShape() && staffOf(moduleId)
+        && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
+        && (isAdmin() || request.resource.data.teacherIds == resource.data.teacherIds);
+      allow delete: if false;
+      match /members/{uid} {
+        allow read: if own(uid) || staffOf(moduleId);
+        function memberShape() { return own(uid) && verified() && moduleExists(moduleId)
+          && request.resource.data.keys().hasOnly(['uid','firstName','lastName','contactEmail','studentId','registrationKind','penName','email','joinedAt','inviteId','affiliation'])
+          && request.resource.data.uid == uid && request.resource.data.email == request.auth.token.email
+          && universityEmail(request.resource.data.contactEmail)
+          && str('firstName',120) && str('lastName',120) && str('studentId',40) && str('penName',40)
+          && str('affiliation',200) && request.resource.data.affiliation.size() > 0
+          && request.resource.data.joinedAt is number
+          && request.resource.data.registrationKind in ['student','teacher','instructor']
+          && ((request.resource.data.registrationKind == 'student' && request.resource.data.studentId.size() > 0)
+            || (request.resource.data.registrationKind in ['teacher','instructor'] && (hasRole('lecturer') || isAdmin()))); }
+        allow create: if memberShape() && validModuleInvite(moduleId,request.resource.data.inviteId);
+        allow update: if memberShape() && request.resource.data.inviteId == resource.data.inviteId;
+        allow delete: if own(uid) || isAdmin();
+      }
+    }
     function postShape() {
       let d = request.resource.data;
-      return d.keys().hasOnly(postKeys())
+      return d.keys().hasOnly(['title','slug','body','excerpt','category','organisation','tags','featuredImage','status','featured','authorId','authorName','wordCount','createdAt','updatedAt','publishedAt','reviewNote','moduleId'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 200
         && d.slug is string && d.slug.size() > 0 && d.slug.size() <= 120
         && d.body is string && d.body.size() <= 900000
-        && str('excerpt', 400) && str('category', 80) && str('organisation', 160) && str('authorName', 60) && str('reviewNote', 2000)
-        && d.get('tags', []) is list && d.get('tags', []).size() <= 12
-        && str('featuredImage', 800000)
-        && d.status in ['draft', 'pending', 'published']
-        && d.get('featured', false) is bool
-        && d.authorId is string;
+        && str('excerpt',400) && str('category',80) && str('organisation',160) && str('authorName',60) && str('reviewNote',2000)
+        && str('featuredImage',800000) && d.get('tags',[]) is list && d.get('tags',[]).size() <= 12
+        && d.status in ['draft','pending','published'] && d.get('featured',false) is bool
+        && d.authorId is string && moduleExists(d.moduleId);
     }
     match /posts/{id} {
-      allow read: if resource.data.status == 'published' || isStaff() || (signedIn() && resource.data.authorId == request.auth.uid);
-      // A student creates their own post. 'published' directly only while submissions
-      // are open and approval is off; otherwise it waits as 'pending'. Students never
-      // set `featured`.
+      allow read: if resource.data.status == 'published' || own(resource.data.authorId) || staffOf(resource.data.moduleId);
       allow create: if verified() && postShape() && request.resource.data.authorId == request.auth.uid
-                    && (isStaff() || (submissionsOpen()
-                          && request.resource.data.get('featured', false) == false
-                          && (request.resource.data.status != 'published' || !approvalRequired())));
-      allow update: if postShape() && (
-                      isStaff()
-                      || (isOwner(resource.data.authorId)
-                          && request.resource.data.authorId == resource.data.authorId
-                          && request.resource.data.get('featured', false) == resource.data.get('featured', false)
-                          && (request.resource.data.status != 'published' || resource.data.status == 'published' || !approvalRequired())));
-      allow delete: if isAdmin() || (isOwner(resource.data.authorId) && resource.data.status != 'published');
+        && (staffOf(request.resource.data.moduleId)
+          || (memberOf(request.resource.data.moduleId) && openSubmissions(request.resource.data.moduleId)
+            && request.resource.data.get('featured',false) == false
+            && (request.resource.data.status != 'published' || !approvalRequired(request.resource.data.moduleId))));
+      allow update: if verified() && postShape()
+        && request.resource.data.moduleId == resource.data.moduleId
+        && request.resource.data.authorId == resource.data.authorId
+        && (staffOf(resource.data.moduleId)
+          || (own(resource.data.authorId) && memberOf(resource.data.moduleId) && openSubmissions(resource.data.moduleId)
+            && request.resource.data.get('featured',false) == resource.data.get('featured',false)
+            && (request.resource.data.status != 'published' || !approvalRequired(resource.data.moduleId))));
+      allow delete: if isAdmin() || (verified() && own(resource.data.authorId) && resource.data.status != 'published');
     }
     match /comments/{id} {
       allow read: if true;
       allow create: if verified()
-                    && request.resource.data.keys().hasOnly(['postId', 'body', 'authorId', 'authorName', 'createdAt'])
-                    && request.resource.data.authorId == request.auth.uid
-                    && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
-                    && str('authorName', 60) && request.resource.data.postId is string
-                    && (!exists(/databases/$(database)/documents/settings/site) || siteSettings().get('allowComments', true) == true);
+        && request.resource.data.keys().hasOnly(['postId','moduleId','body','authorId','authorName','createdAt'])
+        && request.resource.data.authorId == request.auth.uid
+        && (memberOf(request.resource.data.moduleId) || staffOf(request.resource.data.moduleId))
+        && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
+        && str('authorName',60) && request.resource.data.createdAt is number
+        && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
+        && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.status == 'published'
+        && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.moduleId == request.resource.data.moduleId
+        && get(modulePath(request.resource.data.moduleId)).data.allowComments;
       allow update: if false;
-      allow delete: if isStaff() || (signedIn() && resource.data.authorId == request.auth.uid);
+      allow delete: if own(resource.data.authorId) || staffOf(resource.data.moduleId);
     }
-    match /settings/site {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
+    match /settings/site { allow read: if true; allow write: if isAdmin(); }
     match /{document=**} { allow read, write: if false; }
   }
 }

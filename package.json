@@ -1,0 +1,15 @@
+{
+  "name": "ucd-blog",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/registration.test.mjs tests/permissions.test.mjs",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-ucd-blog \"node --test tests/firestore.rules.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase": "^13.0.0",
+    "firebase-admin": "^14.5.0",
+    "firebase-tools": "15.32.1"
+  }
+}

@@ -1,8 +1,9 @@
 // Router + every page. Hash routes so the site works from any static host (stouras.com/ucd-blog/).
 import {initStore, store} from './store.js';
-import {renderAccountControl, currentUser, openAuthModal} from './auth.js';
+import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './auth.js';
 import {can, ROLES, rank} from './permissions.js';
 import {mountEditor, OUTLINE} from './editor.js';
+import {configurePlatform, moduleDirectory, moduleCanvas, manageModule, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify} from './util.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
@@ -13,6 +14,16 @@ const user = () => currentUser();
 
 const routes = [
   [/^\/?$/, home],
+  [/^\/modules$/, () => moduleDirectory(false)],
+  [/^\/posts$/, () => browse({})],
+  [/^\/my-modules$/, () => moduleDirectory(true)],
+  [/^\/module\/([a-z0-9-]+)$/, moduleCanvas],
+  [/^\/modules\/new$/, () => manageModule(null)],
+  [/^\/modules\/edit\/([a-z0-9-]+)$/, manageModule],
+  [/^\/modules\/invite\/([a-z0-9-]+)$/, studentInvitationsPage],
+  [/^\/invitations$/, invitationsPage],
+  [/^\/invite\/([a-zA-Z0-9-]+)(?:\/([a-z]+))?$/i, (id,code)=>acceptInvitationPage(id,code,'instructor')],
+  [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
   [/^\/(\d{4})\/(\d{2})\/([^/]+)\/?$/, (y, m, slug) => postView(slug)],
   [/^\/post\/([^/]+)$/, postView],
   [/^\/category\/([^/]+)$/, slug => browse({category: slug})],
@@ -22,10 +33,11 @@ const routes = [
   [/^\/search\/?(.*)$/, q => browse({q: decodeURIComponent(q || '')})],
   [/^\/challenge$/, guide],
   [/^\/write$/, () => editorView(null)],
+  [/^\/write\/([a-z0-9-]+)$/, moduleId => editorView(null,moduleId)],
   [/^\/edit\/([^/]+)$/, editorView],
   [/^\/mine$/, mine],
   [/^\/profile$/, profileView],
-  [/^\/review\/?([a-z]*)$/, lecturer],
+  [/^\/review\/?([a-z]*)(?:\?module=([a-z0-9-]+))?$/, lecturer],
   [/^\/admin\/?([a-z]*)$/, admin],
 ];
 
@@ -49,9 +61,10 @@ function renderHeader(path = location.hash.slice(1) || '/') {
   $header.innerHTML = `<div class="brand"><h1><a href="#/">${esc(S.title)}</a></h1><div class="account" id="account"></div></div>
   <hr class="rule">
   <div class="sub"><p class="tagline">${esc(S.tagline)}</p>
-    <nav><a href="#/" class="${active('/')}">All posts</a><a href="#/challenge" class="${active('/challenge')}">The challenge</a>
+    <nav><a href="#/modules" class="${active('/modules')}">Explore modules</a><a href="#/posts" class="${active('/posts')}">All posts</a><a href="#/challenge" class="${active('/challenge')}">The challenge</a>
+      ${u ? `<a href="#/my-modules" class="${active('/my-modules')}">My modules</a>` : ''}
       ${u ? `<a href="#/write" class="${active('/write')}">Write</a><a href="#/mine" class="${active('/mine')}">My posts</a>` : ''}
-      ${u && rank(u.role) >= 1 ? `<a href="#/review" class="${active('/review')}">Lecturer</a>` : ''}
+      ${u && rank(u.role) >= 1 ? `<a href="#/review" class="${active('/review')}">Instructor</a>` : ''}
       ${u && rank(u.role) >= 2 ? `<a href="#/admin" class="${active('/admin')}">Admin</a>` : ''}
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>
     </nav></div><hr class="thin">`;
@@ -87,10 +100,12 @@ function card(p, {showStatus = false} = {}) {
     <div class="meta"><a href="#/author/${esc(p.authorId)}">${esc(p.authorName)}</a> · ${fmtDate(p.publishedAt || p.updatedAt)} · ${esc(catName(p.category))}</div></article>`;
 }
 const canvas = (posts, o) => posts.length ? `<div class="canvas">${posts.map(p => card(p, o)).join('')}</div>` : `<p class="empty">No posts here yet.</p>`;
+configurePlatform($app,canvas);
 const chips = (activeSlug = '') => `<div class="chips"><a href="#/" class="${activeSlug ? '' : 'active'}">All megatrends</a>${S.categories.map(c => `<a href="#/category/${c.slug}" class="${c.slug === activeSlug ? 'active' : ''}">${esc(c.name)}</a>`).join('')}</div>`;
 
 // ---------- pages ----------
 async function home() {
+  if (store.mode === 'firebase') { await moduleDirectory(false); return; }
   const posts = (await store.listPosts({status: 'published'})).sort((a, b) => (b.featured - a.featured) || (b.publishedAt - a.publishedAt));
   const u = user();
   $app.innerHTML = `${!u && store.mode === 'local' ? `<div class="notice info">Prototype running in <b>local mode</b>: posts and accounts live in this browser only. Use <b>View as</b> at the top right to try the student, lecturer and admin experiences.</div>` : ''}
@@ -98,7 +113,7 @@ async function home() {
 }
 async function browse(f) {
   let posts = (await store.listPosts({status: 'published'})).sort(by('publishedAt'));
-  let title = '', sub = '';
+  let title = 'All published posts', sub = 'Across UCD modules';
   if (f.category) { posts = posts.filter(p => p.category === f.category); title = catName(f.category); sub = 'Megatrend'; }
   if (f.tag) { posts = posts.filter(p => (p.tags || []).some(t => t.toLowerCase() === f.tag.toLowerCase())); title = '#' + f.tag; sub = 'Tag'; }
   if (f.author) { posts = posts.filter(p => p.authorId === f.author); title = posts[0]?.authorName || 'Author'; sub = 'Posts by'; }
@@ -111,16 +126,19 @@ async function postView(slug) {
   const p = await store.getPostBySlug(slug);
   const u = user();
   if (!p || (p.status !== 'published' && !(u && can(u, 'edit', p, S)))) { $app.innerHTML = `<p class="empty">That post is not available. <a href="#/">Back to the blog</a></p>`; return; }
+  const module = p.moduleId && store.mode === 'firebase' ? await store.getModule(p.moduleId) : null;
+  const context = module ? {...S,...module} : S;
+  const canParticipate = u && (store.mode !== 'firebase' || (await store.listMyModules()).some(m=>m.id===p.moduleId));
   const all = (await store.listPosts({status: 'published'})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const comments = await store.listComments(p.id);
   const words = p.wordCount ?? wordCount(p.body);
-  $app.innerHTML = `<article class="post">
-    ${u && can(u, 'edit', p, S) ? `<div class="post-actions"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span>
+  $app.innerHTML = `${module ? `<p class="page-sub"><a href="#/module/${esc(module.id)}">${esc(module.title)}</a></p>` : ''}<article class="post">
+    ${u && can(u, 'edit', p, context) ? `<div class="post-actions"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span>
       <a class="btn small" href="#/edit/${p.id}">Edit</a>
-      ${p.status === 'published' && can(u, 'unpublish', p, S) ? `<button class="btn small" data-act="unpublish">Unpublish</button>` : ''}
-      ${p.status !== 'published' && can(u, 'publish', p, S) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
-      ${can(u, 'feature', p, S) ? `<button class="btn small" data-act="feature">${p.featured ? 'Unfeature' : 'Feature'}</button>` : ''}
+      ${p.status === 'published' && can(u, 'unpublish', p, context) ? `<button class="btn small" data-act="unpublish">Unpublish</button>` : ''}
+      ${p.status !== 'published' && can(u, 'publish', p, context) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
+      ${can(u, 'feature', p, context) ? `<button class="btn small" data-act="feature">${p.featured ? 'Unfeature' : 'Feature'}</button>` : ''}
       ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : ''}
     <div class="cat"><a href="#/category/${esc(p.category)}">${esc(catName(p.category))}</a></div>
     <h1>${esc(p.title)}</h1>
@@ -132,9 +150,10 @@ async function postView(slug) {
     <div class="prevnext"><span>${prev ? `<a href="${postPath(prev)}"><small>« Previous</small>${esc(prev.title)}</a>` : ''}</span><span style="text-align:right">${next ? `<a href="${postPath(next)}"><small>Next »</small>${esc(next.title)}</a>` : ''}</span></div>
     <section class="comments"><h2>${comments.length ? `${comments.length} comment${comments.length === 1 ? '' : 's'}` : 'Leave a reply'}</h2>
       <div id="comment-list">${comments.map(c => commentHtml(c, u)).join('')}</div>
-      ${S.allowComments === false ? '<p class="muted">Comments are closed.</p>' : u ? `<form class="reply"><textarea name="body" required maxlength="4000" placeholder="Add to the discussion as ${esc(u.penName)}…"></textarea><button class="btn primary">Post comment</button></form>` : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> to post a comment.</p>`}
+      ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? `<form class="reply"><textarea name="body" required maxlength="4000" placeholder="Add to the discussion as ${esc(u.penName)}…"></textarea><button class="btn primary">Post comment</button></form>` : u ? '<p class="muted">An invitation from this module’s instructor is required to comment. <button class="linkish" id="invite-to-comment">Enter invitation code</button></p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
     </section></article>`;
   $app.querySelector('#login-to-comment')?.addEventListener('click', () => store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'));
+  $app.querySelector('#invite-to-comment')?.addEventListener('click',()=>openAuthModal('register'));
   $app.querySelector('.reply')?.addEventListener('submit', async e => {
     e.preventDefault(); const body = e.target.body.value.trim(); if (!body) return;
     try { await store.addComment({postId: p.id, body}, u); toast('Comment posted.'); render(); } catch (err) { toast(err.message, 'error'); }
@@ -163,7 +182,7 @@ async function guide() {
     <div class="body">${sanitize(S.guide)}</div>
     <h2 class="page-title" style="font-size:20px;margin-top:30px">How publishing works here</h2>
     <ol class="steps">
-      <li><b>Log in</b> and choose a <b>pen name</b> in your profile. Posts and comments show the pen name; the lecturer alone sees who is behind it.</li>
+      <li><b>Log in</b> and choose a <b>pen name</b> in your profile. Posts and comments show the pen name; the instructor alone sees who is behind it.</li>
       <li><b>Write</b> your post in the editor. Add hyperlinks to your sources, images, tables and a featured image. The word meter follows the ${S.minWords}–${S.maxWords} word target (tables and captions are not counted).</li>
       <li><b>Save a draft</b> as often as you like. Drafts are private to you${rank(u?.role) >= 1 ? ' (and visible to staff)' : ''}.</li>
       <li><b>Publish</b> when you are done.${S.requireApproval ? ' A lecturer checks each post before it appears on the canvas.' : ' Your post appears on the canvas immediately and its address never changes.'}</li>
@@ -174,19 +193,31 @@ async function guide() {
 }
 
 // ---------- compose ----------
-async function editorView(id) {
+async function editorView(id,moduleId) {
   const u = user();
   if (!u) { $app.innerHTML = `<p class="empty">Log in to write a post.</p>`; if (store.mode === 'firebase') openAuthModal(); return; }
   let p = id ? await store.getPost(id) : null;
+  if (store.mode === 'firebase') {
+    moduleId = p?.moduleId || moduleId;
+    if (!moduleId) { await moduleDirectory(true); return; }
+  }
+  const module = store.mode === 'firebase' ? await store.getModule(moduleId) : null;
+  if (store.mode === 'firebase' && !module) { $app.innerHTML='<p class="empty">Module not found.</p>';return; }
+  const context = module ? {...S,...module} : S;
   if (id && !p) { $app.innerHTML = `<p class="empty">That post does not exist.</p>`; return; }
-  if (p && !can(u, 'edit', p, S)) { $app.innerHTML = `<p class="empty">You cannot edit this post.</p>`; return; }
-  if (!p && !can(u, 'write', null, S)) { $app.innerHTML = `<p class="empty">Submissions are closed.</p>`; return; }
-  p = p || {title: '', body: '', category: '', organisation: '', tags: [], featuredImage: '', status: 'draft', excerpt: ''};
+  if (p && !can(u, 'edit', p, context)) { $app.innerHTML = `<p class="empty">You cannot edit this post.</p>`; return; }
+  if (!p && !can(u, 'write', {moduleId}, context)) { $app.innerHTML = `<p class="empty">Submissions are closed.</p>`; return; }
+  if (store.mode === 'firebase' && !u.emailVerified) { $app.innerHTML='<p class="empty">Verify your sign-in email before writing. Use the account menu to resend or refresh verification.</p>';return; }
+  if (store.mode === 'firebase' && !p) {
+    const joined = (await store.listMyModules()).some(m=>m.id===moduleId);
+    if(!joined){$app.innerHTML=`<p class="empty">Join this module before writing. <a href="#/module/${esc(moduleId)}">Open module canvas</a></p>`;return;}
+  }
+  p = p || {moduleId, title: '', body: '', category: '', organisation: '', tags: [], featuredImage: '', status: 'draft', excerpt: ''};
   const draft = {...p, tags: [...(p.tags || [])]};
   let dirty = false, saving = false, ed;
   liveView = 'editor';
 
-  $app.innerHTML = `<div class="compose">
+  $app.innerHTML = `${module ? `<p class="page-sub">Writing for <a href="#/module/${esc(module.id)}">${esc(module.title)}</a></p>` : ''}<div class="compose">
     <div class="main">
       <input class="title-input" id="title" placeholder="Title: name the organisation and the challenge" maxlength="160" value="${esc(draft.title)}">
       <div id="editor"></div>
@@ -199,10 +230,10 @@ async function editorView(id) {
         <p class="hint" id="wc-hint"></p>
         <div class="actions" style="margin-top:10px">
           <button class="btn" id="save-draft">Save draft</button>
-          ${can(u, 'publish', p.id ? p : null, S) ? `<button class="btn primary" id="publish">${draft.status === 'published' ? 'Update' : (S.requireApproval && rank(u.role) < 1 ? 'Submit for review' : 'Publish')}</button>` : `<button class="btn primary" id="publish">Submit for review</button>`}
+          <button class="btn primary" id="publish">${context.requireApproval && !can(u,'approve',draft,context) ? 'Submit for review' : draft.status === 'published' ? 'Update' : 'Publish'}</button>
           ${draft.status === 'published' ? `<a class="btn" href="${postPath(draft)}">View</a>` : ''}
         </div>
-        <p class="status-line" id="status-line">${draft.status === 'published' ? 'Published · ' + fmtDate(draft.publishedAt) : draft.status === 'pending' ? 'Waiting for a lecturer to approve' : p.id ? 'Draft · saved ' + fmtDateTime(draft.updatedAt) : 'New draft (not saved yet)'}</p>
+        <p class="status-line" id="status-line">${draft.status === 'published' ? 'Published · ' + fmtDate(draft.publishedAt) : draft.status === 'pending' ? 'Waiting for an instructor to approve' : p.id ? 'Draft · saved ' + fmtDateTime(draft.updatedAt) : 'New draft (not saved yet)'}</p>
         ${S.deadline ? `<p class="hint">Deadline ${fmtDate(S.deadline)}</p>` : ''}
       </div>
       <div class="panel"><h3>Megatrend</h3>
@@ -250,7 +281,7 @@ async function editorView(id) {
     if (!draft.title.trim()) return toast('Give your post a title first.', 'error');
     if (!draft.category) return toast('Choose the megatrend your post is about.', 'error');
     if (words < S.minWords * 0.5 && draft.status !== 'published' && !confirm(`Your post has only ${words} words; the target is ${S.minWords}–${S.maxWords}. Publish anyway?`)) return;
-    save(S.requireApproval && rank(u.role) < 1 && draft.status !== 'published' ? 'pending' : 'published');
+    save(context.requireApproval && !can(u,'approve',draft,context) ? 'pending' : 'published');
   };
   function updateMeter() {
     const w = wordCount(draft.body), m = $('meter'), pct = Math.min(100, w / S.maxWords * 100);
@@ -268,7 +299,7 @@ async function editorView(id) {
       if (!draft.title.trim()) draft.title = 'Untitled draft';
       const saved = await store.savePost({...draft, id: p.id, status, excerpt: draft.excerpt.trim()}, u);
       p = saved; draft.slug = saved.slug; draft.status = saved.status; draft.publishedAt = saved.publishedAt; draft.updatedAt = saved.updatedAt; dirty = false;
-      $('status-line').textContent = status === 'published' ? 'Published · ' + fmtDate(saved.publishedAt) : status === 'pending' ? 'Submitted · waiting for a lecturer' : 'Draft · saved ' + fmtDateTime(saved.updatedAt);
+      $('status-line').textContent = status === 'published' ? 'Published · ' + fmtDate(saved.publishedAt) : status === 'pending' ? 'Submitted · waiting for an instructor' : 'Draft · saved ' + fmtDateTime(saved.updatedAt);
       if (!id) history.replaceState(null, '', '#/edit/' + saved.id);
       if (status === 'published' && !quiet) { toast('Published! Your post is live.'); location.hash = postPath(saved); }
       else if (status === 'pending') { toast('Submitted for review.'); location.hash = '#/mine'; }
@@ -300,10 +331,10 @@ async function profileView() {
   const u = user();
   if (!u) { $app.innerHTML = `<p class="empty">Log in to edit your profile.</p>`; return; }
   const f = (name, label, hint = '', type = 'text') => `<label class="field">${label}<input name="${name}" type="${type}" value="${esc(u[name] || '')}" maxlength="120">${hint ? `<p class="hint">${hint}</p>` : ''}</label>`;
-  $app.innerHTML = `<div class="guide"><h1 class="page-title">Your profile</h1><p class="page-sub">Role: <b>${esc(u.role)}</b>${u.email ? ` · signed in as ${esc(u.email)}` : ''}</p>
+  $app.innerHTML = `<div class="guide"><h1 class="page-title">Your profile</h1><p class="page-sub">Role: <b>${esc(roleLabel(u.role))}</b>${u.email ? ` · signed in as ${esc(u.email)}` : ''}</p>
     <form id="profile" class="two-col">
       <div>${f('penName', 'Pen name', 'Shown on your posts and comments. Keep it non-identifying so peer review stays anonymous.')}${f('firstName', 'First name')}${f('lastName', 'Last name')}</div>
-      <div>${f('studentId', 'UCD student number', 'Seen by the lecturer only; used to match posts to the class list.')}${f('affiliation', 'Programme / affiliation')}${f('website', 'Website or LinkedIn (optional)', '', 'url')}<label class="field">Short bio (optional)<textarea name="bio" maxlength="400" rows="3">${esc(u.bio || '')}</textarea></label></div>
+      <div>${f('contactEmail', 'University email', 'Your university contact address, separate from your Google sign-in email.', 'email')}${u.registrationKind !== 'teacher' && u.role === 'student' ? f('studentId', 'University ID', 'Seen only by you and your module teachers.') : ''}${f('affiliation', 'School / university')}${f('website', 'Website or LinkedIn (optional)', '', 'url')}<label class="field">Short bio (optional)<textarea name="bio" maxlength="400" rows="3">${esc(u.bio || '')}</textarea></label></div>
       <div class="actions"><button class="btn primary">Save profile</button></div></form></div>`;
   document.getElementById('profile').onsubmit = async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));
@@ -313,11 +344,13 @@ async function profileView() {
 }
 
 // ---------- lecturer area ----------
-async function lecturer(tab = 'posts') {
+async function lecturer(tab = 'posts', moduleId = '') {
   const u = user();
-  if (!u || rank(u.role) < 1) { $app.innerHTML = `<p class="empty">Lecturer access required.</p>`; return; }
+  if (!u || rank(u.role) < 1) { $app.innerHTML = `<p class="empty">Instructor access required.</p>`; return; }
   tab = tab || 'posts';
-  const [posts, users] = await Promise.all([store.mode === 'firebase' ? store.listAllPosts() : store.listPosts(), store.listUsers()]);
+  let [posts, users] = await Promise.all([store.mode === 'firebase' ? store.listAllPosts() : store.listPosts(), store.listUsers(moduleId)]);
+  const teachingModules=store.mode==='firebase'?(await store.listModules()).filter(m=>u.role==='admin'||m.teacherIds.includes(u.uid)):[];
+  if(moduleId) posts=posts.filter(p=>p.moduleId===moduleId);
   const who = Object.fromEntries(users.map(x => [x.uid, x]));
   const real = uid => { const x = who[uid]; return x ? `${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || '—')}${x.studentId ? ` <span class="muted">${esc(x.studentId)}</span>` : ''}` : '<span class="muted">unknown</span>'; };
   const pending = posts.filter(p => p.status === 'pending');
@@ -328,17 +361,19 @@ async function lecturer(tab = 'posts') {
     <td class="actions"><a href="#/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ` <button class="linkish" data-act="unpublish" data-id="${p.id}">Unpublish</button>`} <button class="linkish" data-act="feature" data-id="${p.id}">${p.featured ? 'Unfeature' : 'Feature'}</button>${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`;
   const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name / student</th><th>Status</th><th>Words</th><th>Megatrend</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
   if (tab === 'posts') body = `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews.</span></p>` + table([...posts].sort(by('updatedAt')));
-  if (tab === 'queue') body = `<p class="muted">${S.requireApproval ? 'Students\' posts wait here until approved.' : 'Approval is switched off in Settings: student posts publish immediately. Posts only land here if approval is switched on.'}</p>` + table(pending);
-  if (tab === 'comments') { const cs = await store.recentComments(100); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
-  if (tab === 'roster') { const count = groupBy(posts, p => p.authorId); body = `<table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th></tr></thead><tbody>${users.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(x.role || 'student')}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td></tr>`).join('')}</tbody></table>`; }
-  $app.innerHTML = `<h1 class="page-title">Lecturer area</h1><p class="page-sub">Everything students can do, plus review, feature, unpublish and see who is behind each pen name.</p>${stats}${tabs}${body}`;
+  if (tab === 'queue') body = '<p class="muted">Posts submitted for review in your modules. Approval is controlled separately in each module’s settings.</p>' + table(pending);
+  if (tab === 'comments') { const cs = (await store.recentComments(100)).filter(c=>posts.some(p=>p.id===c.postId)); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
+  if (tab === 'roster') { const count = groupBy(posts, p => p.authorId); body = `<table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th></tr></thead><tbody>${users.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td></tr>`).join('')}</tbody></table>`; }
+  $app.innerHTML = `<h1 class="page-title">Instructor area</h1><p class="page-sub">Review posts and rosters for your teaching modules.</p>${teachingModules.length?`<label class="field">Module<select id="review-module"><option value="">All my teaching modules</option>${teachingModules.map(m=>`<option value="${esc(m.id)}" ${moduleId===m.id?'selected':''}>${esc(m.title)}</option>`).join('')}</select></label>`:''}${stats}${tabs}${body}`;
+  $app.querySelector('#review-module')?.addEventListener('change',e=>{location.hash='#/review/'+tab+(e.target.value?'?module='+e.target.value:'');});
+  if(moduleId) $app.querySelectorAll('.tabs a').forEach(a=>a.href+='?module='+moduleId);
   $app.querySelector('#export-csv')?.addEventListener('click', () => {
     const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
     const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Status', 'Words', 'Megatrend', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}; return [p.title, location.origin + location.pathname + postPath(p), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, p.status, p.wordCount ?? wordCount(p.body), catName(p.category), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
     const blob = new Blob([rows.map(r => r.map(esc2).join(',')).join('\n')], {type: 'text/csv'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ucd-blog-posts.csv'; a.click();
   });
   $app.onclick = async e => {
-    const del = e.target.closest('[data-del-comment]'); if (del && confirm('Delete this comment?')) { await store.deleteComment(del.dataset.delComment); return lecturer(tab); }
+    const del = e.target.closest('[data-del-comment]'); if (del && confirm('Delete this comment?')) { await store.deleteComment(del.dataset.delComment); return lecturer(tab,moduleId); }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const p = posts.find(x => x.id === b.dataset.id); if (!p) return;
     try {
@@ -346,7 +381,7 @@ async function lecturer(tab = 'posts') {
       if (b.dataset.act === 'publish') await store.savePost({...p, status: 'published'}, u);
       if (b.dataset.act === 'unpublish') await store.savePost({...p, status: 'draft'}, u);
       if (b.dataset.act === 'feature') await store.savePost({...p, featured: !p.featured}, u);
-      toast('Updated.'); lecturer(tab);
+      toast('Updated.'); lecturer(tab,moduleId);
     } catch (err) { toast(err.message, 'error'); }
   };
 }
@@ -356,12 +391,12 @@ async function admin(tab = 'users') {
   const u = user();
   if (!u || rank(u.role) < 2) { $app.innerHTML = `<p class="empty">Admin access required.</p>`; return; }
   tab = tab || 'users';
-  const tabs = `<div class="tabs"><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
+  const tabs = `<div class="tabs"><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
   let body = '';
   if (tab === 'users') {
     const users = (await store.listUsers()).sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || ''));
-    body = `<p class="muted">Everyone who has signed in. Lecturers get everything a student has plus the Lecturer area; admins get everything plus this page.</p>
-      <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option ${(x.role || 'student') === r ? 'selected' : ''}>${r}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
+    body = `<p class="muted">Everyone who has signed in. Instructors get everything a student has plus the Instructor area; admins get everything plus this page.</p>
+      <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option value="${r}" ${(x.role || 'student') === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
   }
   if (tab === 'settings') {
     body = `<form id="settings" class="two-col">
@@ -372,7 +407,7 @@ async function admin(tab = 'users') {
       <label class="field">Word target<span style="display:flex;gap:8px"><input name="minWords" type="number" value="${S.minWords}" min="0"><input name="maxWords" type="number" value="${S.maxWords}" min="0"></span></label>
       <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(S.deadline || '')}"></label>
       <label class="check"><input type="checkbox" name="submissionsOpen" ${S.submissionsOpen ? 'checked' : ''}> Students can write and publish</label>
-      <label class="check"><input type="checkbox" name="requireApproval" ${S.requireApproval ? 'checked' : ''}> Student posts need lecturer approval before appearing</label>
+      <label class="check"><input type="checkbox" name="requireApproval" ${S.requireApproval ? 'checked' : ''}> Student posts need instructor approval before appearing</label>
       <label class="check"><input type="checkbox" name="allowComments" ${S.allowComments !== false ? 'checked' : ''}> Comments open</label></div>
       <div><label class="field">Megatrends / categories (one per line: <code>slug | Name</code>)<textarea name="categories" rows="7">${esc(S.categories.map(c => c.slug + ' | ' + c.name).join('\n'))}</textarea></label>
       <label class="field">Challenge brief (HTML, shown on “The challenge”)<textarea name="guide" rows="12">${esc(S.guide)}</textarea></label></div>
@@ -385,7 +420,7 @@ async function admin(tab = 'users') {
       </div><div class="panel" style="border:1px solid var(--line);border-radius:8px;padding:14px"><h3>Data</h3>
       <p class="actions"><button class="btn small" id="export-json">Download everything as JSON</button>${store.mode === 'local' ? `<button class="btn small danger" id="reset-demo">Reset sample data</button>` : ''}</p></div></div>`;
   }
-  $app.innerHTML = `<h1 class="page-title">Admin area</h1><p class="page-sub">Everything a lecturer can do, plus roles, site settings and the backend.</p>${tabs}${body}`;
+  $app.innerHTML = `<h1 class="page-title">Admin area</h1><p class="page-sub">Everything an instructor can do, plus roles, site settings and the backend.</p>${tabs}${body}`;
   $app.querySelectorAll('[data-role]').forEach(sel => sel.onchange = async () => { try { await store.setRole(sel.dataset.role, sel.value); toast('Role updated.'); } catch (e) { toast(e.message, 'error'); } });
   $app.querySelector('#settings')?.addEventListener('submit', async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));

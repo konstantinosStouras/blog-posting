@@ -8,16 +8,17 @@ export function can(user, action, post, settings = {}) {
   if (!user) return action === 'read';
   const r = rank(user.role);
   const own = post && post.authorId === user.uid;
+  const staff = r >= 2 || (r >= 1 && (!user.managedModuleIds || user.managedModuleIds.includes(post?.moduleId)));
   switch (action) {
-    case 'write':        return settings.submissionsOpen !== false || r >= 1;
-    case 'edit':         return !!post && (own || r >= 1);            // students: own posts; lecturers: any
+    case 'write':        return settings.submissionsOpen !== false || staff;
+    case 'edit':         return !!post && (own || staff);
     case 'delete':       return !!post && ((own && post.status !== 'published') || r >= 2); // students: own drafts; admin: anything
-    case 'publish':      return !post ? true : (own && !(settings.requireApproval && r < 1)) || r >= 1;
-    case 'unpublish':    return !!post && (own || r >= 1);
-    case 'approve':      return r >= 1;   // review queue, when requireApproval is on
-    case 'feature':      return r >= 1;
+    case 'publish':      return !post ? true : (own && !settings.requireApproval) || staff;
+    case 'unpublish':    return !!post && (own || staff);
+    case 'approve':      return staff;
+    case 'feature':      return staff;
     case 'comment':      return settings.allowComments !== false;
-    case 'deleteComment':return !!post && (post.authorId === user.uid || r >= 1); // here `post` is the comment
+    case 'deleteComment':return !!post && (post.authorId === user.uid || staff);
     case 'roster':       return r >= 1;   // see who is behind each pen name
     case 'manageUsers':  return r >= 2;
     case 'settings':     return r >= 2;

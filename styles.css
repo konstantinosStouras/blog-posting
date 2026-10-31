@@ -69,7 +69,7 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 13px; mar
 .notice { background: #fff8e6; border: 1px solid #f1dfae; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin: 12px 0; }
 .notice.info { background: #eef4ff; border-color: #c9d9f7; }
 .notice.ok { background: #ecf8f0; border-color: #bfe3cb; }
-dialog { border: 0; border-radius: 10px; padding: 24px; width: min(440px, 92vw); box-shadow: 0 20px 60px #0004; }
+  dialog { border: 0; border-radius: 10px; padding: 24px; width: min(440px, 92vw); max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px #0004; }
 dialog::backdrop { background: #0006; }
 dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background: none; font-size: 22px; cursor: pointer; color: var(--muted); }
 .auth-form h2 { margin: 0 0 6px; font: 700 20px var(--serif); }
@@ -213,3 +213,10 @@ table.list select { padding: 3px 6px; border: 1px solid var(--line); border-radi
   table.list { display: block; overflow-x: auto; }
 }
 @media print { .site-header nav, .account, .post-actions, .comments .reply, .site-footer { display: none; } }
+
+.module-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin:24px 0; }
+.module-card { border:1px solid var(--line); border-radius:10px; padding:22px; background:#fff; }
+.module-card h2 { font:700 21px/1.4 var(--serif); margin:4px 0 12px; }
+.module-card .page-sub { margin-bottom:4px; }
+.module-card .actions { margin-top:18px; }
+.auth-form .provider { width:100%; margin-top:8px; }

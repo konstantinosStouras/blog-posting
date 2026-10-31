@@ -1,5 +1,12 @@
 # Switching on the Firebase side
 
+The current platform flow is documented in `README.md`: admin-issued instructor
+city codes, instructor-owned modules, and module-specific student city-code
+invitations. Registration supports university emails from any institution.
+Private profiles are admin/owner-only; instructors access module membership
+rosters. Student membership requires a valid module invitation. The older setup
+reference below describes the original single-module prototype.
+
 ## Current deployment — 31 October 2026
 
 The live project is **UCD blog**, ID `stouras-ucd-blog`, project number

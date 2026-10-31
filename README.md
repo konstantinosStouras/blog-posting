@@ -1,54 +1,53 @@
 # UCD blog
 
-The class blog for the *PM Challenge* in BMGT45540 Managing Innovative Projects,
-replacing the Edublogs site at ucdprojectmanagement.edublogs.org. Live at
-<https://www.stouras.com/ucd-blog/>.
+Live platform: https://www.stouras.com/ucd-blog/
 
-Students research how one organisation is facing one of six megatrends and
-publish a 900–1,100-word blog post under a pen name. Classmates read, comment on
-the author's open questions and later review each other's posts.
+UCD blog hosts a separate public blog canvas for each instructor's module.
+Published posts are readable without signing in. Writing, editing and commenting
+require a verified account and an invitation-based membership in the module.
 
-## What is here
+## Accounts and invitations
 
-Plain HTML + ES modules, no build step, like the other stouras.com apps.
+- The verified Google account `kstouras@gmail.com` is the platform admin.
+- Admin → Invite instructor generates an email-bound instructor invitation, a
+  city-name code and a link which prefills it. Instructor invitations expire
+  after seven days and are single-use.
+- Instructors create several modules from My modules → Create module.
+- Each public canvas has a stable `#/module/<url-name>` address.
+- Module settings → Invite students generates a city code and registration link
+  for that module. Student invitations are reusable for a class, expire after
+  30 days, and can be revoked. Existing members remain enrolled after revocation.
+- Registration requires an invitation code. Instructors enter name, school or
+  university, university email, and optionally Gmail. Students also enter their
+  university ID. Email/password and Google sign-in are supported.
+- University email is not restricted to UCD. When Google is used, its verified
+  sign-in email is separate from the university contact email supplied in the form.
+- Invitation links are generated for the admin/instructor to share; no invitation
+  email is sent automatically.
 
-| File | Role |
-|---|---|
-| `index.html`, `styles.css` | shell and the look (white page, blue title, serif post titles, orange hashtags, three-column canvas) |
-| `app.js` | hash router and every page: canvas, post, category/tag/author/archive/search, the challenge brief, compose, My posts, Profile, Lecturer area, Admin area |
-| `editor.js` | the compose editor: WYSIWYG toolbar, image upload (resized inline), tables, captions, link shortcut, the five-question outline |
-| `permissions.js` | the three levels (student ⊂ lecturer ⊂ admin) as drawn in the browser |
-| `store.js` | picks the backend: `backend-local.js` (localStorage, seeded) or `backend-firebase.js` (Auth + Firestore) |
-| `auth.js` | header account control: *View as* switcher in local mode; sign-in/register modal in Firebase mode |
-| `seed.js` | sample posts (fictional organisations), sample accounts, default settings and the challenge brief |
-| `firestore.rules` | the real authorisation, see `_SETUP-FIREBASE.md` |
+City codes are convenient shared invitation codes, not passwords. Instructor
+invitations additionally require the invited verified email. Private profiles
+and module rosters are not public. Instructors access only assigned modules.
 
-## The three levels
+## Implementation
 
-- **Student**: read, comment, write and publish their own posts, edit their own, keep drafts, edit profile (pen name, name, student number).
-- **Lecturer**: everything above, plus read all drafts, edit/unpublish/feature any post, approve queued posts, delete any comment, see the roster (pen name → student) and download the CSV for grading and peer-review assignment.
-- **Admin**: everything above, plus assign roles, site settings (title, tagline, word target, deadline, approval required, submissions open, comments open, categories, the brief) and data export.
+Plain HTML and ES modules, with Firebase Authentication and Firestore.
+`platform.js` contains module and invitation pages; `auth.js` contains sign-in
+and registration; `registration.js` validates profile details. The real access
+controls live in `firestore.rules`.
 
-## Run locally
+Firebase project: `stouras-ucd-blog` (display name **UCD blog**), database `eur3`.
+The public web configuration is in `firebase-config.js`. See `_SETUP-FIREBASE.md`.
 
-Any static server, e.g.
+## Validation
 
-```bash
-python -m http.server 8765
-```
+Install development dependencies, then run `npm test`. With Java 21 or newer,
+`npm run test:rules` runs isolated Firestore permission tests on a demo project.
+`tests/preview-server.mjs` is an optional emulator-only browser QA server.
+Test libraries recommend Node 24.12 or newer. They are not served by the app.
 
-then open <http://localhost:8765/>. In local mode use *View as* (top right) to try each level; **Admin → Data** resets the sample data.
+## Publish
 
-## Go live for the class
-
-Follow [`_SETUP-FIREBASE.md`](_SETUP-FIREBASE.md): create the Firebase project, paste its web config into `firebase-config.js`, switch on Google + e-mail sign-in, create Firestore and deploy the rules.
-
-## Deploy
-
-This repository is mounted as the git submodule `ucd-blog` inside
-`konstantinosStouras.github.io`, which GitHub Pages serves as stouras.com. After
-pushing here, update the pointer there:
-
-```bash
-cd ../konstantinosStouras.github.io && git submodule update --remote ucd-blog && git add ucd-blog && git commit -m "ucd-blog: update" && git push
-```
+Push this repository, then update only the `ucd-blog` submodule pointer on the
+`master` branch of `konstantinosStouras.github.io`. GitHub Pages serves that site
+at stouras.com. Always pass `--project stouras-ucd-blog` when deploying rules.
