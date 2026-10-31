@@ -20,8 +20,9 @@ export function renderAccountControl(el) {
     el.querySelector('#viewas').onchange = e => store.viewAs(e.target.value);
     return;
   }
-  el.innerHTML = u ? accountMenu(u) : `<button class="btn small" id="signin-btn">Log in</button>`;
-  el.querySelector('#signin-btn')?.addEventListener('click', openAuthModal);
+  el.innerHTML = u ? accountMenu(u) : `<button class="btn small" id="signin-btn">Log in</button> <button class="btn small" id="register-btn">Register</button>`;
+  el.querySelector('#signin-btn')?.addEventListener('click', () => openAuthModal('signin'));
+  el.querySelector('#register-btn')?.addEventListener('click', () => openAuthModal('register'));
 }
 
 function accountMenu(u) {
@@ -30,12 +31,19 @@ function accountMenu(u) {
     <a href="#/write">Write a post</a>
     <a href="#/mine">My posts</a>
     <a href="#/profile">Edit profile</a>
+    ${store.mode === 'firebase' && !u.emailVerified ? '<p class="small">Verify your e-mail before posting.</p><button id="resend-verification">Resend verification e-mail</button><button id="refresh-verification">I have verified my e-mail</button>' : ''}
     ${u.role !== 'student' ? '<a href="#/review">Lecturer area</a>' : ''}
     ${u.role === 'admin' ? '<a href="#/admin">Admin area</a>' : ''}
     ${store.mode === 'firebase' ? '<button id="signout">Sign out</button>' : ''}
   </div></details>`;
 }
 document.addEventListener('click', async e => {
+  if (e.target.id === 'resend-verification' || e.target.id === 'refresh-verification') {
+    try {
+      if (e.target.id === 'resend-verification') { await store.resendVerification(); toast('Verification e-mail sent.'); }
+      else toast(await store.refreshVerification() ? 'E-mail verified. You can now post.' : 'Please open the verification link in your e-mail first.');
+    } catch (err) { toast(friendly(err)); }
+  }
   if (e.target.id === 'signout') { await store.signOut(); location.hash = '#/'; toast('Signed out.'); }
   const open = document.querySelector('.account-menu[open]');
   if (open && !open.contains(e.target)) open.removeAttribute('open');
@@ -46,7 +54,7 @@ export function openAuthModal(view = 'signin') {
   if (!m) { m = document.createElement('dialog'); m.id = 'auth-modal'; document.body.append(m); }
   const google = enabledProviders.includes('google.com'), pw = enabledProviders.includes('password');
   m.innerHTML = `<form method="dialog" class="auth-form">
-    <button class="close" value="cancel" aria-label="Close">×</button>
+    <button class="close" value="cancel" formnovalidate aria-label="Close">×</button>
     <h2>${view === 'register' ? 'Create your account' : 'Log in'}</h2>
     <p class="muted">Use a non-identifying pen name: it is what classmates see on your posts and comments. Your real name is visible only to the lecturer.</p>
     ${google ? `<button type="button" class="btn provider" data-provider="google.com">Continue with Google</button>` : ''}
@@ -66,7 +74,10 @@ export function openAuthModal(view = 'signin') {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
     try {
-      if (view === 'register') await store.register(f);
+      if (view === 'register') {
+        await store.register(f);
+        m.close(); toast('Account created. Check your e-mail to verify your address before posting.'); return;
+      }
       else if (view === 'reset') { await store.resetPassword(f.email); msg.textContent = 'Password reset e-mail sent.'; return; }
       else await store.signIn('password', f);
       m.close(); toast('Signed in.');

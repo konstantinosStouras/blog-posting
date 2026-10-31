@@ -12,6 +12,7 @@ import {newId, slugify, wordCount, excerptOf} from './util.js';
 
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
 let app, auth, db, A, F, user = null, profile = null, role = 'student', settings = {...DEFAULT_SETTINGS};
+let registration = null;
 const listeners = new Set(), notify = () => listeners.forEach(fn => fn());
 const ts = v => (v && typeof v.toMillis === 'function') ? v.toMillis() : (v ?? null);
 const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['createdAt', 'updatedAt', 'publishedAt']) if (k in o) o[k] = ts(o[k]); return o; };
@@ -26,6 +27,7 @@ async function ensureProfile(u) {
   if (snap.exists()) return snap.data();
   const [firstName = '', ...rest] = (u.displayName || '').split(' ');
   const p = {firstName, lastName: rest.join(' '), penName: slugify(u.displayName || u.email?.split('@')[0] || 'student').replace(/-/g, '_').slice(0, 24) || 'student', affiliation: '', studentId: '', website: '', bio: '', contactEmail: u.email || '', photo: ''};
+  if (registration && registration.email === u.email) Object.assign(p, registration.profile);
   await F.setDoc(ref, p);
   return p;
 }
@@ -66,13 +68,25 @@ export const firebase = {
     throw Error('Unknown sign-in method.');
   },
   async register({email, password, firstName, lastName, penName}) {
-    const cred = await A.createUserWithEmailAndPassword(auth, email, password);
-    await A.updateProfile(cred.user, {displayName: [firstName, lastName].filter(Boolean).join(' ')});
-    await F.setDoc(F.doc(db, 'profiles', cred.user.uid), {firstName, lastName, penName: penName || slugify(firstName || email.split('@')[0]), affiliation: '', studentId: '', website: '', bio: '', contactEmail: email, photo: ''});
-    try { await A.sendEmailVerification(cred.user); } catch {}
-    return cred;
+    registration = {email: email.trim().toLowerCase(), profile: {firstName, lastName, penName: penName || slugify(firstName || email.split('@')[0])}};
+    try {
+      const cred = await A.createUserWithEmailAndPassword(auth, email, password);
+      await A.updateProfile(cred.user, {displayName: [firstName, lastName].filter(Boolean).join(' ')});
+      profile = await ensureProfile(cred.user);
+      await touchDirectory(cred.user, profile);
+      await A.sendEmailVerification(cred.user);
+      notify();
+      return cred;
+    } finally { registration = null; }
   },
   async resetPassword(email) { return A.sendPasswordResetEmail(auth, email); },
+  async resendVerification() { if (user) await A.sendEmailVerification(user); },
+  async refreshVerification() {
+    if (!user) return;
+    await A.reload(user); await A.getIdToken(user, true);
+    role = await loadRole(user.uid, user.email, user.emailVerified); notify();
+    return user.emailVerified;
+  },
   async signOut() { await A.signOut(auth); },
 
   // ---- posts ----
@@ -89,7 +103,7 @@ export const firebase = {
   },
   async listAllPosts() { const snap = await F.getDocs(F.collection(db, 'posts')); return snap.docs.map(norm); },
   async getPost(id) { const s = await F.getDoc(F.doc(db, 'posts', id)); return s.exists() ? norm(s) : null; },
-  async getPostBySlug(slug) { const s = await F.getDocs(F.query(F.collection(db, 'posts'), F.where('slug', '==', slug), F.limit(1))); return s.empty ? null : norm(s.docs[0]); },
+  async getPostBySlug(slug) { const s = await F.getDocs(F.query(F.collection(db, 'posts'), F.where('slug', '==', slug), F.where('status', '==', 'published'), F.limit(1))); return s.empty ? null : norm(s.docs[0]); },
   async savePost(post, u) {
     const id = post.id || newId();
     const existing = post.id ? await this.getPost(id) : null;

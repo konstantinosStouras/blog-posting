@@ -13,7 +13,7 @@ export const MEGATRENDS = [
 ];
 
 export const DEFAULT_SETTINGS = {
-  title: "UCD's Project Management Blog",
+  title: 'UCD blog',
   tagline: 'Posts by curious UCD students',
   module: 'BMGT45540 Managing Innovative Projects',
   challenge: 'PM Challenge 2026',

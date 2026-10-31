@@ -1,4 +1,4 @@
-# UCD's Project Management Blog
+# UCD blog
 
 The class blog for the *PM Challenge* in BMGT45540 Managing Innovative Projects,
 replacing the Edublogs site at ucdprojectmanagement.edublogs.org. Live at
