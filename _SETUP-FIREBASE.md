@@ -1,5 +1,21 @@
 # Switching on the Firebase side
 
+## Current deployment — 31 October 2026
+
+The live project is **UCD blog**, ID `stouras-ucd-blog`, project number
+`513789063041`. Google and Email/Password authentication are enabled. Authorized
+domains include `stouras.com`, `www.stouras.com`, and `localhost`. The default
+Firestore database is in `eur3` (Europe), with this repository's rules and
+indexes deployed. The maintainer upgraded the project to Blaze; its linked
+billing account is also named **UCD blog**. The public web configuration is in
+`firebase-config.js`.
+
+The following instructions remain as a setup reference. Project creation and
+quota approval are already complete. Live mode starts with an empty database;
+prototype sample posts are not imported. Email/password users receive a
+verification email and must verify before posting. The account menu provides
+verification resend and refresh controls; the login form provides password reset.
+
 The blog ships in **local mode**: every post, comment and account lives in the
 visitor's own browser, seeded with sample posts, and a "View as" switcher stands
 in for sign-in. That is enough to look at the design and try the three levels,
