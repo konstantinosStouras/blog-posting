@@ -164,7 +164,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
     ${p.excerpt ? `<p class="subtitle">${esc(p.excerpt)}</p>` : ''}
     <div class="byline"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div><a href="#/author/${esc(p.authorId || '')}"><b>${esc(p.authorName || 'you')}</b></a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}<br><span class="muted">${fmtDate(p.publishedAt || p.updatedAt || Date.now())} · ${readingTime(w)}${blog ? ` · <a href="#/blog/${esc(blog.id)}">${esc(blog.title)}</a>` : ''}</span></div></div>
     <div class="post-actions-row" role="group" aria-label="Post actions">
-      <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes.length || ''}</span></button>
+      <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes.length || ''}</span></button>
       <a class="react" href="#comments" data-comments aria-label="Comments">${ICON.comment}<span>${comments || ''}</span></a>
       <span class="grow"></span>
       <button type="button" class="react wide" data-share ${preview ? 'disabled' : ''}>${ICON.share}<span>Share</span></button>
@@ -185,7 +185,7 @@ async function postView(slug) {
   const [module, blog, mine] = await Promise.all([p.moduleId ? store.getModule(p.moduleId) : null, store.getBlog(p.blogId), u ? store.listMyModules() : []]);
   // Cohort rules (approval, open/closed) come from the module; the comments policy from the blog.
   const context = {...S, ...(module || {}), allowComments: blog ? blog.allowComments !== false : true};
-  const canParticipate = u && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId || (p.blogId && m.blogId === p.blogId)));
+  const canParticipate = u && (store.mode !== 'firebase' || u.emailVerified) && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId || (p.blogId && m.blogId === p.blogId)));
   const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const [comments, likes] = await Promise.all([store.listComments(p.id), store.listLikes(p.id)]);
@@ -219,11 +219,11 @@ async function postView(slug) {
   };
   $app.onclick = async e => {
     const del = e.target.closest('[data-del-comment]');
-    if (del && confirm('Delete this comment?')) { await store.deleteComment(del.dataset.delComment); render(); return; }
+    if (del && confirm('Delete this comment?')) { try { await store.deleteComment(del.dataset.delComment); } catch (err) { return toast(err.message, 'error'); } render(); return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
     try {
-      if (act === 'delete') { if (!confirm('Delete this post permanently?')) return; await store.deletePost(p.id); toast('Post deleted.'); location.hash = '#/'; return; }
+      if (act === 'delete') { if (!confirm('Delete this post permanently?')) return; try { await store.deletePost(p.id); } catch (err) { return toast(err.message, 'error'); } toast('Post deleted.'); location.hash = '#/'; return; }
       if (act === 'unpublish') await store.savePost({...p, status: 'draft'}, u);
       if (act === 'publish') await store.savePost({...p, status: 'published'}, u);
       if (act === 'feature') await store.savePost({...p, featured: !p.featured}, u);
@@ -266,7 +266,7 @@ async function editorView(id, moduleId) {
     if(!joined){$app.innerHTML=`<p class="empty">Join this module before writing. <a href="#/blog/${esc(module.blogId)}">Open the blog</a></p>`;return;}
   }
   p = p || {moduleId, title: '', body: '', category: '', organisation: '', tags: [], featuredImage: '', status: 'draft', excerpt: ''};
-  const draft = {...p, tags: [...(p.tags || [])]};
+  const draft = {...p, title: p.title === 'Untitled draft' ? '' : (p.title || ''), tags: [...(p.tags || [])]};   // the placeholder title is for the database only
   const trackTime=store.mode==='firebase'&&rank(u.role)===0&&(!p.authorId||p.authorId===u.uid);
   if(trackTime&&!p.id){p.id=newId();draft.id=p.id;}
   const previousWritingSeconds=0;
@@ -280,7 +280,7 @@ async function editorView(id, moduleId) {
   $app.innerHTML = `<div class="writer">
     <div class="writer-bar">
       <a class="icon-btn" href="#/blog/${esc(module.blogId)}" aria-label="Back to the blog" title="Back to the blog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></a>
-      <span class="save-chip" id="save-chip" data-state="${p.id ? (draft.status === 'published' ? 'published' : 'saved') : 'new'}"><i></i><span>${p.id ? (draft.status === 'published' ? 'Published' : draft.status === 'pending' ? 'Submitted' : 'Saved') : 'New draft'}</span></span>
+      <span class="save-chip" id="save-chip" data-state="${id ? (draft.status === 'published' ? 'published' : 'saved') : 'new'}"><i></i><span>${id ? (draft.status === 'published' ? 'Published' : draft.status === 'pending' ? 'Submitted' : 'Saved') : 'New draft'}</span></span>
       <span class="grow"></span>
       <button type="button" class="btn ghost" id="preview">Preview</button>
       <button type="button" class="btn accent" id="continue">${draft.status === 'published' ? 'Update' : 'Continue'}</button>
@@ -312,7 +312,7 @@ async function editorView(id, moduleId) {
     <p class="status-line" id="status-line"></p></form></dialog>`;
 
   const $ = sel => document.getElementById(sel);
-  const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.insertHTML(fillOutline(blog.outline, draft.organisation || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : 'the ' + (catLabel || 'topic').toLowerCase())); }}] : [];
+  const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.appendHTML(fillOutline(blog.outline, draft.organisation || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : 'the ' + (catLabel || 'topic').toLowerCase())); }}] : [];
   ed = mountEditor($('editor'), {html: draft.body, placeholder: 'Start writing…', extras, onChange: html => { draft.body = html; touched(); }});
   // Title, subtitle and byline sit between the toolbar and the text, as on Substack.
   const head = document.createElement('div'); head.className = 'writer-head';
@@ -332,13 +332,14 @@ async function editorView(id, moduleId) {
   $('remove-image').onclick = () => { draft.featuredImage = ''; $('thumb').hidden = true; $('remove-image').hidden = true; touched(); };
   $('continue').onclick = $('details').onclick = () => { updateMeter(); $('status-line').textContent = ''; $('sheet').showModal(); };
   const settle = async () => { clearTimeout(saveTimer); while (saving) await new Promise(r => setTimeout(r, 100)); };
-  $('save-draft').onclick = () => settle().then(() => save(draft.status === 'pending' ? 'pending' : 'draft')).then(ok => { if (ok) { $('sheet').close(); toast(draft.status === 'published' ? 'Draft saved.' : 'Draft saved.'); } });
+  $('save-draft').onclick = () => { const wasLive = draft.status === 'published'; settle().then(() => save(draft.status === 'pending' ? 'pending' : 'draft')).then(ok => { if (ok) { $('sheet').close(); toast(wasLive ? 'Saved as a draft; the post is no longer public.' : 'Draft saved.'); } }); };
   $('publish').onclick = () => {
     const words = wordCount(draft.body);
     if (!draft.title.trim()) return problem('Give your post a title first.', 'title');
     if (hasCats && !draft.category) return problem(`Choose the ${catLabel.toLowerCase()} your post is about.`);
     if (blog.minWords && words < blog.minWords * 0.5 && draft.status !== 'published' && !confirm(`Your post has only ${words} words; the target is ${blog.minWords}–${blog.maxWords}. Publish anyway?`)) return;
-    settle().then(() => save(needsReview ? 'pending' : 'published')).then(ok => { if (!ok) return; const wasLive = p.status === 'published' && draft.status === 'published'; $('sheet').close(); if (draft.status === 'published') { toast(wasLive ? 'Updated.' : 'Published! Your post is live.'); location.hash = postPath(draft); } else { toast('Submitted for review.'); location.hash = '#/mine'; } });
+    const wasLive = draft.status === 'published';
+    settle().then(() => save(needsReview ? 'pending' : 'published')).then(ok => { if (!ok) return; $('sheet').close(); if (draft.status === 'published') { toast(wasLive ? 'Updated.' : 'Published! Your post is live.'); location.hash = postPath(draft); } else { toast('Submitted for review.'); location.hash = '#/mine'; } });
   };
   $('preview').onclick = () => showPreview();
   // Post info (characters, words, sentences, reading and speaking time), as on Substack.
@@ -380,10 +381,11 @@ async function editorView(id, moduleId) {
       const saved = await store.savePost({...draft, id: p.id, status, title: draft.title.trim() || 'Untitled draft', excerpt: (draft.excerpt || '').trim()}, u);
       p = saved; Object.assign(draft, {id: saved.id, slug: saved.slug, status: saved.status, publishedAt: saved.publishedAt, updatedAt: saved.updatedAt, blogId: saved.blogId, academicYear: saved.academicYear}); if (revision === rev) dirty = false; ok = true;
       chip(status === 'published' ? 'published' : 'saved', status === 'published' ? 'Published' : status === 'pending' ? 'Submitted' : 'Saved');
-      $('continue').textContent = status === 'published' ? 'Update' : 'Continue';
+      if (liveView !== 'editor') return ok;   // the save landed after the writer was left: nothing to repaint, and never rewrite another page's URL
+      if ($('continue')) $('continue').textContent = status === 'published' ? 'Update' : 'Continue';
       if (!id && !location.hash.startsWith('#/edit/')) { history.replaceState(null, '', '#/edit/' + saved.id); lastRouteHash = location.hash; }
-      $('publish').textContent = draft.status === 'published' ? 'Update post' : needsReview ? 'Submit for review' : 'Publish';
-      $('save-draft').textContent = draft.status === 'published' ? 'Unpublish to draft' : 'Save draft';
+      if ($('publish')) $('publish').textContent = draft.status === 'published' ? 'Update post' : needsReview ? 'Submit for review' : 'Publish';
+      if ($('save-draft')) $('save-draft').textContent = draft.status === 'published' ? 'Unpublish to draft' : 'Save draft';
       if (revision !== rev) { chip('unsaved', 'Unsaved'); if (draft.status !== 'published') { clearTimeout(saveTimer); saveTimer = setTimeout(() => save(draft.status === 'pending' ? 'pending' : 'draft', true), 1500); } }
     } catch (e) { chip('error', 'Not saved'); toast(e.message, 'error'); }
     finally { saving = false; }
@@ -406,7 +408,8 @@ async function editorView(id, moduleId) {
   }
   const leave = e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
   addEventListener('beforeunload', leave);
-  const stop = () => { writingTimer?.stop();clearTimeout(saveTimer); removeEventListener('beforeunload', leave);removeEventListener('pagehide',stop); removeEventListener('hashchange', stop); liveView = null; };
+  const stop = e => { if (e?.type === 'hashchange' && location.hash && !location.hash.startsWith('#/')) return;   // an in-page anchor (#comments, #fn-3) keeps the editor
+    writingTimer?.stop();clearTimeout(saveTimer); removeEventListener('beforeunload', leave);removeEventListener('pagehide',stop); removeEventListener('hashchange', stop); liveView = null; };
   addEventListener('hashchange', stop);
   addEventListener('pagehide',stop);
   if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor')});
@@ -422,7 +425,7 @@ async function mine() {
     ${posts.length ? `<table class="list"><thead><tr><th>Title</th><th>Blog</th><th>Status</th><th>Words</th><th>Category</th><th>Updated</th><th></th></tr></thead><tbody>
       ${posts.map(p => `<tr><td><a href="#/edit/${p.id}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
         <td class="actions"><a href="#/edit/${p.id}">Edit</a>${p.status === 'published' ? ` <a href="${postPath(p)}">View</a>` : ''}${can(u, 'delete', p, S) ? ` <button class="linkish danger" data-del="${p.id}">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">You have not written anything yet.</p>`}`;
-  $app.onclick = async e => { const b = e.target.closest('[data-del]'); if (b && confirm('Delete this post?')) { await store.deletePost(b.dataset.del); toast('Deleted.'); mine(); } };
+  $app.onclick = async e => { const b = e.target.closest('[data-del]'); if (b && confirm('Delete this post?')) { try { await store.deletePost(b.dataset.del); } catch (err) { return toast(err.message, 'error'); } toast('Deleted.'); mine(); } };
 }
 
 async function profileView() {
@@ -449,9 +452,9 @@ async function lecturer(tab = 'posts', query = '') {
   const u = user();
   const q = new URLSearchParams(query || ''), moduleId = q.get('module') || '', blogId = q.get('blog') || '', year = q.get('year') || '';
   if (!u || rank(u.role) < 1) { $app.innerHTML = `<p class="empty">Instructor access required.</p>`; return; }
-  if(tab==='roster'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:false});return;}
-  tab = tab || 'posts';
   const canRoster = !moduleId || u.role === 'admin' || (u.managedModuleIds || []).includes(moduleId);   // blog owners see posts of guest modules, not their rosters
+  if(tab==='roster'&&store.mode==='firebase'){if(!canRoster){$app.innerHTML='<p class="empty">This module writes on your blog, but its roster is private to its own instructor.</p>';return;}await renderPeople($app,{moduleId,admin:false});return;}
+  tab = tab || 'posts';
   let [posts, users, allModules] = await Promise.all([store.listAllPosts(), canRoster ? store.listUsers(moduleId) : Promise.resolve([]), store.listModules()]);
   const teachingModules = allModules.filter(m => u.role === 'admin' || m.teacherIds.includes(u.uid) || (u.managedBlogIds || []).includes(m.blogId));
   const myBlogs = BLOGS.filter(b => u.role === 'admin' || b.teacherIds.includes(u.uid) || teachingModules.some(m => m.blogId === b.id));
@@ -476,7 +479,7 @@ async function lecturer(tab = 'posts', query = '') {
   const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name / student</th><th>Module · year</th><th>Status</th><th>Words</th><th>Category</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
   if (tab === 'posts') body = summary + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
   if (tab === 'queue') body = '<p class="muted">Posts submitted for review. Approval is switched on per module in its settings.</p>' + table(pending);
-  if (tab === 'comments') { const cs = (await store.recentComments(100)).filter(c=>posts.some(p=>p.id===c.postId)); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
+  if (tab === 'comments') { const cs = (await store.recentComments(500)).filter(c=>posts.some(p=>p.id===c.postId)); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
   if (tab === 'roster' && blogId && !moduleId && canRoster) { const lists = await Promise.all(teachingModules.filter(m => m.blogId === blogId && (u.role === 'admin' || (u.managedModuleIds || []).includes(m.id))).map(m => store.listUsers(m.id))); users = [...new Map(lists.flat().map(x => [x.uid, x])).values()]; }
   if (tab === 'roster') { users = users.filter(x => rank(x.role || 'student') === 0); const count = groupBy(posts, p => p.authorId); body = `<table class="list sortable"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th></tr></thead><tbody>${users.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td></tr>`).join('')}</tbody></table>`; }
   const sel = (id, label, rows, value, all) => `<label class="field">${label}<select id="${id}"><option value="">${all}</option>${rows.map(([v, l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
@@ -494,11 +497,11 @@ async function lecturer(tab = 'posts', query = '') {
     const blob = new Blob([rows.map(r => r.map(esc2).join(',')).join('\n')], {type: 'text/csv'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ucd-blog-posts${moduleId ? '-' + moduleId : ''}${year ? '-' + year.replace('/', '-') : ''}.csv`; a.click();
   });
   $app.onclick = async e => {
-    const del = e.target.closest('[data-del-comment]'); if (del && confirm('Delete this comment?')) { await store.deleteComment(del.dataset.delComment); return lecturer(tab, query); }
+    const del = e.target.closest('[data-del-comment]'); if (del && confirm('Delete this comment?')) { try { await store.deleteComment(del.dataset.delComment); } catch (err) { return toast(err.message, 'error'); } return lecturer(tab, query); }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const p = posts.find(x => x.id === b.dataset.id); if (!p) return;
     try {
-      if (b.dataset.act === 'delete') { if (!confirm(`Delete "${p.title}" permanently?`)) return; await store.deletePost(p.id); }
+      if (b.dataset.act === 'delete') { if (!confirm(`Delete "${p.title}" permanently?`)) return; try { await store.deletePost(p.id); } catch (err) { return toast(err.message, 'error'); } }
       if (b.dataset.act === 'publish') await store.savePost({...p, status: 'published'}, u);
       if (b.dataset.act === 'unpublish') await store.savePost({...p, status: 'draft'}, u);
       if (b.dataset.act === 'feature') await store.savePost({...p, featured: !p.featured}, u);
@@ -515,7 +518,7 @@ async function admin(tab = 'users',moduleId='') {
   const tabs = `<div class="tabs"><a href="#/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="#/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="#/admin/grading" class="${tab==='grading'?'active':''}">AI grading</a><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/admin/feedback" class="${tab === 'feedback' ? 'active' : ''}">Feedback</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
   if(tab==='people'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:true});return;}
   if(tab==='people'){$app.innerHTML='<h1 class="page-title">Admin area</h1><p class="muted">People and invitation records exist only on the live platform.</p>';return;}
-  if(tab==='grading'){await renderGrading($app,{moduleId});return;}
+  if(tab==='grading'){liveView='grading';await renderGrading($app,{moduleId});return;}   // like the editor: a store notification must not rebuild the page mid-batch
   if (tab === 'feedback') { $app.innerHTML = `<h1 class="page-title">Feedback inbox</h1><p class="page-sub">What visitors, students and instructors sent with the Feedback button: notes, screenshots and voice notes.</p>${tabs}<div id="fb-inbox"></div>`; await renderFeedbackInbox($app.querySelector('#fb-inbox')); return; }
   let body = '';
   if(tab==='guide')body=store.mode==='firebase'?sanitize(await store.getAdminGuide()):'<p>The private admin guide is available on the live Firebase platform.</p>';
@@ -553,7 +556,7 @@ async function admin(tab = 'users',moduleId='') {
 (async () => {
   try { await initStore(); S = store.settings(); }
   catch (e) { $app.innerHTML = `<p class="empty">The blog could not start: ${esc(e.message)}</p>`; return; }
-  store.onChange(() => { S = store.settings(); renderHeader(); if (liveView !== 'editor') render(); });
+  store.onChange(() => { S = store.settings(); renderHeader(); if (!liveView) render(); });
   addEventListener('hashchange', render);
   mountFeedbackButton();
   render();

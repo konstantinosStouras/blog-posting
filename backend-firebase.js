@@ -284,11 +284,8 @@ export const firebase = {
     const rows = (await Promise.all([...byModule, ...byBlog])).flat();
     return [...new Map(rows.map(p => [p.id, p])).values()];
   },
-  async beginWritingSession(row) {const {id,...data}=row;await F.runTransaction(db,async tx=>{const ref=F.doc(db,'writingSessions',id),s=await tx.get(ref);if(!s.exists())tx.set(ref,{...data,seconds:0});});},
   async saveWritingHistory(row){const {id,...data}=row;await F.setDoc(F.doc(db,'writingHistory',id),data);},
   async listWritingHistory(moduleId=''){if(!user?.emailVerified||!['admin','lecturer'].includes(role))throw Error('Staff access required.');if(role==='admin'&&!moduleId){const s=await F.getDocs(F.collection(db,'writingHistory'));return s.docs.map(norm);}const ids=moduleId?[moduleId]:managedModuleIds;return (await Promise.all(ids.map(id=>F.getDocs(F.query(F.collection(db,'writingHistory'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
-  async saveWritingSession(row) {await this.beginWritingSession(row);await F.runTransaction(db,async tx=>{const ref=F.doc(db,'writingSessions',row.id),s=await tx.get(ref);if(row.seconds>s.data().seconds)tx.update(ref,{seconds:row.seconds});});},
-  async writingSeconds(postId) {try{for(const row of JSON.parse(localStorage.getItem(`ucd-writing:${user.uid}:${postId}`)||'[]'))if(row.uid===user.uid&&row.postId===postId)await this.saveWritingSession(row);}catch{}const s=await F.getDocs(F.query(F.collection(db,'writingSessions'),F.where('uid','==',user.uid),F.where('postId','==',postId)));return s.docs.reduce((n,d)=>n+d.data().seconds,0);},
   async listWritingSessions(moduleId='') {const ids=moduleId?[moduleId]:managedModuleIds;if(role==='admin'&&!moduleId){const s=await F.getDocs(F.collection(db,'writingSessions'));return s.docs.map(norm);}return (await Promise.all(ids.map(id=>F.getDocs(F.query(F.collection(db,'writingSessions'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
   async getPost(id) { const s = await F.getDoc(F.doc(db, 'posts', id)); return s.exists() ? norm(s) : null; },
   async getPostBySlug(slug) {
@@ -359,7 +356,7 @@ export const firebase = {
   // ---- comments ----
   async listComments(postId) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', postId))); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt); },
   async recentComments(n = 5) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.orderBy('createdAt', 'desc'), F.limit(n))); return s.docs.map(norm); },
-  async addComment({postId, body}, u) { const post = await this.getPost(postId); if (!post) throw Error('Post not found.'); const c = {postId, moduleId:post.moduleId, blogId: post.blogId || '', body, authorId: u.uid, authorName: u.penName || 'student', createdAt: Date.now()}; const ref = await F.addDoc(F.collection(db, 'comments'), c); notify(); return {id: ref.id, ...c}; },
+  async addComment({postId, body}, u) { if (!user?.emailVerified) throw Error('Verify your sign-in email before commenting.'); const post = await this.getPost(postId); if (!post) throw Error('Post not found.'); const c = {postId, moduleId:post.moduleId, blogId: post.blogId || '', body, authorId: u.uid, authorName: u.penName || 'student', createdAt: Date.now()}; const ref = await F.addDoc(F.collection(db, 'comments'), c); notify(); return {id: ref.id, ...c}; },
   async deleteComment(id) { await F.deleteDoc(F.doc(db, 'comments', id)); notify(); },
 
   // ---- people (staff only, enforced by the rules) ----

@@ -13,10 +13,10 @@ export function can(user, action, post, settings = {}) {
   const staff = r >= 2 || (r >= 1 && (!user.managedModuleIds || user.managedModuleIds.includes(post?.moduleId) || (user.managedBlogIds || []).includes(post?.blogId)));
   switch (action) {
     case 'write':        return settings.submissionsOpen !== false || staff;
-    case 'edit':         return !!post && (own || staff);
+    case 'edit':         return !!post && (staff || (own && settings.submissionsOpen !== false));   // the rules refuse student updates once submissions close
     case 'delete':       return !!post && ((own && post.status !== 'published') || r >= 2); // students: own drafts; admin: anything
     case 'publish':      return !post ? true : (own && !settings.requireApproval) || staff;
-    case 'unpublish':    return !!post && (own || staff);
+    case 'unpublish':    return !!post && (staff || (own && settings.submissionsOpen !== false));
     case 'approve':      return staff;
     case 'feature':      return staff;
     case 'comment':      return settings.allowComments !== false;

@@ -37,7 +37,7 @@ const SCRIPTS = [['script:normal', 'Normal'], ['superscript', 'Superscript', '<s
 const QUOTES = [['blockquote', 'Block quote'], ['pullquote', 'Pull quote'], ['callout', 'Callout block']];
 const ALIGNS = [['justifyLeft', 'Left', 'alignLeft'], ['justifyCenter', 'Center', 'alignCenter'], ['justifyRight', 'Right', 'alignRight'], ['justifyFull', 'Justify', 'alignJustify']];
 const DURATIONS = [[1, '1 day'], [3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '1 month'], [0, 'No time limit']];
-const BLOCK_SEL = 'p,h2,h3,h4,blockquote,pre,li,aside,div.math,div.tv-chart,div.poll,figure,table';
+const BLOCK_SEL = 'p,h1,h2,h3,h4,h5,h6,blockquote,pre,li,aside,div.math,div.tv-chart,div.poll,figure,table';
 
 document.addEventListener('click', e => { for (const c of document.querySelectorAll('.editor')) if (!c.contains(e.target)) c.closeMenus?.(); });
 
@@ -118,17 +118,28 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
         const fig = inside('figure') || blockOf()?.previousElementSibling?.closest?.('figure');
         if (fig) { let cap = fig.querySelector('figcaption'); if (!cap) { cap = document.createElement('figcaption'); cap.textContent = 'Figure: describe what this shows and cite the source'; fig.append(cap); } placeCaret(cap, true); const r = document.createRange(); r.selectNodeContents(cap); const ss = sel(); ss.removeAllRanges(); ss.addRange(r); changed(); break; }
         exec('formatBlock', 'P'); const p = blockOf(); if (p?.tagName === 'P') { p.classList.toggle('caption'); changed(); } break; }
-      case 'clear': exec('removeFormat'); exec('formatBlock', 'P'); break;
+      case 'clear': { exec('removeFormat'); const as = inside('aside.callout'); if (as) as.replaceWith(...as.childNodes); const bq = inside('blockquote'); if (bq) unwrapQuote(bq); else exec('formatBlock', 'P'); break; }
       case 'justifyLeft': case 'justifyCenter': case 'justifyRight': case 'justifyFull': exec(c); break;
       default: exec(c);
     }
   }
   // Quotes: block quote (bar), pull quote (centred italic), callout (grey card).
+  // Chrome's formatBlock P is a no-op inside a blockquote, so switching a quote off unwraps it explicitly.
+  function unwrapQuote(bq) {
+    const blocks = [...bq.children].filter(n => /^(P|H[1-6]|UL|OL|PRE|DIV|FIGURE|TABLE)$/.test(n.tagName));
+    if (!blocks.length) { const p = document.createElement('p'); p.append(...bq.childNodes); bq.replaceWith(p); placeCaret(p, true); }
+    else { bq.replaceWith(...bq.childNodes); placeCaret(blocks[blocks.length - 1], true); }
+    changed();
+  }
   function quote(kind) {
     const cur = blockOf(); if (!cur) { exec('formatBlock', 'BLOCKQUOTE'); return; }
     const aside = cur.closest('aside.callout'), bq = cur.closest('blockquote');
     if (aside) { aside.replaceWith(...aside.childNodes); }
-    if (bq && kind !== 'callout') { bq.classList.remove('pull'); if (kind === 'blockquote' && !bq.classList.length) { exec('formatBlock', 'P'); return; } if (kind === 'pullquote') { if (bq.dataset.was === 'pull') { bq.dataset.was = ''; exec('formatBlock', 'P'); return; } bq.classList.add('pull'); bq.dataset.was = 'pull'; changed(); return; } }
+    if (bq && kind !== 'callout') {
+      const wasPull = bq.classList.contains('pull');
+      if (kind === 'blockquote') { if (wasPull) { bq.classList.remove('pull'); bq.removeAttribute('class'); delete bq.dataset.was; changed(); } else unwrapQuote(bq); return; }   // pull → plain, plain → off
+      if (kind === 'pullquote') { if (wasPull) unwrapQuote(bq); else { bq.classList.add('pull'); bq.dataset.was = 'pull'; changed(); } return; }
+    }
     if (kind === 'blockquote') { exec('formatBlock', 'BLOCKQUOTE'); blockOf()?.closest('blockquote')?.classList.remove('pull'); changed(); return; }
     if (kind === 'pullquote') { exec('formatBlock', 'BLOCKQUOTE'); const b = blockOf()?.closest('blockquote'); if (b) { b.classList.add('pull'); b.dataset.was = 'pull'; } changed(); return; }
     if (kind === 'callout') { if (aside) { changed(); return; } const target = cur.closest('blockquote') || cur; const a = document.createElement('aside'); a.className = 'callout'; target.replaceWith(a); a.append(target.tagName === 'BLOCKQUOTE' ? target : target); if (target.tagName === 'BLOCKQUOTE') { const p = document.createElement('p'); p.innerHTML = target.innerHTML; target.replaceWith(p); } placeCaret(a, true); changed(); }
@@ -158,9 +169,13 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
   function footnote() {
     let section = surface.querySelector('section.footnotes');
     if (!section) { section = document.createElement('section'); section.className = 'footnotes'; section.innerHTML = '<hr><ol></ol>'; surface.append(section); }
-    const n = surface.querySelectorAll('sup.fn').length + 1;
+    const n = surface.querySelectorAll('sup.fn').length + 1, before = new Set(surface.querySelectorAll('sup.fn a'));
     insertHTML(`<sup class="fn"><a href="#fn-${n}" id="fnref-${n}">${n}</a></sup>&nbsp;`);
-    const li = document.createElement('li'); li.id = `fn-${n}`; li.textContent = 'Footnote text'; section.querySelector('ol').append(li);
+    const li = document.createElement('li'); li.id = `fn-${n}`; li.textContent = 'Footnote text';
+    // The input event has already renumbered the markers, so the new one is found by identity, not id: a note
+    // inserted before existing markers takes the matching place in the list.
+    const ol = section.querySelector('ol'), at = [...surface.querySelectorAll('sup.fn a')].findIndex(a => !before.has(a));
+    ol.insertBefore(li, at >= 0 ? ol.children[at] || null : null);
     renumberFootnotes(surface, true); changed();
     const r = document.createRange(); r.selectNodeContents(li); const s = sel(); s.removeAllRanges(); s.addRange(r); li.scrollIntoView({block: 'center', behavior: 'smooth'});
   }
@@ -169,6 +184,7 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     const d = document.createElement('dialog'); d.className = 'sheet small ' + cls; d.innerHTML = `<form method="dialog" class="sheet-form">${html}</form>`; document.body.append(d);
     const close = d.close.bind(d); d.onClosed = []; d.close = () => { if (d.open) close(); d.remove(); surface.focus(); const fns = d.onClosed.splice(0); fns.forEach(f => f()); };
     d.addEventListener('close', () => d.close());
+    d.querySelector('form').addEventListener('submit', e => e.preventDefault());   // Enter in a lone text field would otherwise close the dialog without inserting
     d.querySelector('[value=cancel]')?.addEventListener('click', () => d.close());
     d.showModal(); return d;
   }
@@ -244,7 +260,20 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     e.preventDefault();
     const h = e.clipboardData.getData('text/html'), t = e.clipboardData.getData('text/plain');
     if (inside('pre')) { exec('insertText', t); return; }
-    if (h) { const clean = sanitize(h).replace(/ style="[^"]*"/g, '').replace(/<(\/?)(span|font|div)[^>]*>/g, (m, s, tag) => tag === 'div' ? (s ? '</p>' : '<p>') : ''); insertHTML(clean); }
+    if (h) {
+      // Google Docs wraps the clipboard in <b style="font-weight:normal"> and expresses bold and italic as span styles:
+      // keep real emphasis as <strong>/<em>, drop the wrapper and every other style.
+      const t = document.createElement('template'); t.innerHTML = sanitize(h);
+      t.content.querySelectorAll('b[id^="docs-internal-guid"]').forEach(b => b.replaceWith(...b.childNodes));
+      for (const el of t.content.querySelectorAll('span,font,b,i')) {
+        const st = el.style, wrap = tag => { const x = document.createElement(tag); x.append(...el.childNodes); el.append(x); };
+        if (/^(bold|bolder|[6-9]00)$/.test(st.fontWeight) || (el.tagName === 'B' && !/^(normal|lighter|[1-5]00)$/.test(st.fontWeight))) wrap('strong');
+        if (st.fontStyle === 'italic' || el.tagName === 'I') wrap('em');
+        if (/underline/.test(st.textDecoration)) wrap('u'); if (/line-through/.test(st.textDecoration)) wrap('s');
+        el.replaceWith(...el.childNodes);
+      }
+      const clean = t.innerHTML.replace(/ style="[^"]*"/g, '').replace(/<(\/?)div[^>]*>/g, (m, s) => s ? '</p>' : '<p>'); insertHTML(clean);
+    }
     else { const paras = t.split(/\r?\n\r?\n/).map(x => esc(x).replace(/\r?\n/g, '<br>')).filter(Boolean); insertHTML(paras.length > 1 ? '<p>' + paras.join('</p><p>') + '</p>' : paras[0] || ''); }
   });
   surface.addEventListener('focus', ensureParagraph);
@@ -253,15 +282,23 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openLinkPop(); }
     if (e.key === 'Escape') closeMenus();
     if (e.key === 'Enter' && inside('pre') && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\n'); }
+    if (e.key === 'Enter' && !e.shiftKey) { const cap = inside('figcaption'); if (cap) { e.preventDefault(); const p = document.createElement('p'); p.innerHTML = '<br>'; (cap.closest('figure') || cap).after(p); placeCaret(p); changed(); } }   // Enter leaves the caption instead of adding a second one
     if ((e.key === 'Backspace' || e.key === 'Delete') && sel().isCollapsed) {
       const b = blockOf(); const prev = e.key === 'Backspace' ? b?.previousElementSibling : b?.nextElementSibling;
-      if (b && !b.textContent.trim() && prev && prev.matches('.math,.tv-chart,.poll,figure') && b.tagName === 'P') { e.preventDefault(); if (confirm('Remove this block?')) { prev.remove(); changed(); } }
+      if (b && prev && prev.matches('.math,.tv-chart,.poll,figure')) {
+        // Only when the caret touches the block boundary: the browser would otherwise merge the paragraph into the widget and delete it.
+        let atEdge = !b.textContent.trim();
+        if (!atEdge) try { const r = sel().getRangeAt(0), probe = document.createRange(); probe.selectNodeContents(b); if (e.key === 'Backspace') probe.setEnd(r.startContainer, r.startOffset); else probe.setStart(r.endContainer, r.endOffset); atEdge = !probe.toString().trim().length; } catch { atEdge = false; }
+        if (atEdge) { e.preventDefault(); if (confirm('Remove this block?')) { prev.remove(); changed(); } }
+      }
     }
   });
   if (!surface.innerHTML.trim()) surface.innerHTML = '';
 
   function getHTML() { return sanitize(serialize(surface)).replace(/<p><br><\/p>\s*$/g, ''); }
-  const api = {getHTML, setHTML(h) { surface.innerHTML = sanitize(h); enhance(surface, {editor: true}).then(changed); }, focus: () => surface.focus(), insertHTML, isEmpty: () => !surface.textContent.trim() && !surface.querySelector('img,table,.math,.tv-chart,.poll')};
+  const api = {getHTML, setHTML(h) { surface.innerHTML = sanitize(h); enhance(surface, {editor: true}).then(changed); }, focus: () => surface.focus(), insertHTML, isEmpty: () => !surface.textContent.trim() && !surface.querySelector('img,table,.math,.tv-chart,.poll'),
+    // Appends at the end of the post (the outline), whereas insertHTML goes where the caret is.
+    appendHTML(h) { if (api.isEmpty()) surface.innerHTML = ''; const t = document.createElement('template'); t.innerHTML = sanitize(h); const nodes = [...t.content.childNodes], notes = surface.querySelector('section.footnotes'); notes ? notes.before(...nodes) : surface.append(...nodes); const last = nodes.filter(n => n.nodeType === 1).pop(); if (last) placeCaret(last, true); enhance(surface, {editor: true}).then(changed); }};
   return api;
 }
 

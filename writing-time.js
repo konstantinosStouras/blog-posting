@@ -43,25 +43,28 @@ export class WritingSessionHistory {
 
 // New session records are write-only for students; history is read by staff only.
 export function startWritingTimer({uid,postId,moduleId,store,baseSeconds=0,onTick=()=>{},isEditing=()=>true}){
- const instanceId=crypto.randomUUID(),key=`ucd-writing-history:${uid}:${postId}`,pending=new Map();
- try{for(const r of JSON.parse(localStorage.getItem(key)||'[]')){if(!r.endedAt){r.endedAt=r.lastRecordedAt||r.lastActivityAt||r.startedAt;r.endReason='interrupted';}pending.set(r.id,r);}}catch{}
+ const instanceId=crypto.randomUUID(),prefix=`ucd-writing-history:${uid}:${postId}`,key=`${prefix}:${instanceId}`,pending=new Map();
+ // Each editor instance keeps its own local copy of unsent rows. Rows left behind by earlier instances of this
+ // post (a closed tab, a crash) are adopted only once this instance holds the writing lock: while another tab
+ // is live its open session must stay its own, or the server copy would be frozen with the wrong end.
+ const adopt=()=>{for(const k of Object.keys(localStorage)){if((k!==prefix&&!k.startsWith(prefix+':'))||k===key)continue;try{for(const r of JSON.parse(localStorage.getItem(k)||'[]')){if(pending.has(r.id))continue;if(!r.endedAt){r.endedAt=r.lastRecordedAt||r.lastActivityAt||r.startedAt;r.endReason='interrupted';}pending.set(r.id,r);}}catch{}try{localStorage.removeItem(k);}catch{}}};
  const history=new WritingSessionHistory({uid,postId,moduleId,onSession:r=>pending.set(r.id,r)});
  history.clock.previous=performance.now();
  let stopped=false,busy=false,owned=false,release,claiming=false,error=false,needsFlush=false;
- const stash=()=>{try{localStorage.setItem(key,JSON.stringify([...pending.values()]));}catch{}};
+ const stash=()=>{try{if(pending.size)localStorage.setItem(key,JSON.stringify([...pending.values()]));else localStorage.removeItem(key);}catch{}};
  const total=()=>baseSeconds+Math.floor(history.clock.seconds);
  const show=()=>onTick(total(),error);
  const eligible=()=>!stopped&&document.visibilityState==='visible'&&document.hasFocus()&&isEditing();
  const unlock=()=>{owned=false;release?.();release=null;};
- const sample=()=>{history.sample(performance.now(),Date.now(),owned&&eligible(),isEditing()?'away':'preview');if(!history.current)unlock();stash();show();};
+ const sample=()=>{history.sample(performance.now(),Date.now(),owned&&eligible(),isEditing()?'away':'preview');stash();if(!history.current)unlock();show();};
  async function flush(){
   if(busy){needsFlush=true;return;}busy=true;error=false;
-  try{for(const [id,r] of [...pending]){const snapshot={...r};try{await store.saveWritingHistory(snapshot);if(history.current?.id!==id&&JSON.stringify(r)===JSON.stringify(snapshot))pending.delete(id);}catch{error=true;}}stash();}finally{busy=false;show();if(needsFlush){needsFlush=false;void flush();}}
+  try{for(const [id,r] of [...pending]){const snapshot={...r};try{await store.saveWritingHistory(snapshot);if(history.current?.id!==id&&JSON.stringify(r)===JSON.stringify(snapshot))pending.delete(id);}catch(e){if(e?.code==='permission-denied'&&r.endedAt)pending.delete(id);else error=true;}}stash();}finally{busy=false;show();if(needsFlush){needsFlush=false;void flush();}}
  }
  const leaseKey=`ucd-writing-lock:${uid}`;
  function claim(){
   if(owned||claiming||!eligible())return;
-  const acquired=()=>{owned=true;history.activity(performance.now(),Date.now());stash();void flush();};
+  const acquired=()=>{owned=true;adopt();history.activity(performance.now(),Date.now());stash();void flush();};
   if(navigator.locks){claiming=true;navigator.locks.request(`ucd-writing-${uid}`,{ifAvailable:true},lock=>{claiming=false;if(!lock||!eligible())return;acquired();return new Promise(r=>{release=r;});}).catch(()=>{claiming=false;});}
   else try{const lease=JSON.parse(localStorage.getItem(leaseKey)||'null');if(!lease||lease.id===instanceId||lease.until<Date.now()){localStorage.setItem(leaseKey,JSON.stringify({id:instanceId,until:Date.now()+2500}));acquired();release=()=>{try{if(JSON.parse(localStorage.getItem(leaseKey)||'null')?.id===instanceId)localStorage.removeItem(leaseKey);}catch{}};}}catch{}
  }

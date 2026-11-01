@@ -60,7 +60,7 @@ export function htmlToText(html = '') {
   s = s.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '');
   s = s.replace(/<img[^>]*alt="([^"]*)"[^>]*>/gi, (m, alt) => `\n[Image${alt ? ': ' + alt : ''}]\n`).replace(/<img[^>]*>/gi, '\n[Image]\n');
   s = s.replace(/<div[^>]*class="[^"]*tv-chart[^"]*"[^>]*data-symbol="([^"]*)"[^>]*>[\s\S]*?<\/div>/gi, (m, sym) => `\n[Live financial chart: ${sym}]\n`);
-  s = s.replace(/<div[^>]*class="[^"]*\bpoll\b[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '\n[Reader poll]\n');
+  s = s.replace(/<div[^>]*class="poll"[^>]*>/gi, '\n[Reader poll]\n');   // the wrapper only: the rendered question and options stay as text
   s = s.replace(/<(?:div|span)[^>]*class="[^"]*\bmath\b[^"]*"[^>]*data-tex="([^"]*)"[^>]*>[\s\S]*?<\/(?:div|span)>/gi, (m, tex) => `\n[Formula: ${tex}]\n`);
   s = s.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (m, n, t) => `\n\n${'#'.repeat(+n)} ${t}\n\n`);
   s = s.replace(/<figcaption[^>]*>([\s\S]*?)<\/figcaption>/gi, '\nCaption: $1\n');

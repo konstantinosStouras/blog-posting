@@ -27,7 +27,7 @@ export const PROVIDERS = {
     ],
     efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
     defaultEffort: 'high',
-    request({apiKey, model, effort, system, user, maxTokens = 8000, schema = null, fallbacks = true}) {
+    request({apiKey, model, effort, system, user, maxTokens = 16000, schema = null, fallbacks = true}) {
       const headers = {...JSON_HEADERS, 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true'};
       const body = {model, max_tokens: maxTokens, system, messages: [{role: 'user', content: user}], output_config: {effort}};
       if (schema) body.output_config.format = {type: 'json_schema', schema};
@@ -53,7 +53,7 @@ export const PROVIDERS = {
     ],
     efforts: ['low', 'medium', 'high', 'xhigh'],
     defaultEffort: 'high',
-    request({apiKey, model, effort, system, user, maxTokens = 8000, schema = null}) {
+    request({apiKey, model, effort, system, user, maxTokens = 16000, schema = null}) {
       const body = {model, instructions: system, input: user, reasoning: {effort}, max_output_tokens: maxTokens};
       if (schema) body.text = {format: {type: 'json_schema', name: 'blog_review', schema, strict: true}};
       return {url: 'https://api.openai.com/v1/responses', headers: {...JSON_HEADERS, authorization: 'Bearer ' + apiKey}, body};
@@ -75,7 +75,7 @@ export const PROVIDERS = {
     ],
     efforts: ['low', 'medium', 'high'],
     defaultEffort: 'high',
-    request({apiKey, model, effort, system, user, maxTokens = 8000, schema = null}) {
+    request({apiKey, model, effort, system, user, maxTokens = 16000, schema = null}) {
       const generationConfig = {maxOutputTokens: maxTokens, thinkingConfig: {thinkingLevel: effort}};
       if (schema) { generationConfig.responseMimeType = 'application/json'; generationConfig.responseSchema = googleSchema(schema); }
       return {url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, headers: {...JSON_HEADERS, 'x-goog-api-key': apiKey},
@@ -100,8 +100,9 @@ export const PROVIDERS = {
     ],
     efforts: ['low', 'medium', 'high', 'xhigh'],
     defaultEffort: 'high',
-    request({apiKey, model, effort, system, user, maxTokens = 8000, schema = null}) {
-      const body = {model, messages: [{role: 'system', content: system}, {role: 'user', content: user}], reasoning_effort: effort, max_tokens: maxTokens};
+    request({apiKey, model, effort, system, user, maxTokens = 16000, schema = null}) {
+      const body = {model, messages: [{role: 'system', content: system}, {role: 'user', content: user}], max_tokens: maxTokens};
+      if (effort) body.reasoning_effort = effort;   // not every Grok model accepts it; callProvider retries once without it on a 400
       if (schema) body.response_format = {type: 'json_schema', json_schema: {name: 'blog_review', schema, strict: true}};
       return {url: 'https://api.x.ai/v1/chat/completions', headers: {...JSON_HEADERS, authorization: 'Bearer ' + apiKey}, body};
     },
@@ -138,6 +139,7 @@ export async function callProvider(providerId, options, fetchFn = globalThis.fet
   };
   let {res, json} = await attempt(options);
   if (res.status === 400 && providerId === 'anthropic' && options.fallbacks !== false) ({res, json} = await attempt({...options, fallbacks: false}));
+  if (res.status === 400 && providerId === 'xai' && options.effort) ({res, json} = await attempt({...options, effort: ''}));
   if (!res.ok) throw Error(`${p.name} replied ${res.status}${p.error(json) ? ': ' + p.error(json) : ''}`);
   return p.parse(json);
 }

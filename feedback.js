@@ -51,7 +51,7 @@ function drawForm() {
   const u = currentUser();
   const signed = u ? `Signed in as <b>${esc(u.penName || u.email || 'your account')}</b>${u.email ? ` (${esc(u.email)})` : ''} — included so we can follow up.` : 'You are not signed in. Leave an e-mail if you would like a reply.';
   dialog.innerHTML = `<form method="dialog" class="fb-form" novalidate>
-    <button class="close" value="cancel" formnovalidate aria-label="Close">×</button>
+    <button type="button" class="close" aria-label="Close">×</button>
     <h2>Help improve this site</h2>
     <p class="muted small">Something wrong, confusing or missing? Write a note, add screenshots or record a voice note — any mix works. Every message reaches the maintainer with a ticket number.</p>
     <label class="field">What should improve?<textarea name="text" rows="5" maxlength="${L.text}" placeholder="e.g. On the writer page, the Publish button… / It would help if I could…"></textarea></label>
@@ -78,7 +78,9 @@ function drawForm() {
   drop.addEventListener('drop', e => addImages([...(e.dataTransfer?.files || [])]));
   $('#fb-rec').onclick = startRecording;
   $('#fb-rec-stop').onclick = () => stopRecording();
-  form.onsubmit = e => { if (e.submitter?.value !== 'send') return; e.preventDefault(); send(form); };
+  // Enter in the name or e-mail field submits the form; the close button is not a submit button, so it can never be the implicit submitter.
+  form.onsubmit = e => { e.preventDefault(); send(form); };
+  form.querySelector('.close').onclick = () => dialog.close();
   renderShots();
 }
 
@@ -125,9 +127,9 @@ async function addImages(files) {
       const dataUrl = await compressScreenshot(f);
       const att = {kind: 'image', mime: 'image/jpeg', dataUrl, name: f.name || 'screenshot'};
       const problem = attachmentProblem(att, attachments);
-      if (problem) { status(problem, 'err'); return; }
+      if (problem) { renderShots(); status(problem, 'err'); return; }
       attachments.push(att);
-    } catch (e) { status(e.message, 'err'); return; }
+    } catch (e) { renderShots(); status(e.message, 'err'); return; }
   }
   renderShots(); status('');
 }

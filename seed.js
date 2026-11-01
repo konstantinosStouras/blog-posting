@@ -107,7 +107,7 @@ export const SEED_POSTS = [
 <p>Run the take-back scheme as a proper pilot project with a measurable hypothesis, and tie supplier contracts to verified emissions data rather than self-reporting.</p>
 <h2>Open questions</h2>
 <p>Can a low-price retailer ever make circularity pay without raising prices? And who should own the risk of a redesign that customers do not want?</p>` + sample}),
-  P({id: 'p3', slug: 'building-green-is-only-the-beginning', date: '2026-10-27T10:30:00', authorId: 'u-s3', authorName: 'swift-osprey-215', category: 'sustainability', organisation: 'Harbourline Developments (fictional)', tags: ['Green Buildings', 'Sustainability', 'Real Estate', 'Project Management'], featuredImage: img('ucd-tower'),
+  P({id: 'p3', moduleId: 'bmgt46260-2026-27', slug: 'building-green-is-only-the-beginning', date: '2026-10-27T10:30:00', authorId: 'u-s3', authorName: 'swift-osprey-215', category: 'sustainability', organisation: 'Harbourline Developments (fictional)', tags: ['Green Buildings', 'Sustainability', 'Real Estate', 'Project Management'], featuredImage: img('ucd-tower'),
     title: 'Building Green Is Only the Beginning: How Harbourline Can Turn Sustainable Design into Lasting Building Performance',
     body: `<p>Sustainability can look straightforward on paper. In practice, managing a certified green building for thirty years is a far harder project than designing one. This post looks at <strong>Harbourline Developments</strong>, a fictional property developer, and asks what happens after the ribbon is cut.</p>
 <h2>Why it matters to management</h2><p>Green certification drives rental premiums, but the premium evaporates if measured energy performance drifts from the design model.</p>

@@ -14,4 +14,8 @@ test('students edit their own posts but cannot bypass module approval',()=>{
   assert.equal(can(student,'edit',{...post,authorId:'other'}),false);
   assert.equal(can(student,'publish',post,{requireApproval:true}),false);
   assert.equal(can(student,'feature',post),false);
+  // once a module closes submissions the rules refuse every student update, so the UI must not offer it
+  assert.equal(can(student,'edit',post,{submissionsOpen:false}),false);
+  assert.equal(can(student,'unpublish',{...post,status:'published'},{submissionsOpen:false}),false);
+  assert.equal(can(teacher,'edit',{...post,moduleId:'one'},{submissionsOpen:false}),true);
 });

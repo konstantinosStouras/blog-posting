@@ -81,7 +81,7 @@ export function buildFeedback({text = '', name = '', email = '', attachments = [
     status: 'new',
     createdAt: Date.now(),
   };
-  const docs = attachments.map((a, i) => ({kind: a.kind, mime: String(a.mime || '').slice(0, 100), dataUrl: a.dataUrl, bytes: a.dataUrl.length, seconds: a.kind === 'audio' ? Math.round(a.seconds || 0) : 0, order: i}));
+  const docs = attachments.map((a, i) => ({kind: a.kind, mime: String(a.mime || '').slice(0, 100), dataUrl: a.dataUrl, bytes: a.dataUrl.length, seconds: a.kind === 'audio' ? Math.min(limits.recordSeconds, Math.round(a.seconds || 0)) : 0, order: i}));
   return {doc, attachments: docs};
 }
 

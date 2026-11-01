@@ -11,23 +11,28 @@ export const postPath = p => `#/${monthKey(p.publishedAt || p.createdAt).replace
 // Everything a student writes is sanitised BOTH when saved and when rendered.
 export function sanitize(html) {
   if (!window.DOMPurify) return esc(html);
-  const clean=DOMPurify.sanitize(String(html ?? ''), {USE_PROFILES: {html: true}, ADD_ATTR: ['target', 'rel'], FORBID_TAGS: ['style', 'script', 'iframe', 'form', 'input']});
+  const clean=DOMPurify.sanitize(String(html ?? ''), {USE_PROFILES: {html: true}, ADD_ATTR: ['target', 'rel'], FORBID_TAGS: ['style', 'script', 'iframe', 'form', 'input', 'button', 'select', 'textarea', 'dialog', 'details'], FORBID_ATTR: ['hidden']});
   const template=document.createElement('template');template.innerHTML=clean;
+  // Inline styles are allow-listed: the editor only ever writes these, and anything else (position, size,
+  // z-index…) could paint over the public page. Never remove the `font` shorthand: that would drop bold and italic.
   for(const el of template.content.querySelectorAll('[style],font')){
-    for(const name of ['font-family','font-size','font-size-adjust','line-height'])el.style.removeProperty(name);   // never the `font` shorthand: that would drop bold and italic
+    for(const name of [...el.style])if(!STYLE_ALLOW.has(name))el.style.removeProperty(name);
     el.removeAttribute('face');el.removeAttribute('size');
     if(!el.getAttribute('style')?.trim())el.removeAttribute('style');
   }
   return template.innerHTML;
 }
+const STYLE_ALLOW = new Set(['color', 'background-color', 'text-align', 'font-weight', 'font-style', 'text-decoration', 'text-decoration-line']);
 export function toDom(html) { const d = document.createElement('div'); d.innerHTML = sanitize(html); return d; }
-export const plainText = html => (toDom(html).textContent || '').replace(/\s+/g, ' ').trim();
+// textContent runs adjacent blocks together ("Heading</h2><p>Text" → "HeadingText"), so a space is put after every block and line break first.
+const spaced = d => { d.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,blockquote,figcaption,td,th,pre,div,section,aside,figure,tr,hr,br').forEach(n => n.after(' ')); return d; };
+export const plainText = html => (spaced(toDom(html)).textContent || '').replace(/\s+/g, ' ').trim();
 
 // The study guide counts words EXCLUDING tables, captions, appendices and links used.
 export function wordCount(html) {
   const d = toDom(html);
   d.querySelectorAll('table, figcaption, .caption, .appendix, .math, .tv-chart, .poll, .lang-tag, section.footnotes hr').forEach(n => n.remove());
-  return (d.textContent || '').trim().split(/\s+/).filter(w => /[A-Za-z0-9Ͱ-Ͽ一-鿿]/.test(w)).length;
+  return (spaced(d).textContent || '').trim().split(/\s+/).filter(w => /[A-Za-z0-9Ͱ-Ͽ一-鿿]/.test(w)).length;
 }
 export function excerptOf(html, n = 180) {
   const t = plainText(html);
@@ -47,7 +52,8 @@ export function shrinkImage(file, max = 1200, quality = 0.82) {
       const scale = Math.min(1, max / Math.max(img.width, img.height));
       const c = document.createElement('canvas');
       c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);   // JPEG has no alpha: transparent areas become white, not black
+      ctx.drawImage(img, 0, 0, c.width, c.height);
       let q = quality, out = c.toDataURL('image/jpeg', q);
       while (out.length > 520000 && q > 0.4) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
       if (out.length > 520000) return reject(Error('That image is too large even after resizing. Please pick a smaller one.'));

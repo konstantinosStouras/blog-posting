@@ -25,6 +25,9 @@ function loadCss(href) { if (!document.querySelector(`link[href="${href}"]`)) { 
 export const katex = () => { loadCss(CDN.katexCss); return loadScript(CDN.katex).then(() => window.katex); };
 export const hljs = () => { loadCss(CDN.hljsCss); return loadScript(CDN.hljs).then(() => window.hljs); };
 
+// Languages outside highlight.js's common bundle are fetched on demand when a post uses them.
+const EXTRA_LANGUAGES = {matlab: 1, julia: 1, latex: 1, excel: 1};
+const langScript = lang => `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/${lang}.min.js`;
 export const LANGUAGES = [['auto', 'Auto-detect'], ['plaintext', 'Plain text'], ['javascript', 'JavaScript'], ['typescript', 'TypeScript'], ['python', 'Python'], ['r', 'R'], ['sql', 'SQL'], ['java', 'Java'], ['c', 'C'], ['cpp', 'C++'], ['csharp', 'C#'], ['go', 'Go'], ['rust', 'Rust'], ['bash', 'Bash / shell'], ['html', 'HTML'], ['css', 'CSS'], ['json', 'JSON'], ['yaml', 'YAML'], ['markdown', 'Markdown'], ['matlab', 'MATLAB'], ['julia', 'Julia'], ['latex', 'LaTeX'], ['excel', 'Excel formulas']];
 export const langName = code => (LANGUAGES.find(l => l[0] === code) || LANGUAGES[0])[1];
 export const SYMBOL_RE = /^[A-Z0-9][A-Z0-9:._-]{0,30}$/;
@@ -58,6 +61,7 @@ export async function enhance(root, opts = {}) {
     for (const pre of pres) {
       let code = pre.querySelector('code'); if (!code) { code = document.createElement('code'); code.textContent = pre.textContent; pre.textContent = ''; pre.append(code); }
       const lang = pre.dataset.lang || 'auto';
+      if (H && !editor && EXTRA_LANGUAGES[lang] && !H.getLanguage(lang)) { try { await loadScript(langScript(lang)); } catch (e) { console.warn(e); } }
       if (H && !editor) { const src = code.textContent; try { const r = lang === 'auto' || lang === 'plaintext' ? (lang === 'auto' ? H.highlightAuto(src) : null) : H.highlight(src, {language: lang, ignoreIllegals: true}); if (r) { code.innerHTML = r.value; code.className = 'hljs'; } } catch {} }
       if (editor) { pre.querySelector('.lang-tag')?.remove(); const tag = document.createElement('span'); tag.className = 'lang-tag'; tag.contentEditable = 'false'; tag.textContent = langName(lang); pre.prepend(tag); }
       else if (lang !== 'auto' && lang !== 'plaintext') pre.setAttribute('data-label', langName(lang));

@@ -271,7 +271,8 @@ service cloud.firestore {
         && request.resource.data.authorId == request.auth.uid
         && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
           || ((memberOf(request.resource.data.moduleId) || blogMember(request.resource.data.blogId))
-            && request.resource.data.authorName == get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('penName','') && request.resource.data.authorName.matches('^([a-z]+-[a-z]+-[0-9]{3}|student_[a-z0-9]+)$')))
+            && request.resource.data.authorName == get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('penName','')
+            && (hasRole('lecturer') || request.resource.data.authorName.matches('^([a-z]+-[a-z]+-[0-9]{3}|student_[a-z0-9]+)$'))))   // an instructor on a shared blog comments under a staff pen name
         && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
         && str('authorName',60) && request.resource.data.createdAt is number
         && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
@@ -289,7 +290,7 @@ service cloud.firestore {
         && d.keys().hasOnly(['uid','postId','moduleId','seconds','startedAt'])
         && d.uid == request.auth.uid && d.postId is string && d.postId.size() <= 100
         && d.moduleId is string && memberOf(d.moduleId)
-        && d.startedAt is number && d.startedAt <= request.time.toMillis()+2000
+        && d.startedAt is number && d.startedAt <= request.time.toMillis()+60000
         && d.seconds is int && d.seconds >= 0 && d.seconds * 1000 <= request.time.toMillis() - d.startedAt + 2000
         && (!exists(/databases/$(database)/documents/posts/$(d.postId))
           || (get(/databases/$(database)/documents/posts/$(d.postId)).data.authorId == request.auth.uid
@@ -304,9 +305,9 @@ service cloud.firestore {
       function historyShape(){let d=request.resource.data;return verified()
         && d.keys().hasOnly(['uid','postId','moduleId','seconds','startedAt','lastActivityAt','lastRecordedAt','endedAt','endReason'])
         && d.uid == request.auth.uid && d.postId is string && d.postId.size() <= 100 && memberOf(d.moduleId)
-        && d.startedAt is number && d.startedAt <= request.time.toMillis()+2000
+        && d.startedAt is number && d.startedAt <= request.time.toMillis()+60000
         && d.lastActivityAt is number && d.lastActivityAt >= d.startedAt
-        && d.lastRecordedAt is number && d.lastRecordedAt >= d.lastActivityAt && d.lastRecordedAt <= request.time.toMillis()+2000
+        && d.lastRecordedAt is number && d.lastRecordedAt >= d.lastActivityAt && d.lastRecordedAt <= request.time.toMillis()+60000
         && d.seconds is int && d.seconds >= 0 && d.seconds * 1000 <= d.lastRecordedAt - d.startedAt + 2000
         && d.get('endedAt',d.lastRecordedAt) == d.lastRecordedAt
         && d.get('endReason','checkpoint') in ['checkpoint','inactive','away','preview','left','interrupted']

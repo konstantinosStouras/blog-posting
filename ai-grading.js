@@ -105,6 +105,7 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
   $('g-reset').onclick = () => { if (!confirm('Replace the three texts with the default prompts? They are not saved until you click Save grader.')) return; $('g-persona').value = DEFAULT_GRADER.persona; $('g-instructions').value = DEFAULT_GRADER.instructions; $('g-polish').value = DEFAULT_GRADER.polish; };
 
   // ---- the table ----
+  let stop = false, running = false;   // one batch at a time: a repaint of the table must not re-enable the batch buttons mid-run
   const visible = () => { const q = $('grading-search').value.trim().toLowerCase(), st = $('grading-status').value; return rows.filter(r => (st === 'all' || r.status === 'published') && (!q || [r.firstName, r.lastName, r.studentId, r.email, r.penName, r.title, r.organisation].join(' ').toLowerCase().includes(q))); };
   const grade = v => v == null || v === '' ? '—' : Number(v).toFixed(1);
   const aiCells = r => `<td data-sort-value="${r.aiGrade ?? ''}"><span class="ai-grade">${grade(r.aiGrade)}</span>${r.aiModel ? `<br><span class="muted small">${esc(r.aiModel)}<br>${esc(fmtDateTime(r.aiReviewedAt))}</span>` : ''}${r.aiError ? `<br><span class="ai-error">${esc(r.aiError)}</span>` : ''}</td>
@@ -120,8 +121,8 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
     $('grading-table').innerHTML = `<table class="list"><thead><tr><th>Student</th><th>University ID</th><th>University email</th><th>Pen name</th><th>Post</th><th>AI grade</th><th>AI feedback</th><th>Final grade</th><th>Final feedback</th><th></th></tr></thead><tbody>${list.map(rowHtml).join('') || `<tr><td colspan="10">${rows.length ? 'No posts match.' : modules.length ? 'No posts in these modules yet.' : 'You are not a teacher on any module. Add yourself as an instructor to a module to grade its posts.'}</td></tr>`}</tbody></table>`;
     makeTablesSortable($('grading-table'));
     const missing = list.filter(r => r.aiGrade == null && r.status === 'published' || (r.aiGrade == null && $('grading-status').value === 'all'));
-    $('grade-missing').textContent = `Grade ${missing.length} ungraded post${missing.length === 1 ? '' : 's'}`; $('grade-missing').disabled = !missing.length;
-    $('grade-all').textContent = `Re-grade all ${list.length}`; $('grade-all').disabled = !list.length;
+    $('grade-missing').textContent = `Grade ${missing.length} ungraded post${missing.length === 1 ? '' : 's'}`; $('grade-missing').disabled = running || !missing.length;
+    $('grade-all').textContent = `Re-grade all ${list.length}`; $('grade-all').disabled = running || !list.length;
   }
   const paintAi = r => { const tr = $('grading-table').querySelector(`tr[data-post="${r.postId}"]`); if (!tr) return; const cells = tr.querySelectorAll('td'); const t = document.createElement('template'); t.innerHTML = `<tr>${aiCells(r)}</tr>`; const [gradeCell, feedbackCell] = t.content.querySelectorAll('td'); cells[5].replaceWith(gradeCell); cells[6].replaceWith(feedbackCell); const b = tr.querySelector('[data-grade]'); b.textContent = r.aiFeedback ? 'Re-grade' : 'Grade'; b.classList.toggle('primary', r.aiGrade == null); };
   drawTable();
@@ -137,6 +138,8 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
     try {
       const built = buildReview({grader, post: r.post, blog: blogOf(r.post), module: moduleOf(r.post), categoryName: categoryName(r.post)});
       const out = await call(s, {system: built.system, user: built.user, schema: built.schema});
+      if (['max_tokens', 'incomplete', 'MAX_TOKENS', 'length'].includes(out.stop)) throw Error('The reply was cut short at the token limit; lower the effort or try another model.');
+      if (!out.text) throw Error(`The model returned no text${out.stop ? ` (${out.stop})` : ''}.`);
       const parsed = parseReview(out.text);
       const review = {...ident(r), provider: s.provider, model: s.model, effort: s.effort, grade: parsed.grade, summary: parsed.summary.slice(0, 4000), feedback: parsed.feedback.slice(0, 20000), raw: parsed.raw.slice(0, 40000), error: '', usage: out.usage, reviewedAt: Date.now(), inputChars: built.text.length};
       const savedReview = await store.saveAiReview(r.postId, review);
@@ -145,18 +148,20 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
     } catch (e) { r.aiError = e.message; await store.saveAiReview(r.postId, {...ident(r), error: String(e.message).slice(0, 2000)}).catch(() => {}); throw e; }
     finally { tr?.classList.remove('row-busy'); paintAi(r); }
   }
-  let stop = false;
   async function reviewMany(list) {
+    if (running) return toast('A batch is already running. Stop it first.', 'error');
     const s = ready(); if (!s || !list.length) return;
     if (!confirm(`Send ${list.length} post${list.length === 1 ? '' : 's'} to ${s.name} (${s.model}, ${s.effort} effort)? Each post is one request billed to your key.`)) return;
-    stop = false; $('grade-stop').hidden = false; $('grade-missing').disabled = $('grade-all').disabled = true;
+    stop = false; running = true; $('grade-stop').hidden = false; $('grade-missing').disabled = $('grade-all').disabled = true;
     let done = 0, failed = 0;
-    for (const r of list) {
-      if (stop) break;
-      $('grade-progress').textContent = `Reviewing ${done + failed + 1} of ${list.length}: ${r.title}…`;
-      try { await reviewOne(r, s); done++; } catch (e) { failed++; console.warn(e); }
-      await new Promise(res => setTimeout(res, 300));
-    }
+    try {
+      for (const r of list) {
+        if (stop) break;
+        $('grade-progress').textContent = `Reviewing ${done + failed + 1} of ${list.length}: ${r.title}…`;
+        try { await reviewOne(r, s); done++; } catch (e) { failed++; console.warn(e); }
+        await new Promise(res => setTimeout(res, 300));
+      }
+    } finally { running = false; }
     $('grade-progress').textContent = `${done} reviewed${failed ? `, ${failed} failed` : ''}${stop ? ' (stopped)' : ''}.`;
     $('grade-stop').hidden = true; drawTable();
   }
@@ -181,7 +186,7 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
     const b = e.target.closest('button[data-grade],[data-copy-ai],[data-use-ai],[data-polish],[data-copy-final]'); if (!b) return;
     const id = b.dataset.grade || b.dataset.copyAi || b.dataset.useAi || b.dataset.polish || b.dataset.copyFinal, r = byId.get(id); if (!r) return;
     const area = target.querySelector(`[data-final-text="${id}"]`);
-    if (b.dataset.grade !== undefined) { const s = ready(); if (!s) return; b.disabled = true; try { await reviewOne(r, s); toast(`Graded: ${grade(r.aiGrade)} / 10.`); } catch (err) { toast(err.message, 'error'); } finally { b.disabled = false; } }
+    if (b.dataset.grade !== undefined) { if (running) return toast('A batch is already running. Stop it first.', 'error'); const s = ready(); if (!s) return; b.disabled = true; try { await reviewOne(r, s); toast(`Graded: ${grade(r.aiGrade)} / 10.`); } catch (err) { toast(err.message, 'error'); } finally { b.disabled = false; } }
     else if (b.dataset.copyAi !== undefined) copy([r.aiSummary, r.aiFeedback].filter(Boolean).join('\n\n'), 'AI feedback');
     else if (b.dataset.useAi !== undefined) { if (area.value.trim() && !confirm('Replace your final feedback with the AI feedback?')) return; area.value = r.aiFeedback; await saveFinal(r, {finalFeedback: r.aiFeedback.slice(0, 20000)}); }
     else if (b.dataset.copyFinal !== undefined) copy(area.value, 'Final feedback');

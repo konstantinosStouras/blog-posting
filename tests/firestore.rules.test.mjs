@@ -196,6 +196,10 @@ test('members of any module on a blog may comment on its published posts; the bl
  await assertSucceeds(setDoc(doc(d,'comments/new'),comment()));
  // peer belongs to module three, which shares the pm blog with module one
  await assertSucceeds(setDoc(doc(db('peer','peer@ucd.ie'),'comments/cross-module'),comment({authorId:'peer'})));
+ // an instructor who joined the blog through a guest module comments under a staff pen name, not an alias
+ await env.withSecurityRulesDisabled(c=>{const f=c.firestore();return Promise.all([setDoc(doc(f,'modules/guest'),mod('teacher-two','pm')),setDoc(doc(f,'blogs/pm/members/teacher-two'),{uid:'teacher-two',moduleId:'guest',joinedAt:time}),setDoc(doc(f,'profiles/teacher-two'),{...profile('two@ucd.ie'),studentId:'',registrationKind:'teacher',penName:'dr_two'})]);});
+ await assertSucceeds(setDoc(doc(db('teacher-two'),'comments/staff-cross'),comment({authorId:'teacher-two',authorName:'dr_two'})));
+ await assertFails(setDoc(doc(db('teacher-two'),'comments/staff-forged'),comment({authorId:'teacher-two',authorName:'someone-else-101'})));
  await assertFails(setDoc(doc(d,'comments/on-draft'),comment({postId:'draft'})));
  await assertFails(setDoc(doc(d,'comments/forged'),comment({authorId:'other'})));
  await assertFails(setDoc(doc(d,'comments/wrong-blog'),comment({blogId:'ops'})));
