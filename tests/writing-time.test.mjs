@@ -1,7 +1,14 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
-import {formatWritingTime,writingReport,sessionHistoryReport,EditingActivityClock,WritingSessionHistory} from '../writing-time.js';
+import {formatWritingTime,writingReport,sessionHistoryReport,moduleWritingTotals,EditingActivityClock,WritingSessionHistory} from '../writing-time.js';
+test('student module totals sum all posts, keep modules separate and include zero-post students',async()=>{
+ const posts=[{postId:'a',moduleId:'one',authorId:'student',seconds:3600},{postId:'b',moduleId:'one',authorId:'student',seconds:6612},{postId:'c',moduleId:'two',authorId:'student',seconds:3},{postId:'private',moduleId:'other',authorId:'student',seconds:9999},{postId:'teacher',moduleId:'one',authorId:'teacher',seconds:20}];
+ const memberships=[{uid:'student',moduleId:'one',studentId:'00123'},{uid:'student',moduleId:'two',studentId:'00123'},{uid:'zero',moduleId:'one'},{uid:'secret',moduleId:'other'}];
+ const rows=moduleWritingTotals([...posts,posts[0]],memberships,[{id:'one',title:'One',code:'ONE',teacherIds:['teacher']},{id:'two',title:'Two'}],[{uid:'teacher',role:'lecturer'}]);
+ assert.equal(rows.length,3);const one=rows.find(r=>r.authorId==='student'&&r.moduleId==='one');assert.equal(one.writingTime,'2:50:12');assert.equal(one.postCount,2);assert.equal(rows.find(r=>r.moduleId==='two').seconds,3);assert.equal(rows.find(r=>r.authorId==='zero').seconds,0);
+ const book=createRosterWorkbook(ExcelJS,{users:[],invitations:[],moduleTotals:[one]});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());const s=loaded.getWorksheet('Student module totals');assert.equal(s.getCell('K2').value,'2:50:12');assert.equal(s.getCell('H2').value,'00123');assert.equal(s.getCell('K1').font.bold,true);assert.equal(Boolean(s.getCell('K2').font.bold),false);
+});
 test('history splits inactivity and returns into independent active sessions',()=>{
  const rows=[];let id=0;const h=new WritingSessionHistory({uid:'a',postId:'p',moduleId:'m',newId:()=>String(++id),onSession:r=>rows.push(r)});
  h.activity(1000,100000);for(let t=2000;t<=32000;t+=1000)h.sample(t,99000+t);

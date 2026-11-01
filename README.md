@@ -1,5 +1,7 @@
 # UCD blog
 
+Staff reports include “Student totals by module”: one row per student/module, summing recorded active time across all their current posts (all statuses), with zero rows for enrolled students who have no posts. The Excel download includes a “Student module totals” worksheet. The report uses the same private module scope as rosters and session history; module and student searches filter the totals without reducing them to a subset of posts.
+
 Private per-post session history appears in People & invitations and module rosters and in the Excel “Writing sessions” sheet. Each active period records start, last edit/checkpoint, end and active seconds, with UTC timestamps and pause reasons. Idle pauses or returning to a post start new periods. New `writingHistory` records are write-only for the student and readable only by the admin / module instructor. Legacy `writingSessions` totals remain available, with unavailable historical timestamps left blank. Session checkpoints saved locally are retried after reopening the same post.
 
 Writing activity starts only after an editing action, pauses after 30 seconds without editing or immediately on leaving/hiding the editor, and resumes on a new editing action. No student-facing timer is displayed; accumulated times remain in private staff reports and Excel exports.

@@ -18,6 +18,20 @@ export function sessionHistoryReport(posts=[],sessions=[],modules=[],users=[]){
  }).sort((a,b)=>b.startedAt-a.startedAt||a.sessionId.localeCompare(b.sessionId));
 }
 
+export function moduleWritingTotals(writing=[],memberships=[],modules=[],users=[]){
+ const allowed=new Map(modules.map(m=>[m.id,m])),people=new Map(users.map(u=>[u.uid,u])),rows=new Map(),seen=new Set();
+ const ensure=(uid,moduleId,details={})=>{const m=allowed.get(moduleId),u=people.get(uid)||{};if(!m)return null;
+  const key=moduleId+':'+uid;if(!rows.has(key))rows.set(key,{authorId:uid,moduleId,moduleTitle:m.title,code:m.code||'',academicYear:m.academicYear||'',firstName:details.firstName||u.firstName||'',lastName:details.lastName||u.lastName||'',email:details.email||u.email||'',contactEmail:details.contactEmail||u.contactEmail||'',studentId:details.studentId||u.studentId||'',affiliation:details.affiliation||u.affiliation||'',postCount:0,seconds:0});return rows.get(key);};
+ for(const member of memberships)if(!['teacher','instructor'].includes(member.registrationKind))ensure(member.uid,member.moduleId,member);
+ for(const p of writing){if(!allowed.has(p.moduleId))continue;const key=p.moduleId+':'+p.authorId,postKey=p.moduleId+':'+p.postId;
+  if(seen.has(postKey))continue;seen.add(postKey);
+  const m=allowed.get(p.moduleId),u=people.get(p.authorId)||{};
+  if(!rows.has(key)&&(['lecturer','admin'].includes(u.role)||m.teacherIds?.includes(p.authorId)))continue;
+  const r=ensure(p.authorId,p.moduleId,p);r.postCount++;r.seconds+=Math.max(0,Number(p.seconds)||0);
+ }
+ return [...rows.values()].map(r=>({...r,writingTime:formatWritingTime(r.seconds)})).sort((a,b)=>[a.moduleTitle,a.lastName,a.firstName,a.authorId].join(' ').localeCompare([b.moduleTitle,b.lastName,b.firstName,b.authorId].join(' ')));
+}
+
 export class EditingActivityClock {
  constructor(idleMs=30000){this.idleMs=idleMs;this.seconds=0;this.previous=0;this.deadline=0;}
  sample(now,eligible=true){const end=Math.min(now,this.deadline);if(eligible&&end>this.previous)this.seconds+=Math.min(2000,end-this.previous)/1000;this.previous=now;if(!eligible)this.deadline=0;return this.seconds;}

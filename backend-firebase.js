@@ -15,7 +15,7 @@ import {newId, slugify, wordCount, excerptOf} from './util.js';
 import {registrationProfile} from './registration.js';
 import {randomCode, normalizeCode} from './invitation-codes.js';
 import {buildPeopleReport} from './people-model.js';
-import {writingReport,sessionHistoryReport} from './writing-time.js';
+import {writingReport,sessionHistoryReport,moduleWritingTotals} from './writing-time.js';
 import {randomAlias} from './aliases.js';
 
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
@@ -389,7 +389,7 @@ export const firebase = {
     const report=buildPeopleReport({users,memberships,modules,instructorInvites,studentInvites,includePlatformUsers:role==='admin'&&!moduleId});
     const [posts,legacy,history]=await Promise.all([this.listAllPosts(),this.listWritingSessions(moduleId),this.listWritingHistory(moduleId)]);
     const sessions=[...legacy.map(s=>({...s,id:'legacy-'+s.id})),...history];
-    report.writing=writingReport(posts,sessions,modules,report.users);report.sessions=sessionHistoryReport(posts,sessions,modules,report.users);return report;
+    report.writing=writingReport(posts,sessions,modules,report.users);report.sessions=sessionHistoryReport(posts,sessions,modules,report.users);report.moduleTotals=moduleWritingTotals(report.writing,memberships,modules,report.users);return report;
   },
   async getAdminGuide(){const s=await F.getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
   // ---- AI grading assistant (admin only; keys never reach the database) ----
