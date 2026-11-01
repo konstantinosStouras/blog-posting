@@ -39,11 +39,28 @@ beforeEach(async()=>{
   await b.commit();
  });
 });
+test('session history is write-only for its student and readable only by admin or module instructor',async()=>{
+ const d=db('student','student@ucdconnect.ie'),row={uid:'student',postId:'draft',moduleId:'one',seconds:0,startedAt:Date.now()-10000,lastActivityAt:Date.now()-10000,lastRecordedAt:Date.now()-10000};
+ await assertSucceeds(setDoc(doc(d,'writingHistory/one'),row));
+ const ended={...row,seconds:8,lastRecordedAt:row.startedAt+8000,endedAt:row.startedAt+8000,endReason:'left'};
+ await assertSucceeds(setDoc(doc(d,'writingHistory/one'),ended));
+ await assertFails(getDoc(doc(d,'writingHistory/one')));
+ await assertFails(getDocs(query(collection(d,'writingHistory'),where('uid','==','student'))));
+ await assertSucceeds(getDoc(doc(db('teacher-one'),'writingHistory/one')));
+ await assertSucceeds(getDoc(doc(db('admin','kstouras@gmail.com'),'writingHistory/one')));
+ await assertSucceeds(getDocs(query(collection(db('teacher-one'),'writingHistory'),where('moduleId','==','one'))));
+ await assertFails(getDoc(doc(db('teacher-two'),'writingHistory/one')));
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'writingHistory/one')));
+ await assertFails(setDoc(doc(d,'writingHistory/one'),{...ended,seconds:7}));
+ await assertFails(setDoc(doc(d,'writingHistory/forged'),{...row,uid:'peer'}));
+ await assertFails(setDoc(doc(d,'writingHistory/wrong-module'),{...row,moduleId:'two'}));
+});
 test('writing time is private, author-owned, monotonic and bounded by elapsed time',async()=>{
  const d=db('student','student@ucdconnect.ie'),row={uid:'student',postId:'draft',moduleId:'one',seconds:0,startedAt:Date.now()-10000};
- await assertSucceeds(getDoc(doc(d,'writingSessions/new')));
+ await assertFails(getDoc(doc(d,'writingSessions/new')));
  await assertSucceeds(setDoc(doc(d,'writingSessions/session'),row));
  await assertSucceeds(updateDoc(doc(d,'writingSessions/session'),{seconds:8}));
+ await assertFails(getDoc(doc(d,'writingSessions/session')));
  await assertFails(updateDoc(doc(d,'writingSessions/session'),{seconds:7}));
  await assertFails(updateDoc(doc(d,'writingSessions/session'),{seconds:99999}));
  await assertFails(updateDoc(doc(d,'writingSessions/session'),{postId:'published'}));

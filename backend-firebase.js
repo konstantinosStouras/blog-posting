@@ -15,7 +15,7 @@ import {newId, slugify, wordCount, excerptOf} from './util.js';
 import {registrationProfile} from './registration.js';
 import {randomCode, normalizeCode} from './invitation-codes.js';
 import {buildPeopleReport} from './people-model.js';
-import {writingReport} from './writing-time.js';
+import {writingReport,sessionHistoryReport} from './writing-time.js';
 import {randomAlias} from './aliases.js';
 
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
@@ -285,6 +285,8 @@ export const firebase = {
     return [...new Map(rows.map(p => [p.id, p])).values()];
   },
   async beginWritingSession(row) {const {id,...data}=row;await F.runTransaction(db,async tx=>{const ref=F.doc(db,'writingSessions',id),s=await tx.get(ref);if(!s.exists())tx.set(ref,{...data,seconds:0});});},
+  async saveWritingHistory(row){const {id,...data}=row;await F.setDoc(F.doc(db,'writingHistory',id),data);},
+  async listWritingHistory(moduleId=''){if(!user?.emailVerified||!['admin','lecturer'].includes(role))throw Error('Staff access required.');if(role==='admin'&&!moduleId){const s=await F.getDocs(F.collection(db,'writingHistory'));return s.docs.map(norm);}const ids=moduleId?[moduleId]:managedModuleIds;return (await Promise.all(ids.map(id=>F.getDocs(F.query(F.collection(db,'writingHistory'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
   async saveWritingSession(row) {await this.beginWritingSession(row);await F.runTransaction(db,async tx=>{const ref=F.doc(db,'writingSessions',row.id),s=await tx.get(ref);if(row.seconds>s.data().seconds)tx.update(ref,{seconds:row.seconds});});},
   async writingSeconds(postId) {try{for(const row of JSON.parse(localStorage.getItem(`ucd-writing:${user.uid}:${postId}`)||'[]'))if(row.uid===user.uid&&row.postId===postId)await this.saveWritingSession(row);}catch{}const s=await F.getDocs(F.query(F.collection(db,'writingSessions'),F.where('uid','==',user.uid),F.where('postId','==',postId)));return s.docs.reduce((n,d)=>n+d.data().seconds,0);},
   async listWritingSessions(moduleId='') {const ids=moduleId?[moduleId]:managedModuleIds;if(role==='admin'&&!moduleId){const s=await F.getDocs(F.collection(db,'writingSessions'));return s.docs.map(norm);}return (await Promise.all(ids.map(id=>F.getDocs(F.query(F.collection(db,'writingSessions'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
@@ -388,8 +390,9 @@ export const firebase = {
       Promise.all(modules.map(m=>this.listModuleInvites(m.id))).then(a=>a.flat())
     ]);
     const report=buildPeopleReport({users,memberships,modules,instructorInvites,studentInvites,includePlatformUsers:role==='admin'&&!moduleId});
-    const [posts,sessions]=await Promise.all([this.listAllPosts(),this.listWritingSessions(moduleId)]);
-    report.writing=writingReport(posts,sessions,modules,report.users);return report;
+    const [posts,legacy,history]=await Promise.all([this.listAllPosts(),this.listWritingSessions(moduleId),this.listWritingHistory(moduleId)]);
+    const sessions=[...legacy.map(s=>({...s,id:'legacy-'+s.id})),...history];
+    report.writing=writingReport(posts,sessions,modules,report.users);report.sessions=sessionHistoryReport(posts,sessions,modules,report.users);return report;
   },
   async getAdminGuide(){const s=await F.getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
   // ---- AI grading assistant (admin only; keys never reach the database) ----

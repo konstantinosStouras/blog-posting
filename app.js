@@ -269,7 +269,7 @@ async function editorView(id, moduleId) {
   const draft = {...p, tags: [...(p.tags || [])]};
   const trackTime=store.mode==='firebase'&&rank(u.role)===0&&(!p.authorId||p.authorId===u.uid);
   if(trackTime&&!p.id){p.id=newId();draft.id=p.id;}
-  const previousWritingSeconds=trackTime?await store.writingSeconds(p.id):0;
+  const previousWritingSeconds=0;
   let writingTimer;
   const approver = can(u, 'approve', draft, context), needsReview = context.requireApproval && !approver;
   const hasCats = (blog.categories || []).length > 0, catLabel = blog.categoryLabel || 'Category', orgLabel = blog.organisationLabel || '';

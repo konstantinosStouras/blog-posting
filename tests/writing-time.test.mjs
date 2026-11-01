@@ -1,7 +1,19 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
-import {formatWritingTime,writingReport,EditingActivityClock} from '../writing-time.js';
+import {formatWritingTime,writingReport,sessionHistoryReport,EditingActivityClock,WritingSessionHistory} from '../writing-time.js';
+test('history splits inactivity and returns into independent active sessions',()=>{
+ const rows=[];let id=0;const h=new WritingSessionHistory({uid:'a',postId:'p',moduleId:'m',newId:()=>String(++id),onSession:r=>rows.push(r)});
+ h.activity(1000,100000);for(let t=2000;t<=32000;t+=1000)h.sample(t,99000+t);
+ assert.equal(rows.length,1);assert.equal(rows[0].seconds,30);assert.equal(rows[0].endReason,'inactive');assert.equal(rows[0].endedAt,130000);
+ h.activity(60000,159000);h.sample(61000,160000);h.pause(62000,161000,'left');
+ assert.equal(rows.length,2);assert.equal(rows[1].seconds,2);assert.equal(rows[1].endReason,'left');assert.equal(rows[0].seconds+rows[1].seconds,32);
+});
+test('history report limits scope, preserves legacy gaps and exports session timestamps',async()=>{
+ const sessions=sessionHistoryReport([{id:'p',moduleId:'m',authorId:'a',title:'Post'},{id:'private',moduleId:'other',authorId:'a'}],[{id:'old',postId:'p',moduleId:'m',uid:'a',seconds:12,startedAt:1000},{id:'new',postId:'p',moduleId:'m',uid:'a',seconds:4,startedAt:10000,lastActivityAt:11000,lastRecordedAt:14000,endedAt:14000,endReason:'left'},{id:'secret',postId:'private',moduleId:'other',uid:'a',seconds:999}],[{id:'m',title:'Module'}],[{uid:'a',studentId:'00123'}]);
+ assert.equal(sessions.length,2);assert.equal(sessions[1].lastRecordedAt,0);assert.equal(sessions[1].endReason,'legacy');assert.equal(sessions[0].writingTime,'0:00:04');
+ const w=createRosterWorkbook(ExcelJS,{users:[],invitations:[],sessions});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await w.xlsx.writeBuffer());const sheet=loaded.getWorksheet('Writing sessions');assert.equal(sheet.getCell('G2').value,'1970-01-01 00:00:10');assert.equal(sheet.getCell('K2').value,'0:00:04');assert.equal(sheet.getCell('F2').value,'00123');assert.equal(sheet.getCell('G1').font.bold,true);assert.equal(Boolean(sheet.getCell('G2').font.bold),false);
+});
 test('idle editor starts paused, counts recent edits and stops at the inactivity cutoff',()=>{
  const c=new EditingActivityClock(30000);c.sample(5000);assert.equal(c.seconds,0);c.activity(5000);
  for(let t=6000;t<=40000;t+=1000)c.sample(t);

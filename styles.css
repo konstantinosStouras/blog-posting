@@ -557,3 +557,4 @@ body.writing .fb-fab { bottom: 64px; }
   .account-menu .menu { max-width: 92vw; }
   .site-header nav { gap: 10px 14px; }
 }
+.session-history{border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:12px 0}.session-history>summary{cursor:pointer;font-weight:600}.session-history .table-scroll{margin-top:12px}

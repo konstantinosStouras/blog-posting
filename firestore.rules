@@ -284,8 +284,7 @@ service cloud.firestore {
     }
     match /settings/site { allow read: if true; allow write: if isAdmin(); }
     match /writingSessions/{id} {
-      allow get: if verified() && !exists(/databases/$(database)/documents/writingSessions/$(id));
-      allow read: if own(resource.data.uid) || staffOf(resource.data.moduleId);
+      allow read: if staffOf(resource.data.moduleId);
       function sessionShape(){let d=request.resource.data;return verified()
         && d.keys().hasOnly(['uid','postId','moduleId','seconds','startedAt'])
         && d.uid == request.auth.uid && d.postId is string && d.postId.size() <= 100
@@ -298,6 +297,28 @@ service cloud.firestore {
       allow create: if sessionShape() && request.resource.data.startedAt >= request.time.toMillis()-86400000;
       allow update: if sessionShape() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seconds'])
         && request.resource.data.seconds >= resource.data.seconds;
+      allow delete: if false;
+    }
+    match /writingHistory/{id} {
+      allow read: if staffOf(resource.data.moduleId);
+      function historyShape(){let d=request.resource.data;return verified()
+        && d.keys().hasOnly(['uid','postId','moduleId','seconds','startedAt','lastActivityAt','lastRecordedAt','endedAt','endReason'])
+        && d.uid == request.auth.uid && d.postId is string && d.postId.size() <= 100 && memberOf(d.moduleId)
+        && d.startedAt is number && d.startedAt <= request.time.toMillis()+2000
+        && d.lastActivityAt is number && d.lastActivityAt >= d.startedAt
+        && d.lastRecordedAt is number && d.lastRecordedAt >= d.lastActivityAt && d.lastRecordedAt <= request.time.toMillis()+2000
+        && d.seconds is int && d.seconds >= 0 && d.seconds * 1000 <= d.lastRecordedAt - d.startedAt + 2000
+        && d.get('endedAt',d.lastRecordedAt) == d.lastRecordedAt
+        && d.get('endReason','checkpoint') in ['checkpoint','inactive','away','preview','left','interrupted']
+        && (!exists(/databases/$(database)/documents/posts/$(d.postId))
+          || (get(/databases/$(database)/documents/posts/$(d.postId)).data.authorId == request.auth.uid
+            && get(/databases/$(database)/documents/posts/$(d.postId)).data.moduleId == d.moduleId));}
+      allow create: if historyShape() && request.resource.data.startedAt >= request.time.toMillis()-86400000;
+      allow update: if historyShape() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seconds','lastActivityAt','lastRecordedAt','endedAt','endReason'])
+        && request.resource.data.seconds >= resource.data.seconds
+        && request.resource.data.lastActivityAt >= resource.data.lastActivityAt
+        && request.resource.data.lastRecordedAt >= resource.data.lastRecordedAt
+        && (!('endedAt' in resource.data) || request.resource.data == resource.data);
       allow delete: if false;
     }
     match /adminContent/{id} { allow read, write: if isAdmin(); }
