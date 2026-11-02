@@ -155,6 +155,11 @@ export const local = {
     state.comments.push(c); save(); return c;
   },
   async deleteComment(id) { state.comments = state.comments.filter(c => c.id !== id && c.parentId !== id); save(); },   // a thread goes with its first comment
+  async editComment(id, body, u) {
+    const c = state.comments.find(x => x.id === id); if (!c) throw Error('Comment not found.');
+    if (c.authorId !== u.uid) throw Error('You can only edit your own comments.');
+    c.body = body; c.editedAt = Date.now(); save(); return structuredClone(c);
+  },
   async toggleCommentLike(id, u) {
     const c = state.comments.find(x => x.id === id); if (!c) throw Error('Comment not found.');
     c.likedBy = c.likedBy || []; const i = c.likedBy.indexOf(u.uid);

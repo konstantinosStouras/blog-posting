@@ -268,6 +268,13 @@ async function postView(slug, blogId = null) {
   drawComments(comments);
   // One handler for the comment box and every inline reply box (they are drawn and redrawn).
   $app.onsubmit = async e => {
+    const ef = e.target.closest('form.edit');
+    if (ef) {
+      e.preventDefault(); const body = ef.body.value.trim(); if (!body) return;
+      const button = ef.querySelector('button[type="submit"]'); button.disabled = true;
+      try { await quietly(() => store.editComment(ef.dataset.edit, body, u)); toast('Comment updated.'); await refreshComments(); } catch (err) { toast(err.message, 'error'); button.disabled = false; }
+      return;
+    }
     const f = e.target.closest('form.reply'); if (!f) return;
     e.preventDefault(); const body = f.body.value.trim(); if (!body) return;
     const button = f.querySelector('button[type="submit"]'); button.disabled = true;
@@ -302,6 +309,16 @@ async function postView(slug, blogId = null) {
       return;
     }
     if (e.target.closest('[data-cancel-reply]')) { e.target.closest('.reply-slot').innerHTML = ''; return; }
+    const ed = e.target.closest('[data-edit-comment]');
+    if (ed) {   // the comment's text becomes a box in place; Save writes it back, Cancel redraws the list
+      const box = ed.closest('.comment'), body = box.querySelector(':scope > .c-body'); if (!body || box.querySelector(':scope > form.edit')) return;
+      const text = (await store.listComments(p.id)).find(x => x.id === ed.dataset.editComment)?.body ?? '';
+      body.hidden = true; box.querySelector(':scope > .c-actions').hidden = true;
+      body.insertAdjacentHTML('afterend', `<form class="edit" data-edit="${esc(ed.dataset.editComment)}"><div class="reply-box"><textarea name="body" required maxlength="4000"></textarea><p class="reply-actions"><button type="submit" class="btn primary small">Save</button><button type="button" class="btn small" data-cancel-edit>Cancel</button></p></div></form>`);
+      const ta = box.querySelector(':scope > form.edit textarea'); ta.value = text; ta.focus(); ta.setSelectionRange(text.length, text.length);
+      return;
+    }
+    if (e.target.closest('[data-cancel-edit]')) { await refreshComments(); return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
     try {
@@ -333,11 +350,12 @@ function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
   const thread = c.parentId || c.id;
   return `<div class="comment${replies ? '' : ' is-reply'}" id="c-${esc(c.id)}">
     <div class="who"><span class="avatar">${esc((c.authorName || '?')[0].toUpperCase())}</span><div><b>${esc(c.authorName)}</b> <span class="when">${fmtDateTime(c.createdAt)}</span>${byAuthor ? `<span class="liked-by">${ICON.heart} Liked by ${esc(p.authorName)}</span>` : ''}</div></div>
-    <p>${esc(c.body)}</p>
+    <p class="c-body">${esc(c.body)}${c.editedAt ? ' <span class="edited" title="Edited ' + esc(fmtDateTime(c.editedAt)) + '">(edited)</span>' : ''}</p>
     <div class="c-actions">
       <button type="button" class="c-act${liked ? ' on' : ''}" data-like-comment="${esc(c.id)}" aria-pressed="${liked}" ${canLike ? '' : 'disabled'}>${ICON.heart}<span>Like${likedBy.length ? ` (${likedBy.length})` : ''}</span></button>
       ${canReply ? `<button type="button" class="c-act" data-reply-to="${esc(thread)}" data-reply-name="${esc(c.authorName)}">${ICON.comment}<span>Reply${replies?.length ? ` (${replies.length})` : ''}</span></button>` : replies?.length ? `<span class="c-act muted">${ICON.comment}<span>${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}</span></span>` : ''}
       <span class="grow"></span>
+      ${u && can(u, 'editComment', c, S) ? `<button type="button" class="c-act" data-edit-comment="${esc(c.id)}">Edit</button>` : ''}
       ${u && can(u, 'deleteComment', {...c, blogId: p?.blogId}, S) ? `<button type="button" class="c-act danger" data-del-comment="${esc(c.id)}">Delete</button>` : ''}
       <button type="button" class="c-act" data-share-comment="${esc(c.id)}">${ICON.share}<span>Share</span></button>
     </div>

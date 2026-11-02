@@ -368,6 +368,11 @@ export const firebase = {
     for (const r of rs.docs) { try { await F.deleteDoc(r.ref); } catch {} }
     notify();
   },
+  async editComment(id, body, u) {
+    if (!user?.emailVerified) throw Error('Verify your sign-in email before editing comments.');
+    const ref = F.doc(db, 'comments', id), editedAt = Date.now();
+    await F.updateDoc(ref, {body, editedAt}); notify(); return {id, ...(await F.getDoc(ref)).data()};
+  },
   // Likes on a comment live on the comment (likedBy): the rules let an account add or remove only itself.
   async toggleCommentLike(id, u) {
     if (!user?.emailVerified) throw Error('Verify your sign-in email to like comments.');

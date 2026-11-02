@@ -24,6 +24,7 @@ export function can(user, action, post, settings = {}) {
     case 'approve':      return staff;
     case 'comment':      return settings.allowComments !== false;
     case 'deleteComment':return !!post && (post.authorId === user.uid || staff);
+    case 'editComment':  return !!post && post.authorId === user.uid;   // one's own words only; staff delete, they do not rewrite
     case 'roster':       return r >= 1;   // see who is behind each pen name
     case 'manageUsers':  return r >= 2;
     case 'settings':     return r >= 2;

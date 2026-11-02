@@ -224,6 +224,12 @@ test('a reply names its thread; a like is an account adding or removing only its
  await assertFails(updateDoc(doc(peer,'comments/comment'),{likedBy:['peer'],body:'edited'}));   // nothing but likedBy changes
  await assertSucceeds(updateDoc(doc(peer,'comments/comment'),{likedBy:arrayRemove('peer')}));
  await assertFails(updateDoc(doc(db('outsider','o@ucd.ie',false),'comments/comment'),{likedBy:arrayUnion('outsider')}));   // unverified
+ // the author rewrites the body, nothing else; nobody else rewrites it
+ await assertSucceeds(updateDoc(doc(d,'comments/comment'),{body:'Hello, revised',editedAt:time+1}));
+ await assertFails(updateDoc(doc(d,'comments/comment'),{body:'',editedAt:time+1}));
+ await assertFails(updateDoc(doc(d,'comments/comment'),{body:'x',editedAt:time+1,authorName:'someone-else-101'}));
+ await assertFails(updateDoc(doc(peer,'comments/comment'),{body:'Not mine',editedAt:time+1}));
+ await assertFails(updateDoc(doc(db('teacher-one'),'comments/comment'),{body:'Staff rewrite',editedAt:time+1}));
 });
 test('joining a module writes the blog membership only alongside a valid module membership',async()=>{
  const d=db('new-student','student@ucdconnect.ie');
