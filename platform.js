@@ -128,7 +128,7 @@ export async function manageModule(id) {
       <div class="indent new-blog"><label class="field">Blog title<input name="blogTitle" maxlength="160" placeholder="e.g. Operations"></label>
       <label class="field">Public URL name<input name="blogUrl" minlength="2" maxlength="80" pattern="[a-z0-9][a-z0-9\\-]+" placeholder="e.g. operations"><p class="hint">${esc(publicUrl('/'))}<b>url-name</b> — lowercase letters, numbers and hyphens; fixed after creation. A few names belong to pages of the site (posts, blogs, admin…). The brief, categories and word target are set afterwards in Blog settings.</p></label></div>
     </fieldset>
-    <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(m?.deadline || '')}"></label>
+    <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(m?.deadline || '')}"><p class="hint">For information only: shown to students on their module card, in the brief and in your modules list. It does not lock anything. To stop students writing or publishing after it, untick <b>Students can write and publish</b> below.</p></label>
     <label class="check"><input type="checkbox" name="submissionsOpen" ${m?.submissionsOpen !== false ? 'checked' : ''}> Students can write and publish</label>
     <label class="check"><input type="checkbox" name="requireApproval" ${m?.requireApproval ? 'checked' : ''}> Review student posts before publication</label>
     <p class="actions"><button class="btn primary">${m ? 'Save module' : 'Create module'}</button><a class="btn" href="/my-modules">Cancel</a></p><p class="auth-msg" aria-live="polite"></p></form></div>`;
