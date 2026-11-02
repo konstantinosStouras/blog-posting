@@ -2,7 +2,7 @@
 import {route, navigate, rewrite, publicUrl, startRouter} from './router.js';
 import {initStore, store, resetAccess} from './store.js';
 import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './auth.js';
-import {can, ROLES, rank} from './permissions.js';
+import {can, ROLES, rank, pastDeadline} from './permissions.js';
 import {mountEditor, fillOutline} from './editor.js';
 import {configurePlatform, blogDirectory, myModules, blogCanvas, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {renderPeople} from './people.js';
@@ -238,9 +238,7 @@ async function postView(slug) {
   $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<article class="post">
     ${u && can(u, 'edit', p, context) ? `<div class="post-actions"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span>
       <a class="btn small" href="/edit/${p.id}">Edit</a>
-      ${p.status === 'published' && can(u, 'unpublish', p, context) ? `<button class="btn small" data-act="unpublish">Unpublish</button>` : ''}
       ${p.status !== 'published' && can(u, 'publish', p, context) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
-      ${can(u, 'feature', p, context) ? `<button class="btn small" data-act="feature">${p.featured ? 'Unfeature' : 'Feature'}</button>` : ''}
       ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : ''}
     ${lateNote(p, module, u)}
     ${articleHtml(p, {blog, words, likes, comments: comments.length, me: u})}
@@ -306,9 +304,7 @@ async function postView(slug) {
     const act = b.dataset.act;
     try {
       if (act === 'delete') { if (!confirm('Delete this post permanently?')) return; try { await store.deletePost(p.id); } catch (err) { return toast(err.message, 'error'); } toast('Post deleted.'); navigate('/'); return; }
-      if (act === 'unpublish') await store.savePost({...p, status: 'draft'}, u);
       if (act === 'publish') await store.savePost({...p, status: 'published'}, u);
-      if (act === 'feature') await store.savePost({...p, featured: !p.featured}, u);
       toast('Updated.'); render();
     } catch (err) { toast(err.message, 'error'); }
   };
@@ -370,7 +366,7 @@ async function editorView(id, moduleId) {
   if (!module) { $app.innerHTML = '<p class="empty">Module not found.</p>'; return; }
   const blog = (await store.getBlog(module.blogId)) || {title: 'Blog', categories: [], checklist: []};
   const context = {...S, ...module, allowComments: blog.allowComments !== false};
-  if (p && !can(u, 'edit', p, context)) { $app.innerHTML = `<p class="empty">You cannot edit this post.</p>`; return; }
+  if (p && !can(u, 'edit', p, context)) { $app.innerHTML = `<p class="empty">${p.status === 'published' && pastDeadline(context) ? `This post is published and the module deadline (${fmtDate(context.deadline)}) has passed, so it stays as it is. <a href="${postPath(p)}">Read it</a>` : 'You cannot edit this post.'}</p>`; return; }
   if (!p && !can(u, 'write', {moduleId, blogId: module.blogId}, context)) { $app.innerHTML = `<p class="empty">Submissions are closed for ${esc(module.title)}.</p>`; return; }
   if (store.mode === 'firebase' && !u.emailVerified) { $app.innerHTML='<p class="empty">Verify your sign-in email before writing. Use the account menu to resend or refresh verification.</p>';return; }
   if (!p && rank(u.role) < 1) {
@@ -595,8 +591,8 @@ async function lecturer(tab = 'posts', query = '') {
   const summaryModules = [...new Set(scope.map(p => p.moduleId))];
   const summary = summaryModules.length ? `<table class="list compact"><thead><tr><th>Posts by module and year</th>${summaryYears.map(y => `<th><a href="/review/${tab}${qs({year: y === '—' ? '' : y})}">${esc(y)}</a></th>`).join('')}<th>Total</th></tr></thead><tbody>${summaryModules.map(mid => { const m = modOf(mid); return `<tr><td><a href="/review/${tab}${qs({module: mid})}">${esc(m ? [m.code, m.title].filter(Boolean).join(' ') : mid)}</a></td>${summaryYears.map(y => `<td>${(cells[mid + '|' + y] || []).filter(p => p.status === 'published').length}<span class="muted small"> / ${(cells[mid + '|' + y] || []).length}</span></td>`).join('')}<td><b>${scope.filter(p => p.moduleId === mid && p.status === 'published').length}</b><span class="muted small"> / ${scope.filter(p => p.moduleId === mid).length}</span></td></tr>`; }).join('')}</tbody></table><p class="hint">published / all posts</p>` : '';
   let body = '';
-  const row = p => { const m = modOf(p.moduleId); return `<tr><td>${p.featured ? '<span class="badge featured">★</span>' : ''}<a href="${p.status === 'published' ? postPath(p) : '/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b><br><span class="small">${real(p.authorId)}</span></td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
-    <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ` <button class="linkish" data-act="unpublish" data-id="${p.id}">Unpublish</button>`} <button class="linkish" data-act="feature" data-id="${p.id}">${p.featured ? 'Unfeature' : 'Feature'}</button>${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`; };
+  const row = p => { const m = modOf(p.moduleId); return `<tr><td><a href="${p.status === 'published' ? postPath(p) : '/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b><br><span class="small">${real(p.authorId)}</span></td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
+    <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ''}${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`; };
   const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name / student</th><th>Module · year</th><th>Status</th><th>Words</th><th>Category</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
   if (tab === 'posts') body = summary + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
   if (tab === 'queue') body = '<p class="muted">Posts submitted for review. Approval is switched on per module in its settings.</p>' + table(pending);
@@ -629,8 +625,6 @@ async function lecturer(tab = 'posts', query = '') {
     try {
       if (b.dataset.act === 'delete') { if (!confirm(`Delete "${p.title}" permanently?`)) return; try { await store.deletePost(p.id); } catch (err) { return toast(err.message, 'error'); } }
       if (b.dataset.act === 'publish') await store.savePost({...p, status: 'published'}, u);
-      if (b.dataset.act === 'unpublish') await store.savePost({...p, status: 'draft'}, u);
-      if (b.dataset.act === 'feature') await store.savePost({...p, featured: !p.featured}, u);
       toast('Updated.'); lecturer(tab, query);
     } catch (err) { toast(err.message, 'error'); }
   };

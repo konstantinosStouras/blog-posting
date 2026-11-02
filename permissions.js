@@ -4,6 +4,9 @@
 export const ROLES = ['student', 'lecturer', 'admin'];
 export const rank = role => Math.max(0, ROLES.indexOf(role || 'student'));
 
+// The deadline day counts in full, in the reader's time zone (the same reading as the author's late note).
+export const pastDeadline = settings => !!settings?.deadline && Date.now() > new Date(settings.deadline + 'T23:59:59').getTime();
+
 export function can(user, action, post, settings = {}) {
   if (!user) return action === 'read';
   const r = rank(user.role);
@@ -13,12 +16,12 @@ export function can(user, action, post, settings = {}) {
   const staff = r >= 2 || (r >= 1 && (!user.managedModuleIds || user.managedModuleIds.includes(post?.moduleId) || (user.managedBlogIds || []).includes(post?.blogId)));
   switch (action) {
     case 'write':        return settings.submissionsOpen !== false || staff;
-    case 'edit':         return !!post && (staff || (own && settings.submissionsOpen !== false));   // the rules refuse student updates once submissions close
+    // The rules refuse student updates once submissions close. A student's post that is published
+    // after the module deadline stays as it is: the deadline closes editing for published posts.
+    case 'edit':         return !!post && (staff || (own && settings.submissionsOpen !== false && !(post.status === 'published' && pastDeadline(settings))));
     case 'delete':       return !!post && ((own && post.status !== 'published') || r >= 2); // students: own drafts; admin: anything
     case 'publish':      return !post ? true : (own && !settings.requireApproval) || staff;
-    case 'unpublish':    return !!post && (staff || (own && settings.submissionsOpen !== false));
     case 'approve':      return staff;
-    case 'feature':      return staff;
     case 'comment':      return settings.allowComments !== false;
     case 'deleteComment':return !!post && (post.authorId === user.uid || staff);
     case 'roster':       return r >= 1;   // see who is behind each pen name

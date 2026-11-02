@@ -13,18 +13,18 @@ const norm = s => String(s ?? '').trim().toLowerCase();
 const yearOf = p => new Date(p.publishedAt || p.updatedAt || p.createdAt || Date.now()).getFullYear();
 // Posts stamped with the module's academic year (2026/27) facet by that; older ones by calendar year.
 const yearKey = p => p.academicYear || String(yearOf(p));
-const SORTS = [['featured', 'Featured first'], ['new', 'Newest first'], ['old', 'Oldest first'], ['title', 'Title A–Z'], ['org', 'Organisation A–Z']];
+const SORTS = [['new', 'Newest first'], ['old', 'Oldest first'], ['title', 'Title A–Z'], ['org', 'Organisation A–Z']];
 const TAG_LIMIT = 18;
 
 export function parseFilters(query = '') {
   const p = new URLSearchParams(String(query).replace(/^\?/, ''));
   return {q: (p.get('q') || '').trim(), trend: p.get('trend') || '', org: p.get('org') || '', year: p.get('year') || '', module: p.get('module') || '', blog: p.get('blog') || '',
-    tags: (p.get('tag') || '').split(',').map(t => t.trim()).filter(Boolean), sort: SORTS.some(s => s[0] === p.get('sort')) ? p.get('sort') : 'featured'};
+    tags: (p.get('tag') || '').split(',').map(t => t.trim()).filter(Boolean), sort: SORTS.some(s => s[0] === p.get('sort')) ? p.get('sort') : 'new'};
 }
 export function filterQuery(f) {
   const p = new URLSearchParams();
   if (f.q) p.set('q', f.q); if (f.trend) p.set('trend', f.trend); if (f.org) p.set('org', f.org); if (f.year) p.set('year', f.year);
-  if (f.module) p.set('module', f.module); if (f.blog) p.set('blog', f.blog); if (f.tags?.length) p.set('tag', f.tags.join(',')); if (f.sort && f.sort !== 'featured') p.set('sort', f.sort);
+  if (f.module) p.set('module', f.module); if (f.blog) p.set('blog', f.blog); if (f.tags?.length) p.set('tag', f.tags.join(',')); if (f.sort && f.sort !== 'new') p.set('sort', f.sort);
   const s = p.toString(); return s ? '?' + s : '';
 }
 const routeParts = () => { const h = route(); const i = h.indexOf('?'); return i < 0 ? [h, ''] : [h.slice(0, i), h.slice(i + 1)]; };
@@ -66,11 +66,10 @@ const catName = (st, slug, p) => ((p && st.blogs?.get(p.blogId)?.categories) || 
 function sorted(posts, sort) {
   const s = posts.slice();
   const newest = (a, b) => (b.publishedAt || b.updatedAt || 0) - (a.publishedAt || a.updatedAt || 0);
-  if (sort === 'new') s.sort(newest);
-  else if (sort === 'old') s.sort((a, b) => -newest(a, b));
+  if (sort === 'old') s.sort((a, b) => -newest(a, b));
   else if (sort === 'title') s.sort((a, b) => a.title.localeCompare(b.title));
   else if (sort === 'org') s.sort((a, b) => (a.organisation || '￿').localeCompare(b.organisation || '￿') || newest(a, b));
-  else s.sort((a, b) => ((b.featured ? 1 : 0) - (a.featured ? 1 : 0)) || newest(a, b));
+  else s.sort(newest);
   return s;
 }
 
@@ -134,7 +133,7 @@ export function card(p, st = current || {f: parseFilters(''), base: '/posts', ca
   const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trend: p.category})}" data-set="trend" data-v="${esc(p.category)}" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : ''].filter(Boolean).join('');
   return `<article class="card ${img ? '' : 'noimage'}">${img}
     ${kicker ? `<div class="kicker">${kicker}</div>` : ''}
-    <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}${p.featured ? '<span class="badge featured">Featured</span>' : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
+    <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
     <p>${esc(p.excerpt || excerptOf(p.body))}</p>
     <div class="tags">${(p.tags || []).map(t => `<a href="${link({tags: [t]})}" data-tag="${esc(t)}" data-only="1">${esc(t)}</a>`).join('')}</div>
     <div class="meta"><a href="/author/${esc(p.authorId)}">${esc(p.authorName)}</a> · <a href="${link({year: yearKey(p)})}" data-set="year" data-v="${esc(yearKey(p))}" title="All posts from ${esc(yearKey(p))}">${fmtDate(p.publishedAt || p.updatedAt)}</a> · ${readingTime(words)}${module && st.f.module !== p.moduleId && st.modules.size > 1 ? ` · <a href="${link({module: p.moduleId})}" data-set="module" data-v="${esc(p.moduleId)}">${esc(module.code || module.title)}</a>` : ''}</div></article>`;

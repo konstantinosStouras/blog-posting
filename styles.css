@@ -127,7 +127,6 @@ dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background
 .card p { margin: 0 0 12px; font-size: 13.5px; }
 .card .meta { font-size: 12px; color: var(--muted); margin-top: 8px; }
 .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding: 2px 7px; border-radius: 3px; background: var(--soft); color: var(--muted); margin-right: 6px; vertical-align: middle; }
-.badge.featured { background: #fff1e8; color: var(--orange); }
 .badge.draft { background: #f3f3f3; }
 .badge.pending { background: #fff8e6; color: var(--warn); }
 .badge.published { background: #ecf8f0; color: var(--ok); }
