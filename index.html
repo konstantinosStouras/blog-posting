@@ -36,14 +36,57 @@
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="manifest" href="site.webmanifest">
 <meta name="theme-color" content="#1f5fd1">
+<!-- Speed. The app is thirty small modules that import one another five levels deep; told
+     about them all here, the browser fetches them in one go instead of discovering them a
+     level at a time. The Firebase SDK (the largest download) starts at the same moment, and
+     the database and sign-in hosts have their connections opened before anything asks for
+     them. The web fonts load without blocking the first paint, which shows the masthead. -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Rubik:wght@300;400;500;600&family=Spectral:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Rubik:wght@300;400;500;600&family=Spectral:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Rubik:wght@300;400;500;600&family=Spectral:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"></noscript>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js" crossorigin>
+<link rel="modulepreload" href="ai-grading-model.js">
+<link rel="modulepreload" href="ai-grading.js">
+<link rel="modulepreload" href="ai-providers.js">
+<link rel="modulepreload" href="aliases.js">
+<link rel="modulepreload" href="auth.js">
+<link rel="modulepreload" href="backend-firebase.js">
+<link rel="modulepreload" href="backend-local.js">
+<link rel="modulepreload" href="blocks.js">
+<link rel="modulepreload" href="canvas.js">
+<link rel="modulepreload" href="editor.js">
+<link rel="modulepreload" href="feedback-model.js">
+<link rel="modulepreload" href="feedback.js">
+<link rel="modulepreload" href="firebase-config.js">
+<link rel="modulepreload" href="invitation-codes.js">
+<link rel="modulepreload" href="people-model.js">
+<link rel="modulepreload" href="people.js">
+<link rel="modulepreload" href="permissions.js">
+<link rel="modulepreload" href="platform.js">
+<link rel="modulepreload" href="registration.js">
+<link rel="modulepreload" href="roster-export.js">
+<link rel="modulepreload" href="router.js">
+<link rel="modulepreload" href="seed.js">
+<link rel="modulepreload" href="share.js">
+<link rel="modulepreload" href="sortable-tables.js">
+<link rel="modulepreload" href="store.js">
+<link rel="modulepreload" href="student-breakdown-model.js">
+<link rel="modulepreload" href="student-breakdown.js">
+<link rel="modulepreload" href="util.js">
+<link rel="modulepreload" href="welcome.js">
+<link rel="modulepreload" href="writing-time.js">
 </head>
 <body>
 <a class="skip" href="#app">Skip to content</a>
-<header id="site-header" class="site-header"></header>
+<header id="site-header" class="site-header"><div class="brand"><div class="masthead"><h1>UCD blog</h1><p class="tagline">Posts by curious UCD students</p></div></div><hr class="rule"></header>
 <main id="app" class="app" aria-live="polite"><p class="loading">Loading…</p></main>
 <footer id="site-footer" class="site-footer"></footer>
 <noscript><p style="padding:2rem;text-align:center">This blog needs JavaScript to run.</p></noscript>

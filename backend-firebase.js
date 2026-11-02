@@ -28,7 +28,7 @@ async function refreshManaged(self) {
   managedModuleIds = modules.filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
   managedBlogIds = blogs.filter(b => b.teacherIds.includes(user.uid)).map(b => b.id);
 }
-const listeners = new Set(), notify = () => listeners.forEach(fn => fn());
+const listeners = new Set(), notify = () => { forget(); listeners.forEach(fn => fn()); };
 const ts = v => (v && typeof v.toMillis === 'function') ? v.toMillis() : (v ?? null);
 const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['createdAt', 'updatedAt', 'publishedAt']) if (k in o) o[k] = ts(o[k]); return o; };
 async function createCodedInvite(kind, data) {
@@ -71,27 +71,54 @@ async function touchDirectory(u, p) {
   await F.setDoc(ref, row);
   await F.setDoc(F.doc(db, 'registeredUsers', u.uid), {t: Date.now()}).catch(() => {});
   if(u.emailVerified){
-    const modules=await F.getDocs(F.collection(db,'modules'));
-    await Promise.all(modules.docs.map(async m=>{
+    const modules=await firebase.listModules();
+    await Promise.all(modules.map(async m=>{
       const ref=F.doc(db,'modules',m.id,'members',u.uid),member=await F.getDoc(ref);
       if(member.exists()) try { await F.updateDoc(ref,{firstName:p.firstName || '',lastName:p.lastName || '',studentId:p.studentId || '',affiliation:p.affiliation || '',contactEmail:p.contactEmail || '',penName:p.penName,email:u.email,lastSeenAt:now,lastSignInAt:signedInAt}); } catch (e) { console.warn('roster row not updated for', m.id, e.code || e.message); }
     }));
   }
 }
 
+// What a page needs before it can be drawn for this account (profile, role, the modules
+// and blogs it manages), fetched side by side. The roster bookkeeping (touchDirectory)
+// is writes only, so it runs on after the first page is up instead of holding it back.
+async function loadAccount(self, u) {
+  [profile, role] = await Promise.all([ensureProfile(u), loadRole(u.uid, u.email, u.emailVerified), refreshManaged(self)]);
+  touchDirectory(u, profile).catch(e => console.warn('directory', e.code || e.message));
+}
+
+// Reads that pages repeat are answered once for a short while: one navigation asks for
+// the blog list three or four times (the header, the access check, the page, the footer),
+// and the footer asks for every published post on every page. A write in this tab
+// (notify) or a sign-in clears the memo, so one's own changes show at once.
+const MEMO_TTL = 30000, memo = new Map();
+const remember = (key, fn) => {
+  const hit = memo.get(key);
+  if (hit && hit.t > Date.now() - MEMO_TTL) return hit.p;
+  const p = fn().catch(e => { memo.delete(key); throw e; });
+  memo.set(key, {t: Date.now(), p}); return p;
+};
+const forget = () => memo.clear();
+const MEMOED = ['listModules', 'getModule', 'listBlogs', 'getBlog', 'listMyModules', 'listPosts', 'listAllPosts', 'getPostBySlug', 'listComments', 'recentComments'];
+
 export const firebase = {
   mode: 'firebase',
   async init() {
     const [appM, authM, fsM] = await Promise.all([import(cdn('app')), import(cdn('auth')), import(cdn('firestore'))]);
     A = authM; F = fsM;
-    app = appM.initializeApp(firebaseConfig); auth = A.getAuth(app); db = F.getFirestore(app);
-    try { const s = await F.getDoc(F.doc(db, 'settings', 'site')); if (s.exists()) settings = {...DEFAULT_SETTINGS, ...s.data()}; } catch (e) { console.warn('settings', e); }
+    app = appM.initializeApp(firebaseConfig); auth = A.getAuth(app);
+    // Documents are kept on disk (IndexedDB, shared by the site's tabs): a query that ran
+    // before resumes where it left off, so the server sends only what changed since, and
+    // posts with their inline images are downloaded once rather than on every visit.
+    try { db = F.initializeFirestore(app, {localCache: F.persistentLocalCache({tabManager: F.persistentMultipleTabManager()})}); }
+    catch (e) { console.warn('persistent cache', e); db = F.getFirestore(app); }
+    const site = F.getDoc(F.doc(db, 'settings', 'site')).then(s => { if (s.exists()) settings = {...DEFAULT_SETTINGS, ...s.data()}; }).catch(e => console.warn('settings', e));
     await new Promise(resolve => {
       A.onAuthStateChanged(auth, async u => {
-        user = u;
-        if (u) { try { profile = await ensureProfile(u); role = await loadRole(u.uid, u.email, u.emailVerified); await refreshManaged(this); await touchDirectory(u, profile); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
+        user = u; forget();
+        if (u) { try { await loadAccount(this, u); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
         else { profile = null; role = 'student'; managedModuleIds = []; managedBlogIds = []; }
-        notify(); resolve();
+        await site; notify(); resolve();
       });
     });
     return settings;
@@ -109,10 +136,8 @@ export const firebase = {
       cred = await A.signInWithPopup(auth, google);
     } else if (provider === 'password') cred = await A.signInWithEmailAndPassword(auth, email, password);
     else throw Error('Unknown sign-in method.');
-    user = cred.user; profile = await ensureProfile(user);
-    role = await loadRole(user.uid, user.email, user.emailVerified);
-    await refreshManaged(this);
-    await touchDirectory(user, profile); notify(); return cred;
+    user = cred.user; forget();
+    await loadAccount(this, user); notify(); return cred;
   },
   async register(data, teacher = false) {
     const invitation=await this.resolveRegistrationCode(data.registrationCode);
@@ -458,3 +483,4 @@ export const firebase = {
   async exportAll() { const [blogs, modules, posts, comments, users] = await Promise.all([this.listBlogs(), this.listModules(), this.listAllPosts(), F.getDocs(F.collection(db, 'comments')).then(s => s.docs.map(norm)), this.listUsers()]); return {settings, blogs, modules, posts, comments, users}; },
   async resetDemo() { throw Error('Not available with Firebase; delete documents in the Firebase console.'); },
 };
+for (const k of MEMOED) { const fn = firebase[k]; firebase[k] = function (...a) { return remember(k + '|' + (user?.uid || '') + '|' + role + '|' + JSON.stringify(a), () => fn.apply(this, a)); }; }
