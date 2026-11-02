@@ -93,7 +93,7 @@ function accountMenu(u){
   if(e.target.id==='refresh-verification')toast(await store.refreshVerification()?'Email verified. You can now accept your invitation.':'Open the verification link in your email first.');
   if(e.target.id==='signout'){setPreview(null);await store.signOut();activeInvitation=null;navigate('/');toast('Signed out.');}
   const st=e.target.closest('[data-preview-student]'),ins=e.target.closest('[data-preview-instructor]');
-  if(st){const back=preview();setPreview({kind:'student',moduleId:st.dataset.previewStudent,blogId:st.dataset.blog,label:st.dataset.label,back:back?.kind==='instructor'?back:null});if(!navigate('/blog/'+st.dataset.blog))dispatchEvent(new CustomEvent('routechange'));toast('Viewing as a student of '+st.dataset.label+'. Close the preview from the account menu.');}
+  if(st){const back=preview();setPreview({kind:'student',moduleId:st.dataset.previewStudent,blogId:st.dataset.blog,label:st.dataset.label,back:back?.kind==='instructor'?back:null});if(!navigate('/'+st.dataset.blog))dispatchEvent(new CustomEvent('routechange'));toast('Viewing as a student of '+st.dataset.label+'. Close the preview from the account menu.');}
   if(ins){setPreview({kind:'instructor',uid:ins.dataset.previewInstructor,name:ins.dataset.name,moduleIds:ins.dataset.modules.split(',').filter(Boolean),blogIds:ins.dataset.blogs.split(',').filter(Boolean)});if(!navigate('/my-modules'))dispatchEvent(new CustomEvent('routechange'));toast('Viewing as '+ins.dataset.name+'. Close the preview from the account menu.');}
   if(e.target.closest('[data-exit-preview]')){const p=preview();setPreview(p?.back||null);dispatchEvent(new CustomEvent('routechange'));}
  }catch(err){toast(friendly(err));}

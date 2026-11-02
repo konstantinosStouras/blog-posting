@@ -1,7 +1,7 @@
 """Local dev server with the same deep-link behaviour as the live site.
 
 Serves this folder like `python -m http.server`, but an address that is not a
-file (/blog/project-management, /admin/feedback) is sent back to the app root as
+file (/project-management, /admin/feedback) is sent back to the app root as
 /?redirect=<address> — exactly what stouras.com's root 404.html does for
 /ucd-blog/… on GitHub Pages — and router.js restores it. Nothing is cached, so
 an edited module is picked up on the next reload.

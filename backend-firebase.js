@@ -11,7 +11,7 @@
 //   posts/{id}, comments/{id}, settings/site
 import {firebaseConfig, ADMIN_EMAIL} from './firebase-config.js';
 import {DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
-import {newId, slugify, wordCount, excerptOf} from './util.js';
+import {newId, slugify, wordCount, excerptOf, isReservedUrlName} from './util.js';
 import {registrationProfile} from './registration.js';
 import {randomCode, normalizeCode} from './invitation-codes.js';
 import {buildPeopleReport} from './people-model.js';
@@ -157,6 +157,7 @@ export const firebase = {
     if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
     const id = data.id || slugify(data.urlName || data.title);
     if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(id)) throw Error('Choose a URL name of 2–80 lowercase letters, numbers or hyphens.');
+    if (!data.id && isReservedUrlName(id)) throw Error('That URL name is taken by a page of the site. Choose another.');
     const existing = await this.getBlog(id);
     if (!data.id && existing) throw Error('That blog URL already exists. Choose another.');
     const now = Date.now();

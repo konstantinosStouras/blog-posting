@@ -22,7 +22,7 @@ UCD blog hosts public **blogs**, each written on by one or more **modules**.
   category list (for example the six megatrends), the organisation field, the
   word target, an outline the student can insert, a pre-publish checklist and
   whether comments are open. Blogs are owned by instructors. Address:
-  `/blog/<url-name>`.
+  `/<url-name>`, directly under the site: `/ucd-blog/project-management`.
 - A **module** is one cohort: code, title, academic year (e.g. 2026/27),
   roster, invitations, deadline and whether student posts need approval. When
   an instructor creates a module they either create a new, separate blog for it
@@ -122,14 +122,14 @@ controls live in `firestore.rules`.
 
 ### Addresses
 
-Every page has a clean path, with no `#`: `/blog/project-management`,
+Every page has a clean path, with no `#`: `/project-management`,
 `/2026/10/my-post`, `/admin/feedback`. `router.js` owns this. The code speaks
 only in those app routes and writes links root-relative; the router reads where
 the app is mounted from its own URL (`/ucd-blog/` on stouras.com, `/` on a dev
 server), prefixes links as they enter the page, intercepts clicks and uses
 `history.pushState`. In-page anchors (`#comments`, footnotes) keep working.
 
-A static host has no file at `/ucd-blog/blog/x`. GitHub Pages serves the root
+A static host has no file at `/ucd-blog/project-management`. GitHub Pages serves the root
 `404.html` of the stouras.com repository instead, and that page sends the
 browser to `/ucd-blog/?redirect=<path>`; the router restores the path before
 the app starts, so a reload or a typed deep link lands on the right page.

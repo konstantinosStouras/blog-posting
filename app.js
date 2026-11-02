@@ -33,8 +33,7 @@ const routes = [
   [/^\/modules$/, blogDirectory],
   [/^\/posts$/, () => browse({})],
   [/^\/my-modules$/, myModules],
-  [/^\/blog\/([a-z0-9-]+)$/, blogCanvas],
-  [/^\/blog\/([a-z0-9-]+)\/brief$/, briefPage],
+  [/^\/blog\/([a-z0-9-]+)((?:\/brief)?(?:\?.*)?)$/, (id, rest) => navigate('/' + id + rest, {replace: true})],   // the address before 2 Nov 2026: a blog now lives at /<url-name>
   [/^\/blogs\/edit\/([a-z0-9-]+)$/, manageBlog],
   [/^\/module\/([a-z0-9-]+)$/, moduleRedirect],
   [/^\/modules\/new$/, () => manageModule(null)],
@@ -58,6 +57,9 @@ const routes = [
   [/^\/profile$/, profileView],
   [/^\/review\/?([a-z]*)(?:\?(.*))?$/, lecturer],
   [/^\/admin\/?([a-z]*)(?:\?module=([a-z0-9-]+))?$/, admin],
+  // A blog is the site's first-level page: /project-management. Last, so every named page above wins.
+  [/^\/([a-z0-9-]+)$/, blogCanvas],
+  [/^\/([a-z0-9-]+)\/brief$/, briefPage],
 ];
 
 // Renders run one after another: a slow page (waiting for the database) must not
@@ -66,7 +68,7 @@ let queue = Promise.resolve();
 function render() { queue = queue.then(doRender).catch(e => console.error(e)); return queue; }
 async function doRender() {
   const seq = ++renderSeq;
-  const path = route();   // '/blog/x?trend=y': the app route, whatever the site is mounted at
+  const path = route();   // '/x?trend=y': the app route, whatever the site is mounted at
   liveView = null; $app.onclick = null;
   resetAccess();   // who may read what is decided afresh for this navigation
   if (!user() && !PUBLIC.some(re => re.test(path.split('?')[0]))) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
@@ -94,7 +96,7 @@ function renderHeader(path = route()) {
   document.body.classList.remove('nav-locked');
   // Signed out there is nothing to browse, so only the masthead and Log in are drawn. Signed in,
   // the first tab is the person's own blog (or blogs); the admin explores them all.
-  const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : BLOGS.length === 1 ? {href: '/blog/' + BLOGS[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
+  const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : BLOGS.length === 1 ? {href: '/' + BLOGS[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
   $header.innerHTML = `<div class="brand">
     ${u ? '<button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>' : ''}
     <div class="masthead"><h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p></div>
@@ -156,7 +158,7 @@ async function home() {
   // (or, in the local prototype, on one canvas of every sample post).
   if (u && rank(u.role) < 1) {
     const ids = [...new Set((await store.listMyModules()).map(m => m.blogId).filter(Boolean))];
-    if (ids.length === 1) { navigate('/blog/' + ids[0], {replace: true}); return; }
+    if (ids.length === 1) { navigate('/' + ids[0], {replace: true}); return; }
     if (ids.length > 1) { await myModules(); return; }
   }
   if (store.mode === 'firebase') { await blogDirectory(); return; }
@@ -185,10 +187,10 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
   const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
   const liked = !!me && likes.includes(me.uid);
   return `<header class="post-head">
-    ${p.category ? `<div class="cat"><a href="${p.blogId ? '/blog/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a></div>` : ''}
+    ${p.category ? `<div class="cat"><a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a></div>` : ''}
     <h1>${esc(p.title || 'Untitled')}</h1>
     ${p.excerpt ? `<p class="subtitle">${esc(p.excerpt)}</p>` : ''}
-    <div class="byline"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div><a href="/author/${esc(p.authorId || '')}"><b>${esc(p.authorName || 'you')}</b></a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}<br><span class="muted">${fmtDate(p.publishedAt || p.updatedAt || Date.now())} · ${readingTime(w)}${blog ? ` · <a href="/blog/${esc(blog.id)}">${esc(blog.title)}</a>` : ''}</span></div></div>
+    <div class="byline"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div><a href="/author/${esc(p.authorId || '')}"><b>${esc(p.authorName || 'you')}</b></a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}<br><span class="muted">${fmtDate(p.publishedAt || p.updatedAt || Date.now())} · ${readingTime(w)}${blog ? ` · <a href="/${esc(blog.id)}">${esc(blog.title)}</a>` : ''}</span></div></div>
     <div class="post-actions-row" role="group" aria-label="Post actions">
       <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes.length || ''}</span></button>
       <a class="react" href="#comments" data-comments aria-label="Comments">${ICON.comment}<span>${comments || ''}</span></a>
@@ -197,7 +199,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
     </div></header>
     ${p.featuredImage ? `<img class="hero" src="${esc(p.featuredImage)}" alt="">` : ''}
     <div class="body">${sanitize(p.body || '')}</div>
-    ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="${p.blogId ? '/blog/' + esc(p.blogId) : '/posts'}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
+    ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
 }
 async function shareLink(url, title) {
   try { if (navigator.share) { await navigator.share({title, url}); return; } } catch { return; }
@@ -216,7 +218,7 @@ async function postView(slug) {
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const [comments, likes] = await Promise.all([store.listComments(p.id), store.listLikes(p.id)]);
   const words = wordCount(p.body);
-  $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/blog/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<article class="post">
+  $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<article class="post">
     ${u && can(u, 'edit', p, context) ? `<div class="post-actions"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span>
       <a class="btn small" href="/edit/${p.id}">Edit</a>
       ${p.status === 'published' && can(u, 'unpublish', p, context) ? `<button class="btn small" data-act="unpublish">Unpublish</button>` : ''}
@@ -224,7 +226,7 @@ async function postView(slug) {
       ${can(u, 'feature', p, context) ? `<button class="btn small" data-act="feature">${p.featured ? 'Unfeature' : 'Feature'}</button>` : ''}
       ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : ''}
     ${articleHtml(p, {blog, words, likes, comments: comments.length, me: u})}
-    <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/blog/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
+    <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
     <div class="prevnext"><span>${prev ? `<a href="${postPath(prev)}"><small>« Previous</small>${esc(prev.title)}</a>` : ''}</span><span style="text-align:right">${next ? `<a href="${postPath(next)}"><small>Next »</small>${esc(next.title)}</a>` : ''}</span></div>
     <section class="comments" id="comments"><h2>${comments.length ? `${comments.length} comment${comments.length === 1 ? '' : 's'}` : 'Leave a reply'}</h2>
       <div id="comment-list">${comments.map(c => commentHtml(c, u, p)).join('')}</div>
@@ -289,7 +291,7 @@ async function editorView(id, moduleId) {
   if (store.mode === 'firebase' && !u.emailVerified) { $app.innerHTML='<p class="empty">Verify your sign-in email before writing. Use the account menu to resend or refresh verification.</p>';return; }
   if (!p && rank(u.role) < 1) {
     const joined = (await store.listMyModules()).some(m=>m.id===moduleId);
-    if(!joined){$app.innerHTML=`<p class="empty">Join this module before writing. <a href="/blog/${esc(module.blogId)}">Open the blog</a></p>`;return;}
+    if(!joined){$app.innerHTML=`<p class="empty">Join this module before writing. <a href="/${esc(module.blogId)}">Open the blog</a></p>`;return;}
   }
   p = p || {moduleId, title: '', body: '', category: '', organisation: '', tags: [], featuredImage: '', status: 'draft', excerpt: ''};
   const draft = {...p, title: p.title === 'Untitled draft' ? '' : (p.title || ''), tags: [...(p.tags || [])]};   // the placeholder title is for the database only
@@ -305,7 +307,7 @@ async function editorView(id, moduleId) {
 
   $app.innerHTML = `<div class="writer">
     <div class="writer-bar">
-      <a class="icon-btn" href="/blog/${esc(module.blogId)}" aria-label="Back to the blog" title="Back to the blog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></a>
+      <a class="icon-btn" href="/${esc(module.blogId)}" aria-label="Back to the blog" title="Back to the blog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></a>
       <span class="save-chip" id="save-chip" data-state="${id ? (draft.status === 'published' ? 'published' : 'saved') : 'new'}"><i></i><span>${id ? (draft.status === 'published' ? 'Published' : draft.status === 'pending' ? 'Submitted' : 'Saved') : 'New draft'}</span></span>
       <span class="grow"></span>
       <button type="button" class="btn ghost" id="preview">Preview</button>
@@ -331,7 +333,7 @@ async function editorView(id, moduleId) {
       <div>
         ${blog.maxWords ? `<h3>Length</h3><div class="wc"><span><b id="wc">0</b> words</span><span class="muted">target ${targetText}</span></div><div class="meter" id="meter"><i style="width:0"></i></div><p class="hint" id="wc-hint"></p>` : ''}
         ${(blog.checklist || []).length ? `<h3>Before you publish</h3><ul class="checklist">${blog.checklist.map((t, i) => `<li><input type="checkbox" id="chk${i}"><label for="chk${i}">${esc(t)}</label></li>`).join('')}</ul>` : ''}
-        ${blog.brief ? `<p class="hint"><a href="/blog/${esc(blog.id)}/brief" target="_blank">Read the brief</a></p>` : ''}
+        ${blog.brief ? `<p class="hint"><a href="/${esc(blog.id)}/brief" target="_blank">Read the brief</a></p>` : ''}
       </div>
     </div>
     <div class="actions sheet-actions"><button type="button" class="btn accent" id="publish">${draft.status === 'published' ? 'Update post' : needsReview ? 'Submit for review' : 'Publish'}</button><button type="button" class="btn" id="save-draft">${draft.status === 'published' ? 'Unpublish to draft' : 'Save draft'}</button><button type="button" class="btn ghost" data-close>Back to editing</button></div>

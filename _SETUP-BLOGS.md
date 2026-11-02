@@ -9,8 +9,8 @@ The outcome:
 
 | Blog (public canvas) | URL | Modules writing on it |
 |---|---|---|
-| Project Management | `/blog/project-management` | BMGT45540 Managing Innovative Projects · BMGT46260 Managing Performance · BMGT2017D Project Management · Project Management Singapore |
-| Operations | `/blog/operations` | BMGT41040 Operations, Innovation and Management |
+| Project Management | `/project-management` | BMGT45540 Managing Innovative Projects · BMGT46260 Managing Performance · BMGT2017D Project Management · Project Management Singapore |
+| Operations | `/operations` | BMGT41040 Operations, Innovation and Management |
 
 ## 1. Turn the existing module into the Project Management blog
 
@@ -39,7 +39,7 @@ On **Blog settings**:
    by students of the project management modules.*
 3. Leave **Allow comments** ticked. **Save blog**.
 
-Check the public page: `https://www.stouras.com/ucd-blog/blog/project-management`.
+Check the public page: `https://www.stouras.com/ucd-blog/project-management`.
 The old link `/module/managing-innovative-projects` now redirects there.
 
 ## 3. Create the other three project-management modules

@@ -13,6 +13,9 @@ export function linkedinUrl(v) {
   const m = s.match(/^(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/([^\/?#\s]+)\/?(?:[?#].*)?$/i) || s.match(/^(?:in\/)?([^\/?#\s.@:]+)\/?$/);
   return m ? 'https://www.linkedin.com/in/' + m[1] : null;
 }
+// The first path segment of every named page. A blog lives at /<url-name>, so a blog may not take one of these.
+export const RESERVED_URL_NAMES = new Set(['blog', 'blogs', 'module', 'modules', 'my-modules', 'posts', 'post', 'category', 'tag', 'author', 'archive', 'search', 'challenge', 'write', 'edit', 'mine', 'profile', 'review', 'admin', 'invite', 'invitations', 'join', 'brief', 'index', 'index.html', 'local', 'redirect']);
+export const isReservedUrlName = s => RESERVED_URL_NAMES.has(String(s || '').toLowerCase());
 export const postPath = p => `/${monthKey(p.publishedAt || p.createdAt).replace('-', '/')}/${p.slug}`;
 
 // Everything a student writes is sanitised BOTH when saved and when rendered.

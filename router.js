@@ -1,14 +1,14 @@
 // Clean URLs for a site that has no server.
 //
-// Every page has a real path (/blog/project-management, /2026/10/my-post,
+// Every page has a real path (/project-management, /2026/10/my-post,
 // /admin/feedback) and the code only ever speaks in those app routes. The app
 // itself is mounted at BASE: /ucd-blog/ on stouras.com and / on a dev server,
 // read from this module's own URL so the same files serve both. Links in the
-// markup are written root-relative (href="/blog/x"); on a mounted site an
+// markup are written root-relative (href="/x"); on a mounted site an
 // observer prefixes BASE as they enter the document, so hovering, copying and
 // middle-clicking a link all give the real address.
 //
-// A static host has no file at /ucd-blog/blog/x. GitHub Pages serves the site's
+// A static host has no file at /ucd-blog/project-management. GitHub Pages serves the site's
 // root 404.html instead, which sends the browser to /ucd-blog/?redirect=<path>;
 // this module puts the path back before the app starts (dev-server.py does the
 // same locally). Old #/… addresses — bookmarks and links shared before clean

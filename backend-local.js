@@ -4,7 +4,7 @@
 // memberships, posts and comments are all here, so the design can be checked with
 // `?local` on a dev server without touching the live database.
 import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, SEED_BLOGS, SEED_MODULES, SEED_MEMBERSHIPS, DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
-import {newId, slugify, wordCount, excerptOf} from './util.js';
+import {newId, slugify, wordCount, excerptOf, isReservedUrlName} from './util.js';
 
 const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
 let state, listeners = new Set();
@@ -48,6 +48,7 @@ export const local = {
     const u = me(); if (!staff(u)) throw Error('Instructor access required.');
     const id = data.id || slugify(data.urlName || data.title);
     if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(id)) throw Error('Choose a URL name of 2–80 lowercase letters, numbers or hyphens.');
+    if (!data.id && isReservedUrlName(id)) throw Error('That URL name is taken by a page of the site. Choose another.');
     const existing = state.blogs.find(b => b.id === id);
     if (!data.id && existing) throw Error('That blog URL already exists. Choose another.');
     if (existing && !teaches(u, existing)) throw Error('You cannot edit this blog.');
