@@ -183,6 +183,18 @@ const ICON = {
   comment: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/></svg>',
   share: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 9l5-5 5 5M5 15v4h14v-4"/></svg>',
 };
+// A friendly, author-only note when a post went live after the module deadline. Nobody else sees it;
+// the deadline is informational and the public byline shows only the title, pen name and date.
+function daysLate(p, module) {
+  if (!module?.deadline || !p.publishedAt) return 0;
+  const end = new Date(module.deadline + 'T23:59:59');   // the deadline day counts in full, in the reader's time zone
+  return Math.max(0, Math.ceil((p.publishedAt - end.getTime()) / 86400000));
+}
+function lateNote(p, module, u) {
+  if (!u || u.uid !== p.authorId || p.status !== 'published') return '';
+  const n = daysLate(p, module);
+  return n ? `<p class="notice late-note">Just so you know: this post went live ${n === 1 ? 'a day' : n + ' days'} after the module deadline of ${fmtDate(module.deadline)}. Only you can see this note.</p>` : '';
+}
 function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me = null, preview = false} = {}) {
   const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
   const liked = !!me && likes.includes(me.uid);
@@ -225,6 +237,7 @@ async function postView(slug) {
       ${p.status !== 'published' && can(u, 'publish', p, context) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
       ${can(u, 'feature', p, context) ? `<button class="btn small" data-act="feature">${p.featured ? 'Unfeature' : 'Feature'}</button>` : ''}
       ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : ''}
+    ${lateNote(p, module, u)}
     ${articleHtml(p, {blog, words, likes, comments: comments.length, me: u})}
     <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
     <div class="prevnext"><span>${prev ? `<a href="${postPath(prev)}"><small>« Previous</small>${esc(prev.title)}</a>` : ''}</span><span style="text-align:right">${next ? `<a href="${postPath(next)}"><small>Next »</small>${esc(next.title)}</a>` : ''}</span></div>
