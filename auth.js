@@ -13,6 +13,15 @@ import {route, navigate} from './router.js';
 //   {kind:'instructor', uid, name, moduleIds, blogIds}
 //   {kind:'student', moduleId, blogId, label, back}   back: the instructor preview to return to, if any
 const PREVIEW='ucd-blog.preview';
+// The last account that signed in on this device, so the front door can offer
+// "Continue as X" after a sign-out, the way social networks do. Name, picture, email
+// and sign-in method only; it is cleared with "Forget this account".
+const LAST='ucd-blog.lastAccount';
+export const lastAccount=()=>{try{const a=JSON.parse(localStorage.getItem(LAST));return a&&a.name?a:null;}catch{return null;}};
+export const rememberAccount=u=>{try{localStorage.setItem(LAST,JSON.stringify({name:fullName(u),photoURL:u.photoURL||'',email:u.email||'',provider:u.providerId||'password'}));}catch{}};
+export const forgetAccount=()=>{try{localStorage.removeItem(LAST);}catch{}};
+export const GOOGLE_ICON=`<svg class="gicon" viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.5c-.5 2.9-2.2 5.4-4.6 7.1l7.4 5.7c4.3-4 6.8-9.9 6.8-16.8z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>`;
+export const googleButton=(id,label='Continue with Google')=>`<button type="button" class="btn google" ${id?`id="${id}"`:'data-provider="google.com"'}>${GOOGLE_ICON}<span>${label}</span></button>`;
 export const preview=()=>{try{const p=JSON.parse(sessionStorage.getItem(PREVIEW));return p&&p.kind?p:null;}catch{return null;}};
 export function setPreview(p){try{if(p)sessionStorage.setItem(PREVIEW,JSON.stringify(p));else sessionStorage.removeItem(PREVIEW);}catch{}setStorePreview(p||null);}
 setStorePreview(preview());
@@ -40,6 +49,7 @@ export function renderAccountControl(el){
   el.querySelector('#signin-btn')?.addEventListener('click',()=>openAuthModal('signin'));
  }
  if(u)previewOptions(u).then(html=>{const slot=el.querySelector('[data-preview-options]');if(slot&&html)slot.innerHTML=html;}).catch(()=>{});
+ if(u&&store.mode==='firebase'&&!u.preview)rememberAccount(u);
 }
 // What the menu offers: the admin may view the site as any instructor; on a blog
 // canvas, an instructor of one of its modules (or the admin) may view it as a student.
@@ -89,7 +99,7 @@ function accountMenu(u){
  }catch(err){toast(friendly(err));}
  const menu=document.querySelector('.account-menu[open]');if(menu&&!menu.contains(e.target))menu.removeAttribute('open');
 });
-export async function openAuthModal(view='signin',invitation=null){
+export async function openAuthModal(view='signin',invitation=null,opts={}){
  let m=document.getElementById('auth-modal');if(!m){m=document.createElement('dialog');m.id='auth-modal';document.body.append(m);m.addEventListener('click',e=>{if(e.target.closest('.close'))m.close();});}
  if(view==='register'&&!invitation&&!/^\/(invite|join)\//.test(route()))activeInvitation=null;
  if(invitation)activeInvitation=invitation;
@@ -111,8 +121,8 @@ export async function openAuthModal(view='signin',invitation=null){
  m.innerHTML=`<form method="dialog" class="auth-form"><button type="button" class="close" aria-label="Close">×</button>
   <h2>${view==='complete'?'Complete your profile':view==='register'?teacher?'Instructor registration':'Module student registration':view==='reset'?'Reset password':'Log in'}</h2>
   <p class="muted">${collecting?'Your invitation determines which space you can access. Your university details remain private to you and authorised teaching staff.':'Sign in with the same email or Google account you registered with.'}</p>${fields}
-  ${google&&view!=='reset'&&view!=='complete'?`${collecting?'<label>Gmail for Google sign-in (optional)<input name="googleEmail" type="email" autocomplete="off" placeholder="yourname@gmail.com"></label><p class="hint">Choose this account in the next window. No password below is needed when using Google.</p>':''}<button type="button" class="btn provider" data-provider="google.com">Continue with Google</button>`:''}
-  ${view==='complete'?'<button class="btn primary" value="submit">Save profile and continue</button>':pw?`${view!=='reset'?'<div class="or">or with email and password</div>':''}${collecting?'':'<label>Email<input name="email" type="email" required autocomplete="username"></label>'}${view==='reset'?'':`<label>Password${collecting?' (for university email sign-in)':''}<input name="password" type="password" required minlength="8" autocomplete="${collecting?'new-password':'current-password'}"></label>`}<button class="btn primary" value="submit">${collecting?'Register with university email':view==='reset'?'Send reset email':'Log in'}</button><p class="muted small">${collecting?'Already registered? <a href="#" data-view="signin">Log in</a>':'New here? <a href="#" data-view="register">Register with your invitation code</a> · <a href="#" data-view="reset">Forgot password?</a>'}</p>`:''}
+  ${google&&view!=='reset'&&view!=='complete'?`${collecting?'<p class="auth-step">Then choose how you will log in</p><label>Gmail for Google sign-in (optional)<input name="googleEmail" type="email" autocomplete="off" placeholder="yourname@gmail.com"></label><p class="hint">Choose this account in the next window. No password below is needed when using Google.</p>':''}${googleButton('',collecting?'Register with Google':'Continue with Google')}`:''}
+  ${view==='complete'?'<button class="btn primary" value="submit">Save profile and continue</button>':pw?`${view!=='reset'?'<div class="or">or with email and password</div>':''}${collecting?'':`<label>Email<input name="email" type="email" required autocomplete="username" value="${esc(opts.email||'')}"></label>`}${view==='reset'?'':`<label>Password${collecting?' (for university email sign-in)':''}<input name="password" type="password" required minlength="8" autocomplete="${collecting?'new-password':'current-password'}"></label>`}<button class="btn primary" value="submit">${collecting?'Register with university email':view==='reset'?'Send reset email':'Log in'}</button><p class="muted small">${collecting?'Already registered? <a href="#" data-view="signin">Log in</a>':'New here? <a href="#" data-view="register">Register with your invitation code</a> · <a href="#" data-view="reset">Forgot password?</a>'}</p>`:''}
   <p class="auth-msg" aria-live="polite"></p></form>`;
  const msg=m.querySelector('.auth-msg');
  m.querySelectorAll('[data-view]').forEach(a=>a.onclick=e=>{e.preventDefault();openAuthModal(a.dataset.view,activeInvitation);});
@@ -137,5 +147,16 @@ export async function openAuthModal(view='signin',invitation=null){
   }catch(err){msg.textContent=friendly(err);}
  };
  if(!m.open)m.showModal();
+}
+// "Continue" on the front door for the account remembered on this device: Google signs in
+// straight away with that address as the hint; an email account gets the log-in form with
+// its address filled in. A profile that is still incomplete goes to the completion form.
+export async function continueAs(acc){
+ if(store.mode!=='firebase'){toast('Pick a sample account at the top right.');return;}
+ if(acc.provider!=='google.com'){await openAuthModal('signin',null,{email:acc.email});return;}
+ try{await store.signIn('google.com',{googleEmail:acc.email});}catch(err){toast(friendly(err),'error');return;}
+ const a=currentUser(),teacher=['lecturer','admin'].includes(a?.role)||['teacher','instructor'].includes(a?.registrationKind);
+ if(a?.role!=='admin'&&(!a?.contactEmail||!a?.firstName||!a?.lastName||!a?.affiliation||(!teacher&&!a?.studentId))){await openAuthModal('complete');return;}
+ toast('Signed in.');if(!navigate('/'))dispatchEvent(new CustomEvent('routechange'));
 }
 function friendly(e){const c=e?.code||'';if(c.includes('operation-not-allowed'))return 'This sign-in method is not enabled yet.';if(c.includes('popup-closed'))return 'The Google sign-in window was closed.';if(c.includes('email-already-in-use'))return 'This email already has an account. Log in instead.';if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return 'Email or password not recognised.';if(c.includes('unauthorized-domain'))return 'This domain is not authorised for sign-in.';return e?.message||'Please try again.';}

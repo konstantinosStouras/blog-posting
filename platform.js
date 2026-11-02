@@ -6,6 +6,7 @@
 //   modules of the same instructor may share one blog canvas.
 import {store} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
+import {renderWelcome, bindWelcome} from './welcome.js';
 import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
 import {PM_EXERCISE} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
@@ -23,10 +24,11 @@ export async function blogDirectory() {
   const u = currentUser();
   const [blogs, modules] = await Promise.all([store.listBlogs(), store.listModules()]);
   const card = b => { const ms = modules.filter(m => m.blogId === b.id); return `<article class="module-card"><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/blog/${esc(b.id)}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions"><a class="btn small" href="/blog/${esc(b.id)}">Open blog</a>${instructs(u, b) ? `<a class="btn small" href="/blogs/edit/${esc(b.id)}">Blog settings</a>` : ''}</div></article>`; };
-  app.innerHTML = `<h1 class="page-title">Explore blogs</h1><p class="page-sub">Each blog is a public canvas written by one or more modules. Read without signing in; sign in with your module's invitation to write and comment.</p>
-    <p class="actions">${u ? '<a class="btn" href="/my-modules">My modules</a>' : '<button class="btn primary" id="platform-signin">Log in</button>'}${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u?.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
+  // A visitor who is not signed in gets the front door first: a sketch of a blog and the ways in.
+  app.innerHTML = `${u ? '' : renderWelcome()}<h1 class="page-title">Explore blogs</h1><p class="page-sub">Each blog is a public canvas written by one or more modules. Read without signing in; sign in with your module's invitation to write and comment.</p>
+    ${u ? `<p class="actions"><a class="btn" href="/my-modules">My modules</a>${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>` : ''}
     ${blogs.length ? `<div class="module-grid">${blogs.map(card).join('')}</div>` : '<p class="empty">No blogs have been created yet.</p>'}`;
-  app.querySelector('#platform-signin')?.addEventListener('click', () => openAuthModal());
+  if (!u) bindWelcome(app);
 }
 
 // ---------- my modules: a student's way in, an instructor's control room ----------

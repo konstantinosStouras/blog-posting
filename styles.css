@@ -620,3 +620,32 @@ body.writing .fb-fab { bottom: 64px; }
 }
 .session-history{border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:12px 0}.session-history>summary{cursor:pointer;font-weight:600}.session-history .table-scroll{margin-top:12px}
 .writing-breakdown{width:min(1100px,94vw);max-height:88vh;overflow:auto;padding:24px;border:1px solid var(--line);border-radius:12px;color:var(--ink)}.writing-breakdown::backdrop{background:#0007}.breakdown-heading{display:flex;align-items:start;justify-content:space-between;gap:20px}.breakdown-heading h2{margin:0}.writing-total{text-decoration:underline;font-variant-numeric:tabular-nums}.writing-total:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+
+/* ---- the front door: a sketch of a blog on the left, the ways in on the right ---- */
+.welcome { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 400px); gap: 40px; align-items: center; padding: 26px 0 30px; margin-bottom: 26px; border-bottom: 1px solid var(--line); }
+.welcome-art svg { width: 100%; max-width: 540px; height: auto; display: block; }
+.welcome-title { font: 700 38px/1.12 var(--serif); margin: 14px 0 8px; color: var(--ink); letter-spacing: -.3px; }
+.welcome-title span { color: var(--blue); }
+.welcome-sub { margin: 0; max-width: 540px; color: var(--body); font-size: 15px; }
+.welcome-card { background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 34px #00000012; padding: 24px 22px; display: flex; flex-direction: column; gap: 10px; align-items: stretch; text-align: center; }
+.welcome-card h3 { margin: 0 0 6px; font: 500 17px/1.3 var(--sans); color: var(--ink); }
+.welcome-card .avatar { width: 96px; height: 96px; font-size: 38px; margin: 4px auto 2px; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--line); }
+.welcome-card .who-name { margin: 2px 0 0; font: 500 18px/1.3 var(--sans); color: var(--ink); }
+.welcome-card .who-mail { margin: -4px 0 6px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.welcome-card .btn { width: 100%; padding: 11px 14px; font-size: 14px; border-radius: 8px; }
+.welcome-card .btn.outline { border-color: var(--blue); color: var(--blue); background: #fff; }
+.welcome-card .btn.outline:hover { background: #eef4ff; }
+.welcome-card hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+.welcome-card .muted.small, .welcome-card .linkish.small { font-size: 12px; margin: 0; }
+.welcome-card p { margin: 0; }
+/* Google's own look for its button, prominent wherever Google sign-in is offered */
+.btn.google { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 11px 14px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; color: #1f1f1f; font-size: 14px; font-weight: 500; }
+.btn.google:hover { background: #f7f9fc; border-color: #c6c9ce; }
+.btn.google .gicon { flex: none; }
+.auth-form .btn.google { margin-top: 6px; }
+.auth-form .auth-step { margin: 16px 0 2px; font-weight: 500; color: var(--ink); border-top: 1px solid var(--line); padding-top: 14px; }
+@media (max-width: 820px) {
+  .welcome { grid-template-columns: 1fr; gap: 22px; padding-top: 10px; }
+  .welcome-card { order: -1; }
+  .welcome-title { font-size: 28px; }
+}
