@@ -14,7 +14,7 @@ let app, canvas;
 export function configurePlatform(target, renderCanvas) { app = target; canvas = renderCanvas; }
 export const blogUrl = id => publicUrl('/blog/' + encodeURIComponent(id));
 const staff = u => u && ['admin', 'lecturer'].includes(u.role);
-const instructs = (u, x) => !!u && (u.role === 'admin' || (x?.teacherIds || []).includes(u.uid));
+const instructs = (u, x) => !!u && !u.studentPreview && (u.role === 'admin' || (x?.teacherIds || []).includes(u.uid));   // a student preview hides the instructor's controls
 const moduleLabel = m => [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '');
 const isTeaching = m => m.teaching;
 
@@ -61,7 +61,8 @@ export async function blogCanvas(id) {
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found. <a href="/blogs">Explore blogs</a></p>'; return; }
   const onBlog = modules.filter(m => m.blogId === id);
   const [posts, mine] = await Promise.all([store.listPosts({status: 'published', blogId: id}), u ? store.listMyModules() : []]);
-  const myHere = mine.filter(m => m.blogId === id), writing = myHere.find(m => !m.teaching) || myHere[0];
+  const preview = u?.studentPreview;   // an instructor seeing the blog as a student of one module
+  const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);
   app.innerHTML = `<p class="page-sub">${onBlog.length ? esc(onBlog.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h1 class="page-title">${esc(blog.title)}</h1><p>${esc(blog.description || '')}</p>
     <p class="actions">${u ? writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>' : '<button class="btn primary" id="join-signin">Log in</button><button class="btn" id="join-module">Register with an invitation</button>'}${blog.brief ? `<a class="btn" href="/blog/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy public link</button></p>
@@ -85,7 +86,7 @@ export async function briefPage(id) {
   const u = currentUser();
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
-  const myHere = mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;
+  const preview = u?.studentPreview, myHere = preview ? modules.filter(m => m.id === preview.moduleId && m.blogId === id) : mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;
   const words = blog.minWords && blog.maxWords ? `${blog.minWords}–${blog.maxWords} words` : blog.maxWords ? `up to ${blog.maxWords} words` : '';
   app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/blog/${esc(id)}">${esc(blog.title)}</a></p><h1 class="page-title">The brief</h1>
     ${blog.brief ? `<div class="body">${sanitize(blog.brief)}</div>` : '<p class="muted">The instructor has not written a brief for this blog yet.</p>'}
@@ -191,14 +192,14 @@ export async function manageBlog(id) {
 }
 
 // ---------- invitations (admin → instructor; instructor → students) ----------
-export async function invitationsPage(target = app, embedded = false) {
+export async function invitationsPage(target = app, embedded = false, {heading = true} = {}) {
   if(currentUser()?.role!=='admin'){target.innerHTML='<p class="empty">Admin access required.</p>';return;}
   const invites=await store.listTeacherInvites();
-  target.innerHTML=`${pageHead('Invite an instructor', 'Generate a city code and invitation link for one instructor. It expires after seven days and is tied to the email addresses below.', embedded)}
+  target.innerHTML=`${heading ? pageHead('Invite an instructor', 'Generate a city code and invitation link for one instructor. It expires after seven days and is tied to the email addresses below.', embedded) : '<p class="section-sub">Generate a city code and invitation link for one instructor. It expires after seven days and is tied to the email addresses below.</p>'}
     <form id="invite-form" class="guide"><label class="field">Instructor’s university email<input type="email" name="universityEmail" required maxlength="200"></label><label class="field">Instructor’s Gmail for Google sign-in (optional)<input type="email" name="gmail" maxlength="200"></label><button class="btn primary">Generate city code and invitation</button><p class="auth-msg" aria-live="polite"></p></form>
     <div id="new-invite" aria-live="polite"></div><h2>Invitations</h2><table class="list"><thead><tr><th>University email</th><th>City code</th><th>Status</th><th>Expires</th><th></th></tr></thead><tbody>${invites.map(i=>`<tr><td>${esc(i.ucdEmail)}</td><td>${esc(i.code||'—')}</td><td>${i.revoked?'Revoked':i.acceptedBy?'Accepted':i.expiresAt<Date.now()?'Expired':'Pending'}</td><td>${fmtDateTime(i.expiresAt)}</td><td>${!i.acceptedBy&&!i.revoked?`<button class="linkish" data-revoke="${esc(i.id)}">Revoke</button>`:''}</td></tr>`).join('')}</tbody></table>`;
-  target.querySelector('#invite-form').onsubmit=async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;try{const invite=await store.createTeacherInvite(Object.fromEntries(new FormData(f)));await invitationsPage(target, embedded);const url=publicUrl(invitationRoute({kind:'instructor',inviteId:invite.id,code:invite.code.toLowerCase()}));target.querySelector('#new-invite').innerHTML=`<div class="notice ok"><b>City code: ${esc(invite.code)}</b><label class="field">Instructor registration link<input readonly value="${esc(url)}" onclick="this.select()"></label><p class="small">The code is prefilled by this link. Share it only with the invited instructor.</p></div>`;}catch(err){f.querySelector('.auth-msg').textContent=err.message;}finally{b.disabled=false;}};
-  target.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{try{await store.revokeTeacherInvite(b.dataset.revoke);await invitationsPage(target, embedded);}catch(e){toast(e.message,'error');}});
+  target.querySelector('#invite-form').onsubmit=async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;try{const invite=await store.createTeacherInvite(Object.fromEntries(new FormData(f)));await invitationsPage(target, embedded, {heading});const url=publicUrl(invitationRoute({kind:'instructor',inviteId:invite.id,code:invite.code.toLowerCase()}));target.querySelector('#new-invite').innerHTML=`<div class="notice ok"><b>City code: ${esc(invite.code)}</b><label class="field">Instructor registration link<input readonly value="${esc(url)}" onclick="this.select()"></label><p class="small">The code is prefilled by this link. Share it only with the invited instructor.</p></div>`;}catch(err){f.querySelector('.auth-msg').textContent=err.message;}finally{b.disabled=false;}};
+  target.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{try{await store.revokeTeacherInvite(b.dataset.revoke);await invitationsPage(target, embedded, {heading});}catch(e){toast(e.message,'error');}});
 }
 
 export async function acceptInvitationPage(id,code='',kind='instructor') {

@@ -93,8 +93,15 @@ function renderHeader(path = route()) {
       ${u && rank(u.role) >= 1 ? `<a href="/review" class="${active('/review')}">Instructor</a>` : ''}
       ${u && rank(u.role) >= 2 ? `<a href="/admin" class="${active('/admin')}">Admin</a>` : ''}
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>
-    </nav></div><hr class="thin">`;
+    </nav></div><hr class="thin">
+    ${u?.studentPreview ? `<div class="preview-bar" role="status">You are seeing this as a student of <b>${esc(u.studentPreview.label)}</b> sees it. <button class="btn small" data-exit-student-view>Exit student view</button></div>` : ''}`;
   renderAccountControl($header.querySelector('#account'));
+  // On a blog that one of their modules writes on, an instructor's account menu offers "View as student".
+  const blogId = path.match(/^\/blog\/([a-z0-9-]+)/)?.[1];
+  if (u && blogId && !u.studentPreview && rank(u.role) >= 1) store.listModules().then(ms => {
+    const previewModules = ms.filter(m => m.blogId === blogId && (u.role === 'admin' || (m.teacherIds || []).includes(u.uid))).map(m => ({id: m.id, blogId, label: [m.code, m.title].filter(Boolean).join(' ')}));
+    if (previewModules.length && route() === path) renderAccountControl($header.querySelector('#account'), {previewModules});
+  }).catch(() => {});
   $header.querySelector('.searchbox').onsubmit = e => { e.preventDefault(); navigate('/posts' + filterQuery({q: e.target.q.value.trim()})); };
 }
 async function renderFooter(seq = renderSeq) {
@@ -435,6 +442,7 @@ async function profileView() {
   if (!u) { $app.innerHTML = `<p class="empty">Log in to edit your profile.</p>`; return; }
   const student = u.registrationKind !== 'teacher' && u.registrationKind !== 'instructor' && u.role === 'student';
   const f = (name, label, hint = '', type = 'text') => `<label class="field">${label}<input name="${name}" type="${type}" value="${esc(u[name] || '')}" maxlength="${name === 'studentId' ? 40 : 120}" ${student && (name === 'studentId' || name === 'contactEmail' || name === 'firstName' || name === 'lastName' || name === 'affiliation') ? 'required' : ''}>${hint ? `<p class="hint">${hint}</p>` : ''}</label>`;
+  if (u.studentPreview) { $app.innerHTML = `<p class="empty">Your profile is not part of the student view. <button class="btn small" data-exit-student-view>Exit student view</button></p>`; return; }
   $app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">Your profile</h1><p class="page-sub">Role: <b>${esc(roleLabel(u.role))}</b>${u.email ? ` · signed in as ${esc(u.email)}` : ''}</p>
     <form id="profile" class="two-col">
       <div>${rank(u.role) >= 1 ? f('penName', 'Pen name', 'Shown on your posts and comments.') : `<label class="field">Alias<input value="${esc(u.penName || '')}" disabled><p class="hint">Assigned at random when your account was created and shown on your posts and comments instead of your name. It cannot be changed, so classmates cannot identify you; your instructor alone sees who is behind it.</p></label>`}${f('firstName', 'First name')}${f('lastName', 'Last name')}</div>
@@ -520,26 +528,35 @@ async function lecturer(tab = 'posts', query = '') {
 // ---------- admin area ----------
 // Every admin page is drawn under one head (the title and the tab strip), so the
 // tabs stay in place whichever page is open and every other page is one click away.
-const ADMIN_TABS = [['guide', 'Admin guide'], ['people', 'People & invitations'], ['grading', 'AI grading'], ['users', 'Users & roles'], ['feedback', 'Feedback'], ['invite', 'Invite instructor'], ['modules', 'Manage modules'], ['settings', 'Site settings'], ['data', 'Data & backend']];
+const ADMIN_TABS = [['guide', 'Admin guide'], ['people', 'People'], ['grading', 'AI grading'], ['feedback', 'Feedback'], ['modules', 'Manage modules'], ['settings', 'Site settings'], ['data', 'Data & backend']];
 async function admin(tab = 'users', moduleId = '') {
   const u = user();
   if (!u || rank(u.role) < 2) { $app.innerHTML = `<p class="empty">Admin access required.</p>`; return; }
-  if (!ADMIN_TABS.some(([id]) => id === tab)) tab = 'users';
+  if (tab === 'users') { navigate('/admin/people', {replace: true}); return; }   // roles are set on the People page now
+  const open = tab === 'invite' ? 'people' : tab;   // /admin/invite: the People page with the invitation form open
+  if (!ADMIN_TABS.some(([id]) => id === open)) { navigate('/admin/people', {replace: true}); return; }
   $app.innerHTML = `<div class="area-head"><h1 class="page-title">Admin area</h1><p class="page-sub">Everything an instructor can do, plus roles, site settings and the backend.</p>
-    <nav class="tabs" aria-label="Admin area">${ADMIN_TABS.map(([id, label]) => `<a href="/admin/${id}" class="${tab === id ? 'active' : ''}">${label}</a>`).join('')}</nav></div><div class="area-body"></div>`;
+    <nav class="tabs" aria-label="Admin area">${ADMIN_TABS.map(([id, label]) => `<a href="/admin/${id}" class="${open === id ? 'active' : ''}">${label}</a>`).join('')}</nav></div><div class="area-body"></div>`;
   const area = $app.querySelector('.area-body');
-  if (tab === 'people') { if (store.mode === 'firebase') await renderPeople(area, {moduleId, admin: true, embedded: true}); else area.innerHTML = `${pageHead('People & invitations', '', true)}<p class="muted">People and invitation records exist only on the live platform.</p>`; return; }
+  if (open === 'people') {
+    // One page for people: everyone who has signed in (with their role), the invitation
+    // form, every invitation with who sent it, and the writing-time records.
+    area.innerHTML = `${pageHead('People', 'Everyone who has signed in and their roles, every instructor and student invitation, and each student’s writing time. Instructors see only their own modules, in the Instructor area.', true)}
+      <details class="invite-box" ${tab === 'invite' ? 'open' : ''}><summary>Invite an instructor</summary><div class="invite-body"></div></details><div class="people-body"></div>`;
+    await invitationsPage(area.querySelector('.invite-body'), true, {heading: false});
+    const people = area.querySelector('.people-body');
+    if (store.mode === 'firebase') { await renderPeople(people, {moduleId, admin: true, embedded: true, roles: true}); return; }
+    const users = (await store.listUsers()).sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || ''));
+    people.innerHTML = `<h2>Registered users (${users.length})</h2><p class="muted small">Invitation and sign-in records exist only on the live platform. Change a role in the Role column; you cannot change your own.</p>
+      <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option value="${r}" ${(x.role || 'student') === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
+    people.querySelectorAll('[data-role]').forEach(sel => sel.onchange = async () => { try { await store.setRole(sel.dataset.role, sel.value); toast('Role updated.'); } catch (e) { toast(e.message, 'error'); } });
+    return;
+  }
   if (tab === 'grading') { liveView = 'grading'; await renderGrading(area, {moduleId, embedded: true}); return; }   // like the editor: a store notification must not rebuild the page mid-batch
   if (tab === 'feedback') { area.innerHTML = `${pageHead('Feedback inbox', 'What visitors, students and instructors sent with the Feedback button: notes, screenshots and voice notes.', true)}<div id="fb-inbox"></div>`; await renderFeedbackInbox(area.querySelector('#fb-inbox')); return; }
-  if (tab === 'invite') { await invitationsPage(area, true); return; }
   if (tab === 'modules') { await myModules(area, true); return; }
   let body = '';
   if (tab === 'guide') body = `<div class="admin-guide">${store.mode === 'firebase' ? sanitize(await store.getAdminGuide()) : pageHead('Admin guide', '', true) + '<p>The private admin guide is available on the live Firebase platform.</p>'}</div>`;
-  if (tab === 'users') {
-    const users = (await store.listUsers()).sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || ''));
-    body = `${pageHead('Users & roles', 'Everyone who has signed in. Instructors get everything a student has plus the Instructor area; admins get everything plus this area.', true)}
-      <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option value="${r}" ${(x.role || 'student') === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
-  }
   if (tab === 'settings') {
     body = `${pageHead('Site settings', 'The masthead of the whole site. Everything else is set per blog or per module.', true)}<form id="settings" class="two-col">
       <div><label class="field">Blog title (masthead)<input name="title" value="${esc(S.title)}" maxlength="120"></label>
@@ -555,7 +572,6 @@ async function admin(tab = 'users', moduleId = '') {
       <p class="actions"><button class="btn small" id="export-json">Download everything as JSON</button>${store.mode === 'local' ? `<button class="btn small danger" id="reset-demo">Reset sample data</button>` : ''}</p></div></div>`;
   }
   area.innerHTML = body;
-  $app.querySelectorAll('[data-role]').forEach(sel => sel.onchange = async () => { try { await store.setRole(sel.dataset.role, sel.value); toast('Role updated.'); } catch (e) { toast(e.message, 'error'); } });
   $app.querySelector('#settings')?.addEventListener('submit', async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));
     const patch = {title: d.title.trim(), tagline: d.tagline.trim()};

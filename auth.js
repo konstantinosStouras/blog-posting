@@ -3,7 +3,14 @@ import {esc, toast} from './util.js';
 import {enabledProviders} from './firebase-config.js';
 import {registrationProfile} from './registration.js';
 import {route, navigate} from './router.js';
-export const currentUser=()=>store.currentUser();
+// An instructor's "View as student": while it is on, the signed-in instructor (or
+// admin) is drawn as a student of one of their modules, so the blog, its brief and
+// its posts look exactly as that module's students see them. It lives in this
+// browser tab only; the backend still knows who they really are.
+const PREVIEW='ucd-blog.studentPreview';
+export const studentPreview=()=>{try{return JSON.parse(sessionStorage.getItem(PREVIEW))||null;}catch{return null;}};
+export function setStudentPreview(p){try{if(p)sessionStorage.setItem(PREVIEW,JSON.stringify(p));else sessionStorage.removeItem(PREVIEW);}catch{}}
+export const currentUser=()=>{const u=store.currentUser();const p=u&&studentPreview();return p&&['lecturer','admin'].includes(u.role)?{...u,role:'student',managedModuleIds:[],managedBlogIds:[],studentPreview:p}:u;};
 let activeInvitation=null;
 export const roleLabel=role=>role==='lecturer'?'instructor':role;
 export function invitationRoute(info){return `/${info.kind==='instructor'?'invite':'join'}/${info.inviteId}/${info.code}`;}
@@ -12,13 +19,13 @@ async function routeInvitation(){
  const code=route().match(/^\/(?:invite|join)\/[a-zA-Z0-9-]+\/([a-z]+(?:-[0-9]{3})?)$/i)?.[1];
  return code?store.resolveRegistrationCode(code):null;
 }
-export function renderAccountControl(el){
+export function renderAccountControl(el,{previewModules=[]}={}){
  const u=currentUser();
  if(store.mode==='local'){
-  el.innerHTML=`<label class="viewas">View as<select id="viewas"><option value="">Visitor (signed out)</option>${store.users().map(x=>`<option value="${x.uid}" ${u?.uid===x.uid?'selected':''}>${esc(fullName(x))} · ${esc(roleLabel(x.role))}</option>`).join('')}</select></label>${u?accountMenu(u):''}`;
+  el.innerHTML=`<label class="viewas">View as<select id="viewas"><option value="">Visitor (signed out)</option>${store.users().map(x=>`<option value="${x.uid}" ${u?.uid===x.uid?'selected':''}>${esc(fullName(x))} · ${esc(roleLabel(x.role))}</option>`).join('')}</select></label>${u?accountMenu(u,previewModules):''}`;
   el.querySelector('#viewas').onchange=e=>store.viewAs(e.target.value);return;
  }
- el.innerHTML=u?accountMenu(u):'<button class="btn small" id="signin-btn">Log in</button> <button class="btn small" id="register-btn">Register with an invitation</button>';
+ el.innerHTML=u?accountMenu(u,previewModules):'<button class="btn small" id="signin-btn">Log in</button> <button class="btn small" id="register-btn">Register with an invitation</button>';
  el.querySelector('#signin-btn')?.addEventListener('click',()=>openAuthModal('signin'));
  el.querySelector('#register-btn')?.addEventListener('click',()=>openAuthModal('register'));
 }
@@ -26,15 +33,19 @@ export function renderAccountControl(el){
 // A student's alias is for the byline of their posts and comments, not for this control.
 export const fullName=u=>[u?.firstName,u?.lastName].filter(Boolean).join(' ')||u?.displayName||u?.penName||u?.email||'Account';
 export function avatarHtml(u,name=fullName(u)){return u?.photoURL?`<img class="avatar" src="${esc(u.photoURL)}" alt="" referrerpolicy="no-referrer">`:`<span class="avatar">${esc((name||'?')[0].toUpperCase())}</span>`;}
-function accountMenu(u){const name=fullName(u);return `<details class="account-menu"><summary>${avatarHtml(u,name)} ${esc(name)} <small>${esc(roleLabel(u.role))}</small></summary><div class="menu">
- ${u.role==='student'&&u.penName?`<p class="small">Your posts and comments appear as <b>${esc(u.penName)}</b>.</p>`:''}<a href="/my-modules">My modules</a><a href="/write">Compose a post</a><a href="/mine">My posts</a><a href="/profile">Edit profile</a>
+function accountMenu(u,previewModules=[]){const name=fullName(u),pv=u.studentPreview;return `<details class="account-menu"><summary>${avatarHtml(u,name)} ${esc(name)} <small>${pv?'student view':esc(roleLabel(u.role))}</small></summary><div class="menu">
+ ${pv?`<p class="small">Viewing <b>${esc(pv.label)}</b> as its students see it.</p><button data-exit-student-view>Exit student view</button>`:previewModules.map(m=>`<button data-student-preview="${esc(m.id)}" data-blog="${esc(m.blogId)}" data-label="${esc(m.label)}">View as student${previewModules.length>1?' · '+esc(m.label):''}</button>`).join('')}
+ ${u.role==='student'&&u.penName&&!pv?`<p class="small">Your posts and comments appear as <b>${esc(u.penName)}</b>.</p>`:''}<a href="/my-modules">My modules</a><a href="/write">Compose a post</a><a href="/mine">My posts</a><a href="/profile">Edit profile</a>
  ${store.mode==='firebase'&&!u.emailVerified?'<p class="small">Verify your sign-in email before participating.</p><button id="resend-verification">Resend verification email</button><button id="refresh-verification">I have verified my email</button>':''}
  ${u.role!=='student'?'<a href="/review">Instructor area</a>':''}${u.role==='admin'?'<a href="/admin">Admin area</a>':''}${store.mode==='firebase'?'<button id="signout">Sign out</button>':''}</div></details>`;}
  document.addEventListener('click',async e=>{
  try{
   if(e.target.id==='resend-verification'){await store.resendVerification();toast('Verification email sent.');}
   if(e.target.id==='refresh-verification')toast(await store.refreshVerification()?'Email verified. You can now accept your invitation.':'Open the verification link in your email first.');
-  if(e.target.id==='signout'){await store.signOut();activeInvitation=null;navigate('/');toast('Signed out.');}
+  if(e.target.id==='signout'){setStudentPreview(null);await store.signOut();activeInvitation=null;navigate('/');toast('Signed out.');}
+  const pv=e.target.closest('[data-student-preview]');
+  if(pv){setStudentPreview({moduleId:pv.dataset.studentPreview,blogId:pv.dataset.blog,label:pv.dataset.label});if(!navigate('/blog/'+pv.dataset.blog))dispatchEvent(new CustomEvent('routechange'));toast('Showing the blog as a student of '+pv.dataset.label+' sees it.');}
+  if(e.target.closest('[data-exit-student-view]')){setStudentPreview(null);dispatchEvent(new CustomEvent('routechange'));}
  }catch(err){toast(friendly(err));}
  const menu=document.querySelector('.account-menu[open]');if(menu&&!menu.contains(e.target))menu.removeAttribute('open');
 });
