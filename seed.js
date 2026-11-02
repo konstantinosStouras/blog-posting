@@ -12,6 +12,32 @@ export const MEGATRENDS = [
   {slug: 'health-wellbeing', name: 'Health and well-being revolution'},
 ];
 
+// The industries a post can be related to. Site-wide (every blog shares the list), several per post.
+export const INDUSTRIES = [
+  {slug: 'agriculture-food', name: 'Agriculture and food'},
+  {slug: 'automotive', name: 'Automotive'},
+  {slug: 'aviation-aerospace', name: 'Aviation and aerospace'},
+  {slug: 'banking-finance', name: 'Banking and financial services'},
+  {slug: 'construction-real-estate', name: 'Construction and real estate'},
+  {slug: 'consumer-goods-retail', name: 'Consumer goods and retail'},
+  {slug: 'education', name: 'Education'},
+  {slug: 'energy-utilities', name: 'Energy and utilities'},
+  {slug: 'entertainment-media', name: 'Entertainment and media'},
+  {slug: 'government-public-sector', name: 'Government and public sector'},
+  {slug: 'healthcare-pharma', name: 'Healthcare and pharmaceuticals'},
+  {slug: 'hospitality-tourism', name: 'Hospitality and tourism'},
+  {slug: 'insurance', name: 'Insurance'},
+  {slug: 'manufacturing', name: 'Manufacturing'},
+  {slug: 'mining-materials', name: 'Mining and materials'},
+  {slug: 'nonprofit', name: 'Non-profit and NGOs'},
+  {slug: 'professional-services', name: 'Professional services and consulting'},
+  {slug: 'technology-software', name: 'Technology and software'},
+  {slug: 'telecommunications', name: 'Telecommunications'},
+  {slug: 'transport-logistics', name: 'Transport and logistics'},
+];
+export const MAX_INDUSTRIES = 5;
+export const industryName = slug => INDUSTRIES.find(i => i.slug === slug)?.name || slug || '';
+
 // Site-wide settings are only the masthead. Everything about an exercise (brief,
 // categories, word target, outline, checklist, comments policy) belongs to a BLOG,
 // and cohort matters (academic year, deadline, approval, open/closed) to a MODULE.
@@ -84,7 +110,7 @@ const P = (o) => ({status: 'published', featured: false, moduleId: 'bmgt45540-20
 const sample = '<p class="caption"><em>Sample post about a fictional organisation, shown to illustrate the expected structure.</em></p>';
 
 export const SEED_POSTS = [
-  P({id: 'p1', slug: 'from-seaweed-to-sustainable-agriculture', date: '2026-10-31T09:00:00', authorId: 'u-s1', authorName: 'quiet-heron-482', category: 'sustainability', organisation: 'Kelpwise Biotech (fictional)', tags: ['agriculture', 'Climate Action', 'Seaweed Biotechnology', 'Sustainability'], featuredImage: img('ucd-seaweed'), featured: true,
+  P({id: 'p1', slug: 'from-seaweed-to-sustainable-agriculture', date: '2026-10-31T09:00:00', authorId: 'u-s1', authorName: 'quiet-heron-482', category: 'sustainability', organisation: 'Kelpwise Biotech (fictional)', industries: ['agriculture-food', 'healthcare-pharma'], tags: ['agriculture', 'Climate Action', 'Seaweed Biotechnology', 'Sustainability'], featuredImage: img('ucd-seaweed'), featured: true,
     title: 'From Seaweed to Sustainable Agriculture: How Kelpwise Can Scale Climate-Resilient Innovation',
     body: `<p>As climate change continues to threaten global food production, innovative solutions are urgently needed to help farmers grow crops under challenging conditions. One company offering a promising path forward is <strong>Kelpwise Biotech</strong>, a fictional Singapore-founded start-up that cultivates and ferments seaweed into plant biostimulants.</p>
 <h2>Why is sustainability and climate change important to Kelpwise's management?</h2>
@@ -98,7 +124,7 @@ export const SEED_POSTS = [
 <h2>Two questions remain open</h2>
 <p><strong>Question 1:</strong> How should Kelpwise balance rapid international expansion with the need for reliable evidence across different agricultural environments?</p>
 <p><strong>Question 2:</strong> Should the company prioritise commercial growth or invest more heavily in demonstrating measurable benefits for the seaweed-farming communities on which its supply chain depends?</p>` + sample}),
-  P({id: 'p2', slug: 'green-by-design-how-nordlys-is-redefining-corporate-sustainability', date: '2026-10-29T14:00:00', authorId: 'u-s2', authorName: 'amber-falcon-731', category: 'sustainability', organisation: 'Nordlys Home (fictional)', tags: ['Carbon Neutrality', 'circular economy', 'Climate Change', 'Corporate Sustainability', 'ESG', 'Green Supply Chain', 'Scope 3 Emissions', 'Waste Reduction'], featuredImage: '',
+  P({id: 'p2', slug: 'green-by-design-how-nordlys-is-redefining-corporate-sustainability', date: '2026-10-29T14:00:00', authorId: 'u-s2', authorName: 'amber-falcon-731', category: 'sustainability', organisation: 'Nordlys Home (fictional)', industries: ['consumer-goods-retail', 'manufacturing'], tags: ['Carbon Neutrality', 'circular economy', 'Climate Change', 'Corporate Sustainability', 'ESG', 'Green Supply Chain', 'Scope 3 Emissions', 'Waste Reduction'], featuredImage: '',
     title: 'Green by Design: How Nordlys Home is Redefining Corporate Sustainability in the Fight Against Climate Change',
     body: `<p>Why is climate change important to Nordlys Home's management? Climate change is a notable megatrend affecting the fictional furniture retailer's resource availability, operating costs and reputation with a generation of customers who read sustainability reports before they read price tags.</p>
 <h2>Why the megatrend matters</h2>
@@ -111,7 +137,7 @@ export const SEED_POSTS = [
 <p>Run the take-back scheme as a proper pilot project with a measurable hypothesis, and tie supplier contracts to verified emissions data rather than self-reporting.</p>
 <h2>Open questions</h2>
 <p>Can a low-price retailer ever make circularity pay without raising prices? And who should own the risk of a redesign that customers do not want?</p>` + sample}),
-  P({id: 'p3', moduleId: 'bmgt46260-2026-27', slug: 'building-green-is-only-the-beginning', date: '2026-10-27T10:30:00', authorId: 'u-s3', authorName: 'swift-osprey-215', category: 'sustainability', organisation: 'Harbourline Developments (fictional)', tags: ['Green Buildings', 'Sustainability', 'Real Estate', 'Project Management'], featuredImage: img('ucd-tower'),
+  P({id: 'p3', moduleId: 'bmgt46260-2026-27', slug: 'building-green-is-only-the-beginning', date: '2026-10-27T10:30:00', authorId: 'u-s3', authorName: 'swift-osprey-215', category: 'sustainability', organisation: 'Harbourline Developments (fictional)', industries: ['construction-real-estate'], tags: ['Green Buildings', 'Sustainability', 'Real Estate', 'Project Management'], featuredImage: img('ucd-tower'),
     title: 'Building Green Is Only the Beginning: How Harbourline Can Turn Sustainable Design into Lasting Building Performance',
     body: `<p>Sustainability can look straightforward on paper. In practice, managing a certified green building for thirty years is a far harder project than designing one. This post looks at <strong>Harbourline Developments</strong>, a fictional property developer, and asks what happens after the ribbon is cut.</p>
 <h2>Why it matters to management</h2><p>Green certification drives rental premiums, but the premium evaporates if measured energy performance drifts from the design model.</p>
@@ -119,7 +145,7 @@ export const SEED_POSTS = [
 <h2>Current steps</h2><p>Harbourline now writes a two-year post-occupancy evaluation into every contract and keeps a small team on each building until it passes.</p>
 <h2>Recommendations</h2><p>Treat each building as a product with a lifecycle roadmap, and report the gap between modelled and measured performance publicly.</p>
 <h2>Open questions</h2><p>Who should bear the cost when a building underperforms: the developer, the operator or the tenant?</p>` + sample}),
-  P({id: 'p4', moduleId: 'bmgt41040-2026-27', blogId: 'operations', slug: 'the-race-to-address-the-hybrid-fitness-boom', date: '2026-10-24T16:00:00', authorId: 'u-s4', authorName: 'mellow-birch-908', category: '', organisation: 'Stride Athletics (fictional)', tags: ['Fitness', 'Health', 'Consumer Trends', 'Digital Products'], featuredImage: img('ucd-fitness'),
+  P({id: 'p4', moduleId: 'bmgt41040-2026-27', blogId: 'operations', slug: 'the-race-to-address-the-hybrid-fitness-boom', date: '2026-10-24T16:00:00', authorId: 'u-s4', authorName: 'mellow-birch-908', category: '', organisation: 'Stride Athletics (fictional)', industries: ['consumer-goods-retail'], tags: ['Fitness', 'Health', 'Consumer Trends', 'Digital Products'], featuredImage: img('ucd-fitness'),
     title: "Stride Athletics' Race to Address the Hybrid Fitness Boom",
     body: `<p>The health and well-being megatrend has turned exercise into a lifestyle identity. <strong>Stride Athletics</strong>, a fictional sportswear brand, is betting that the customer of 2030 trains in the gym, at home and online in the same week.</p>
 <h2>Why it matters</h2><p>Hybrid athletes buy more categories and churn faster. Management must decide whether Stride is a product company or a membership company.</p>
@@ -127,7 +153,7 @@ export const SEED_POSTS = [
 <h2>Current steps</h2><p>A cross-functional squad now ships app features every fortnight; the medium-term plan is a loyalty layer connecting purchases to training data.</p>
 <h2>Recommendations</h2><p>Protect the squad from the seasonal planning cycle and measure it on retention, not launches.</p>
 <h2>Open questions</h2><p>Does owning training data create more value than the privacy risk it carries?</p>` + sample}),
-  P({id: 'p5', slug: 'keep-ai-at-the-front-desk', date: '2026-10-20T11:00:00', authorId: 'u-s1', authorName: 'quiet-heron-482', category: 'digital-transformation', organisation: 'Bayfront Hotels Group (fictional)', tags: ['AI', 'Hospitality', 'Digital Transformation', 'Service Operations'], featuredImage: img('ucd-hotel'),
+  P({id: 'p5', slug: 'keep-ai-at-the-front-desk', date: '2026-10-20T11:00:00', authorId: 'u-s1', authorName: 'quiet-heron-482', category: 'digital-transformation', organisation: 'Bayfront Hotels Group (fictional)', industries: ['hospitality-tourism', 'technology-software'], tags: ['AI', 'Hospitality', 'Digital Transformation', 'Service Operations'], featuredImage: img('ucd-hotel'),
     title: 'Keep AI at the Front Desk? Can Technology Improve Hospitality at Bayfront Hotels',
     body: `<p>Digital transformation in hospitality is often sold as cost cutting. For <strong>Bayfront Hotels Group</strong>, a fictional luxury operator, the harder question is whether automation can raise service quality rather than just lower headcount.</p>
 <h2>Why it matters</h2><p>Guests now expect the convenience of an app and the warmth of a concierge in the same stay.</p>
@@ -135,7 +161,7 @@ export const SEED_POSTS = [
 <h2>Current steps</h2><p>Mobile check-in across all properties this year; an AI concierge pilot in two flagships over the next three.</p>
 <h2>Recommendations</h2><p>Define service-level agreements for the human fallback before scaling any AI feature.</p>
 <h2>Open questions</h2><p>Will guests pay a premium for human service once automation is the norm?</p>` + sample}),
-  P({id: 'p6', slug: 'the-cooling-crisis-engineering-sustainability-into-the-data-centre-boom', date: '2026-10-15T09:00:00', authorId: 'u-s2', authorName: 'amber-falcon-731', category: 'digital-transformation', organisation: 'Frostline Infrastructure (fictional)', tags: ['Data Centres', 'Energy', 'Ireland', 'Sustainability'], featuredImage: img('ucd-datacentre'),
+  P({id: 'p6', slug: 'the-cooling-crisis-engineering-sustainability-into-the-data-centre-boom', date: '2026-10-15T09:00:00', authorId: 'u-s2', authorName: 'amber-falcon-731', category: 'digital-transformation', organisation: 'Frostline Infrastructure (fictional)', industries: ['technology-software', 'energy-utilities'], tags: ['Data Centres', 'Energy', 'Ireland', 'Sustainability'], featuredImage: img('ucd-datacentre'),
     title: 'The Cooling Crisis: How Frostline Is Engineering Sustainability Into the Data Centre Boom',
     body: `<p>Ireland hosts a disproportionate share of Europe's data centres, and <strong>Frostline Infrastructure</strong>, a fictional operator, sits at the centre of the debate about grid capacity and water use.</p>
 <h2>Why it matters</h2><p>Planning permission increasingly depends on demonstrating energy and water strategies, so sustainability has become the critical path of every build.</p>
@@ -143,7 +169,7 @@ export const SEED_POSTS = [
 <h2>Current steps</h2><p>Heat-reuse agreements with district heating schemes and on-site battery storage to shave peak demand.</p>
 <h2>Recommendations</h2><p>Publish a water-use baseline per site and make it part of the project charter.</p>
 <h2>Open questions</h2><p>Should a country cap data-centre growth even when the economic benefits are large?</p>` + sample}),
-  P({id: 'p7', moduleId: 'bmgt46260-2026-27', slug: 'anticipating-africa-a-race-to-build-the-cities-of-tomorrow', date: '2026-10-10T13:00:00', authorId: 'u-s3', authorName: 'swift-osprey-215', category: 'demographic-shifts', organisation: 'Meridian Urban Partners (fictional)', tags: ['Urbanization', 'Africa', 'Infrastructure', 'Demographics'], featuredImage: img('ucd-city'),
+  P({id: 'p7', moduleId: 'bmgt46260-2026-27', slug: 'anticipating-africa-a-race-to-build-the-cities-of-tomorrow', date: '2026-10-10T13:00:00', authorId: 'u-s3', authorName: 'swift-osprey-215', category: 'demographic-shifts', organisation: 'Meridian Urban Partners (fictional)', industries: ['construction-real-estate', 'government-public-sector'], tags: ['Urbanization', 'Africa', 'Infrastructure', 'Demographics'], featuredImage: img('ucd-city'),
     title: "Anticipating Africa: Meridian's Race to Build the Cities of Tomorrow",
     body: `<p>By 2050 most of the world's urban growth will happen in Africa. <strong>Meridian Urban Partners</strong>, a fictional infrastructure developer, is trying to plan cities faster than they grow.</p>
 <h2>Why it matters</h2><p>Demographic growth is the demand forecast; the risk is in sequencing water, power and housing projects so none becomes the bottleneck.</p>

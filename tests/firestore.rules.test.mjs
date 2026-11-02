@@ -141,6 +141,8 @@ test('student ownership and module membership constrain posts; posts carry their
  const d=db('student','student@ucdconnect.ie');
  await assertSucceeds(getDoc(doc(d,'posts/draft')));
  await assertSucceeds(setDoc(doc(d,'posts/new'),post()));
+ await assertSucceeds(setDoc(doc(d,'posts/industries'),{...post(),industries:['energy-utilities','manufacturing']}));
+ await assertFails(setDoc(doc(d,'posts/too-many-industries'),{...post(),industries:['a','b','c','d','e','f']}));
  await assertFails(setDoc(doc(d,'posts/wrong-blog'),post('one','student','draft','ops')));
  await assertFails(setDoc(doc(d,'posts/no-blog'),(()=>{const p=post();delete p.blogId;return p;})()));
  await assertFails(updateDoc(doc(d,'posts/other-draft'),{title:'Changed'}));

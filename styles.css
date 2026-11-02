@@ -333,6 +333,17 @@ table.list select { padding: 3px 6px; border: 1px solid var(--line); border-radi
 .card .kicker { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 7px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
 .card .kicker a { color: var(--ink); font-weight: 600; }
 .card .kicker a.trend { color: var(--blue); font-weight: 500; }
+.card .kicker a.industry, .post .cat a.industry { color: var(--muted); font-weight: 500; }
+.post .cat a.industry::before { content: ' · '; color: var(--muted); }
+.post .cat a:first-child.industry::before { content: none; }
+.industries-field { display: block; font-size: 13px; margin: 10px 0; color: var(--ink); }
+.industries-field > label { display: block; }
+.industries-field select { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid #cfcfcf; border-radius: 6px; background: #fff; }
+.industry-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.industry-chips:empty { display: none; }
+.industry-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 6px 3px 10px; border: 1px solid var(--line); border-radius: 20px; background: var(--soft); }
+.industry-chip button { border: 0; background: none; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 3px; color: var(--muted); }
+.industry-chip button:hover { color: var(--ink); }
 .card .meta a { color: inherit; }
 .card .meta a:hover { color: var(--ink); }
 .canvas-empty { text-align: center; color: var(--muted); padding: 3rem 1rem; border: 1px dashed var(--line); border-radius: 8px; }

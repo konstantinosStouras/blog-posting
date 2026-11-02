@@ -3,12 +3,13 @@
 // on the posts the page already fetched, so Firestore needs no extra indexes.
 //
 // Filter state lives in the query string so a filtered view has a shareable link:
-//   /module/managing-innovative-projects?trend=sustainability,digital&org=Ryanair&year=2026&tag=ESG,Supply%20Chain&q=fleet
+//   /module/managing-innovative-projects?trend=sustainability,digital&org=Ryanair&industry=energy-utilities&year=2026&tag=ESG,Supply%20Chain&q=fleet
 // Several megatrends may be picked (a post has one, so they widen the set); several tags narrow it.
 // Changing a filter rewrites that query with history.replaceState (no page
 // re-render, no refetch) and redraws only the facets and the grid.
 import {esc, fmtDate, postPath, excerptOf, readingTime, wordCount, plainText} from './util.js';
 import {route, rewrite} from './router.js';
+import {INDUSTRIES, industryName} from './seed.js';
 
 const norm = s => String(s ?? '').trim().toLowerCase();
 const yearOf = p => new Date(p.publishedAt || p.updatedAt || p.createdAt || Date.now()).getFullYear();
@@ -19,17 +20,17 @@ const TAG_LIMIT = 18;
 
 export function parseFilters(query = '') {
   const p = new URLSearchParams(String(query).replace(/^\?/, ''));
-  return {q: (p.get('q') || '').trim(), trends: (p.get('trend') || '').split(',').map(t => t.trim()).filter(Boolean), org: p.get('org') || '', year: p.get('year') || '', module: p.get('module') || '', blog: p.get('blog') || '',
+  return {q: (p.get('q') || '').trim(), trends: (p.get('trend') || '').split(',').map(t => t.trim()).filter(Boolean), org: p.get('org') || '', industry: p.get('industry') || '', year: p.get('year') || '', module: p.get('module') || '', blog: p.get('blog') || '',
     tags: (p.get('tag') || '').split(',').map(t => t.trim()).filter(Boolean), sort: SORTS.some(s => s[0] === p.get('sort')) ? p.get('sort') : 'new'};
 }
 export function filterQuery(f) {
   const p = new URLSearchParams();
-  if (f.q) p.set('q', f.q); if (f.trends?.length) p.set('trend', f.trends.join(',')); if (f.org) p.set('org', f.org); if (f.year) p.set('year', f.year);
+  if (f.q) p.set('q', f.q); if (f.trends?.length) p.set('trend', f.trends.join(',')); if (f.org) p.set('org', f.org); if (f.industry) p.set('industry', f.industry); if (f.year) p.set('year', f.year);
   if (f.module) p.set('module', f.module); if (f.blog) p.set('blog', f.blog); if (f.tags?.length) p.set('tag', f.tags.join(',')); if (f.sort && f.sort !== 'new') p.set('sort', f.sort);
   const s = p.toString(); return s ? '?' + s : '';
 }
 const routeParts = () => { const h = route(); const i = h.indexOf('?'); return i < 0 ? [h, ''] : [h.slice(0, i), h.slice(i + 1)]; };
-export const activeFilterCount = f => [f.q, f.org, f.year, f.module, f.blog].filter(Boolean).length + (f.tags?.length || 0) + (f.trends?.length || 0);
+export const activeFilterCount = f => [f.q, f.org, f.industry, f.year, f.module, f.blog].filter(Boolean).length + (f.tags?.length || 0) + (f.trends?.length || 0);
 
 // One canvas per page. The page renders the string renderCanvas() returns; the
 // document-level listeners at the bottom find the state again through `current`.
@@ -46,12 +47,13 @@ export function renderCanvas(posts, opts = {}) {
 // ---------- matching ----------
 function textOf(p) {
   const key = p.id + ':' + (p.updatedAt || '');
-  if (!searchIndex.has(key)) { if (searchIndex.size > 2000) searchIndex.clear(); searchIndex.set(key, [p.title, p.excerpt, p.organisation, (p.tags || []).join(' '), p.authorName, catName(current, p.category, p), plainText(p.body)].join(' ').toLowerCase()); }
+  if (!searchIndex.has(key)) { if (searchIndex.size > 2000) searchIndex.clear(); searchIndex.set(key, [p.title, p.excerpt, p.organisation, (p.tags || []).join(' '), (p.industries || []).map(industryName).join(' '), p.authorName, catName(current, p.category, p), plainText(p.body)].join(' ').toLowerCase()); }
   return searchIndex.get(key);
 }
 function matches(p, f, skip = '') {
   if (skip !== 'trend' && f.trends.length && !f.trends.includes(p.category)) return false;
   if (skip !== 'org' && f.org && norm(p.organisation) !== norm(f.org)) return false;
+  if (skip !== 'industry' && f.industry && !(p.industries || []).includes(f.industry)) return false;
   if (skip !== 'year' && f.year && yearKey(p) !== f.year) return false;
   if (skip !== 'module' && f.module && p.moduleId !== f.module) return false;
   if (skip !== 'blog' && f.blog && p.blogId !== f.blog) return false;
@@ -86,12 +88,13 @@ function facets(st) {
   const tagLabel = k => [...tagNames.get(k).entries()].sort((a, b) => b[1] - a[1])[0][0];
   const trends = count('trend', p => [p.category]);
   const orgs = [...count('org', p => [norm(p.organisation)]).entries()].map(([k, n]) => ({key: orgNames.get(k) || k, label: orgNames.get(k) || k, n})).sort((a, b) => a.label.localeCompare(b.label));
+  const industries = [...count('industry', p => p.industries || []).entries()].map(([k, n]) => ({key: k, label: industryName(k), n})).sort((a, b) => a.label.localeCompare(b.label));
   const years = [...count('year', p => [yearKey(p)]).entries()].map(([k, n]) => ({key: k, label: k, n})).sort((a, b) => b.key.localeCompare(a.key));
   const tags = [...count('tags', p => [...new Set((p.tags || []).map(norm))]).entries()].map(([k, n]) => ({key: k, label: tagLabel(k), n})).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
   const modules = [...count('module', p => [p.moduleId]).entries()].map(([k, n]) => { const m = st.modules.get(k); return {key: k, label: m ? [m.code, m.title].filter(Boolean).join(' ') : k, n}; }).sort((a, b) => a.label.localeCompare(b.label));
   const blogs = [...count('blog', p => [p.blogId]).entries()].map(([k, n]) => ({key: k, label: st.blogs.get(k)?.title || k, n})).sort((a, b) => a.label.localeCompare(b.label));
   const allCats = st.cats.slice(); for (const slug of trends.keys()) if (slug && !allCats.some(c => c.slug === slug)) allCats.push({slug, name: slug});
-  return {trends, allCats, orgs, years, tags, modules, blogs, yearLabel: posts.some(p => p.academicYear) ? 'Academic year' : 'Year'};
+  return {trends, allCats, orgs, industries, years, tags, modules, blogs, yearLabel: posts.some(p => p.academicYear) ? 'Academic year' : 'Year'};
 }
 
 // ---------- markup ----------
@@ -118,7 +121,7 @@ function filtersHtml(st) {
   // resets every filter (chips, search, selects and tags) and shows only while one is set.
   const clearAll = activeFilterCount(f) ? `<button type="button" class="linkish clear-all" data-clear>Clear all</button>` : '';
   return `${fx.allCats.length ? `<div class="chips" role="group" aria-label="${esc(catLabel(st))}">${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trends.includes(c.slug))).join('')}${clearAll}</div>` : clearAll ? `<div class="chips">${clearAll}</div>` : ''}
-    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${st.modules.size > 1 || fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
+    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('industry', 'Industry', fx.industries, f.industry, 'All industries')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${st.modules.size > 1 || fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
     ${fx.tags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}`;
 }
 function gridHtml(st) {
@@ -130,7 +133,7 @@ export function card(p, st = current || {f: parseFilters(''), base: '/posts', ca
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));
   const img = p.featuredImage ? `<a href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
   const org = String(p.organisation || '').trim(), words = p.wordCount ?? wordCount(p.body), module = st.modules?.get(p.moduleId);
-  const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : ''].filter(Boolean).join('');
+  const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : '', ...(p.industries || []).map(s => `<a href="${link({industry: s})}" data-set="industry" data-v="${esc(s)}" class="industry" title="All posts in ${esc(industryName(s))}">${esc(industryName(s))}</a>`)].filter(Boolean).join('');
   return `<article class="card ${img ? '' : 'noimage'}">${img}
     ${kicker ? `<div class="kicker">${kicker}</div>` : ''}
     <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
@@ -157,7 +160,7 @@ document.addEventListener('click', e => {
   else if (trend) { e.preventDefault(); const v = trend.dataset.trend, on = current.f.trends.includes(v); apply(r, {trends: !v ? [] : trend.dataset.only ? [v] : on ? current.f.trends.filter(t => t !== v) : [...current.f.trends, v]}); }
   else if (tag) { e.preventDefault(); const k = norm(tag.dataset.tag), on = current.f.tags.some(t => norm(t) === k); apply(r, {tags: tag.dataset.only ? [tag.dataset.tag] : on ? current.f.tags.filter(t => norm(t) !== k) : [...current.f.tags, tag.dataset.tag]}); }
   else if (rm) { const k = rm.dataset.remove; apply(r, k === 'tag' ? {tags: current.f.tags.filter(t => norm(t) !== norm(rm.dataset.v))} : k === 'trend' ? {trends: current.f.trends.filter(t => t !== rm.dataset.v)} : {[k]: ''}); }
-  else if (e.target.closest('[data-clear]')) { apply(r, {q: '', trends: [], org: '', year: '', module: '', blog: '', tags: []}); r.querySelector('.canvas-search input').value = ''; }
+  else if (e.target.closest('[data-clear]')) { apply(r, {q: '', trends: [], org: '', industry: '', year: '', module: '', blog: '', tags: []}); r.querySelector('.canvas-search input').value = ''; }
   else if (e.target.closest('[data-more-tags]')) { current.allTags = !current.allTags; r.querySelector('.canvas-filters').innerHTML = filtersHtml(current); }
   else return;
   if (set || tag || trend || rm) r.querySelector('.canvas-grid').scrollIntoView({block: 'nearest'});

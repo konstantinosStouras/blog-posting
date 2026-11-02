@@ -14,7 +14,7 @@ import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl} from './util.js';
 import {openShare, printPost} from './share.js';
-import {replyRulesOf} from './seed.js';
+import {replyRulesOf, INDUSTRIES, MAX_INDUSTRIES, industryName} from './seed.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
@@ -44,7 +44,9 @@ const routes = [
   [/^\/invitations$/, () => navigate('/admin/invite', {replace: true})],   // old address: the page lives in the admin area
   [/^\/invite\/([a-zA-Z0-9-]+)(?:\/([a-z]+(?:-[0-9]{3})?))?$/i, (id,code)=>acceptInvitationPage(id,code,'instructor')],
   [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+(?:-[0-9]{3})?)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
-  [/^\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (y, m, slug) => postView(slug)],
+  [/^\/([a-z0-9-]+)\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (blogId, y, m, slug) => postView(slug, blogId)],   // a post under its blog's canvas
+  [/^\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (y, m, slug) => postView(slug)],   // the address before 2 Nov 2026: sent on to the blog's own
+
   [/^\/post\/([^/?]+)$/, postView],
   [/^\/category\/([^/?]+)$/, slug => navigate('/posts' + filterQuery({trends: [slug]}), {replace: true})],   // old links keep working
   [/^\/tag\/([^/?]+)$/, tag => navigate('/posts' + filterQuery({tags: [decodeURIComponent(tag)]}), {replace: true})],
@@ -206,7 +208,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
   const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
   const liked = !!me && likes.includes(me.uid);
   return `<header class="post-head">
-    ${p.category ? `<div class="cat"><a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a></div>` : ''}
+    ${p.category || (p.industries || []).length ? `<div class="cat">${p.category ? `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a>` : ''}${(p.industries || []).map(s => `<a class="industry" href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?industry=${esc(s)}">${esc(industryName(s))}</a>`).join('')}</div>` : ''}
     <h1>${esc(p.title || 'Untitled')}</h1>
     ${p.excerpt ? `<p class="subtitle">${esc(p.excerpt)}</p>` : ''}
     <div class="byline"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div><a href="/author/${esc(p.authorId || '')}"><b>${esc(p.authorName || 'you')}</b></a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}<br><span class="muted">${fmtDate(p.publishedAt || p.updatedAt || Date.now())} · ${readingTime(w)}${blog ? ` · <a href="/${esc(blog.id)}">${esc(blog.title)}</a>` : ''}</span></div></div>
@@ -225,6 +227,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
 async function postView(slug) {
   const p = await store.getPostBySlug(slug);
   const u = user();
+  if (p && p.blogId && blogId !== p.blogId) { navigate(postPath(p), {replace: true}); return; }   // an old or mistyped address: the post's one real address
   if (!p || (p.status !== 'published' && !(u && can(u, 'edit', p, S)))) { $app.innerHTML = `<p class="empty">That post is not available. <a href="/">Back to the blog</a></p>`; return; }
   const [module, blog, mine] = await Promise.all([p.moduleId ? store.getModule(p.moduleId) : null, store.getBlog(p.blogId), u ? store.listMyModules() : []]);
   // Cohort rules (approval, open/closed) come from the module; the comments policy from the blog.
@@ -373,8 +376,8 @@ async function editorView(id, moduleId) {
     const joined = (await store.listMyModules()).some(m=>m.id===moduleId);
     if(!joined){$app.innerHTML=`<p class="empty">Join this module before writing. <a href="/${esc(module.blogId)}">Open the blog</a></p>`;return;}
   }
-  p = p || {moduleId, title: '', body: '', category: '', organisation: '', tags: [], featuredImage: '', status: 'draft', excerpt: ''};
-  const draft = {...p, title: p.title === 'Untitled draft' ? '' : (p.title || ''), tags: [...(p.tags || [])]};   // the placeholder title is for the database only
+  p = p || {moduleId, title: '', body: '', category: '', organisation: '', industries: [], tags: [], featuredImage: '', status: 'draft', excerpt: ''};
+  const draft = {...p, title: p.title === 'Untitled draft' ? '' : (p.title || ''), tags: [...(p.tags || [])], industries: (p.industries || []).filter(s => INDUSTRIES.some(i => i.slug === s))};   // the placeholder title is for the database only
   const trackTime=store.mode==='firebase'&&rank(u.role)===0&&!u.preview&&(!p.authorId||p.authorId===u.uid);   // nothing is recorded while an instructor previews the writer
   if(trackTime&&!p.id){p.id=newId();draft.id=p.id;}
   const previousWritingSeconds=0;
@@ -411,6 +414,7 @@ async function editorView(id, moduleId) {
         <label class="field">Tags<input id="tags" value="${esc(draft.tags.join(', '))}" placeholder="Climate Action, ESG, Supply Chain"><p class="hint">Comma-separated keywords readers browse by.</p></label>
       </div>
       <div>
+        <div class="field industries-field"><label for="industry-pick">Industries</label><select id="industry-pick" aria-label="Add an industry"></select><div class="industry-chips" id="industry-chips" role="list" aria-label="Selected industries"></div><p class="hint">Pick up to ${MAX_INDUSTRIES} industries your post relates to. Readers can filter the blog by industry.</p></div>
         ${blog.maxWords ? `<h3>Length</h3><div class="wc"><span><b id="wc">0</b> words</span><span class="muted">target ${targetText}</span></div><div class="meter" id="meter"><i style="width:0"></i></div><p class="hint" id="wc-hint"></p>` : ''}
         ${(blog.checklist || []).length ? `<h3>Before you publish</h3><ul class="checklist">${blog.checklist.map((t, i) => `<li><input type="checkbox" id="chk${i}"><label for="chk${i}">${esc(t)}</label></li>`).join('')}</ul>` : ''}
         ${blog.brief ? `<p class="hint"><a href="/${esc(blog.id)}/brief" target="_blank">Read the brief</a></p>` : ''}
@@ -437,6 +441,16 @@ async function editorView(id, moduleId) {
   $('tags').onchange = e => { const seen = new Set(); draft.tags = e.target.value.split(/[,;]/).map(t => t.trim()).filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 12); e.target.value = draft.tags.join(', '); touched(); };
   $('pick-image').onclick = () => $('image-file').click();
   $('image-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { draft.featuredImage = await shrinkImage(f, 1400); $('thumb').src = draft.featuredImage; $('thumb').hidden = false; $('remove-image').hidden = false; touched(); } catch (err) { toast(err.message, 'error'); } };
+  // Industries: a drop-down adds one at a time; each picked industry is a chip with a × to remove it.
+  const drawIndustries = () => {
+    const full = draft.industries.length >= MAX_INDUSTRIES;
+    $('industry-pick').innerHTML = `<option value="">${full ? `Up to ${MAX_INDUSTRIES} industries` : draft.industries.length ? 'Add another industry…' : 'Choose an industry…'}</option>${INDUSTRIES.filter(i => !draft.industries.includes(i.slug)).map(i => `<option value="${i.slug}">${esc(i.name)}</option>`).join('')}`;
+    $('industry-pick').disabled = full;
+    $('industry-chips').innerHTML = draft.industries.map(s => `<span class="industry-chip" role="listitem">${esc(industryName(s))}<button type="button" data-drop-industry="${s}" aria-label="Remove ${esc(industryName(s))}">×</button></span>`).join('');
+  };
+  drawIndustries();
+  $('industry-pick').onchange = e => { const s = e.target.value; if (s && !draft.industries.includes(s) && draft.industries.length < MAX_INDUSTRIES) { draft.industries = [...draft.industries, s]; touched(); } drawIndustries(); };
+  $('industry-chips').onclick = e => { const b = e.target.closest('[data-drop-industry]'); if (!b) return; draft.industries = draft.industries.filter(s => s !== b.dataset.dropIndustry); touched(); drawIndustries(); };
   $('remove-image').onclick = () => { draft.featuredImage = ''; $('thumb').hidden = true; $('remove-image').hidden = true; touched(); };
   $('continue').onclick = $('details').onclick = () => { updateMeter(); $('status-line').textContent = ''; $('sheet').showModal(); };
   const settle = async () => { clearTimeout(saveTimer); while (saving) await new Promise(r => setTimeout(r, 100)); };
@@ -615,7 +629,7 @@ async function lecturer(tab = 'posts', query = '') {
   if (tab === 'roster') makeTablesSortable($app);
   $app.querySelector('#export-csv')?.addEventListener('click', () => {
     const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, publicUrl(postPath(p)), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, wordCount(p.body), catName(p.category, p), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
+    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Industries', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, publicUrl(postPath(p)), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, wordCount(p.body), catName(p.category, p), (p.industries || []).map(industryName).join('; '), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
     const blob = new Blob([rows.map(r => r.map(esc2).join(',')).join('\n')], {type: 'text/csv'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ucd-blog-posts${moduleId ? '-' + moduleId : ''}${year ? '-' + year.replace('/', '-') : ''}.csv`; a.click();
   });
   $app.onclick = async e => {
