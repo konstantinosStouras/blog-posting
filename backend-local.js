@@ -4,7 +4,7 @@
 // memberships, posts and comments are all here, so the design can be checked with
 // `?local` on a dev server without touching the live database.
 import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, SEED_BLOGS, SEED_MODULES, SEED_MEMBERSHIPS, DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
-import {newId, slugify, wordCount, excerptOf, isReservedUrlName} from './util.js';
+import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
 
 const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
 let state, listeners = new Set();
@@ -71,9 +71,9 @@ export const local = {
     if (data.newBlog) blogId = (await this.saveBlog({title: data.newBlog.title, urlName: data.newBlog.urlName, description: data.description || ''})).id;
     const blog = state.blogs.find(b => b.id === blogId);
     if (!blog || !teaches(u, blog)) throw Error('Choose one of your own blogs for this module, or create a new one.');
-    if (!existing && data.code && state.modules.some(m => m.code.toLowerCase() === String(data.code).trim().toLowerCase() && m.academicYear === String(data.academicYear || '').trim())) throw Error('A module with this code and academic year already exists. Open it from My modules instead.');
-    const id = existing?.id || uniqueId(state.modules, slugify([data.code || data.title, data.academicYear].filter(Boolean).join(' ')));
-    const doc = {...(existing || {createdBy: u.uid, createdAt: Date.now(), teacherIds: [u.uid], teacherName: [u.firstName, u.lastName].filter(Boolean).join(' ')}), id, title: String(data.title || '').trim(), code: String(data.code || '').trim(), academicYear: String(data.academicYear || '').trim(), description: String(data.description || '').trim(), blogId, submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, deadline: data.deadline || '', brightspaceUrl: String(data.brightspaceUrl || '').trim(), updatedAt: Date.now()};
+    if (!existing && data.code && state.modules.some(m => m.code.toLowerCase() === String(data.code).trim().toLowerCase())) throw Error('A module with this code already exists. Open it from My modules instead: one module serves every academic year.');
+    const id = existing?.id || uniqueId(state.modules, slugify(data.code || data.title));
+    const doc = {...(existing || {createdBy: u.uid, createdAt: Date.now(), teacherIds: [u.uid], teacherName: [u.firstName, u.lastName].filter(Boolean).join(' ')}), id, title: String(data.title || '').trim(), code: String(data.code || '').trim(), description: String(data.description || '').trim(), blogId, submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, deadline: data.deadline || '', brightspaceUrl: String(data.brightspaceUrl || '').trim(), updatedAt: Date.now()};
     if (!doc.title) throw Error('Enter a module title.');
     if (existing) Object.assign(existing, doc); else state.modules.push(doc);
     save(); return structuredClone(doc);
@@ -116,12 +116,13 @@ export const local = {
     let existing = post.id ? state.posts.find(p => p.id === post.id) : null;
     const module = state.modules.find(m => m.id === (post.moduleId || existing?.moduleId));
     if (!module) throw Error('Choose a module before saving.');
-    const doc = {...(existing || {createdAt: now, authorId: user.uid}), ...post, id: existing?.id || post.id || newId(), moduleId: module.id, blogId: module.blogId, academicYear: existing?.academicYear || module.academicYear || '', updatedAt: now};
+    const doc = {...(existing || {createdAt: now, authorId: user.uid}), ...post, id: existing?.id || post.id || newId(), moduleId: module.id, blogId: module.blogId, updatedAt: now};
     doc.authorName = state.users.find(u => u.uid === doc.authorId)?.penName || doc.authorName || 'anonymous';
     doc.slug = uniqueSlug(existing?.publishedAt ? existing.slug : slugify(doc.title), doc.id);
     doc.wordCount = wordCount(doc.body); doc.excerpt = String(doc.excerpt || '').trim();
     if (doc.status === 'published' && !doc.publishedAt) doc.publishedAt = now;
     if (doc.status !== 'published') doc.publishedAt = existing?.status === 'published' ? existing.publishedAt : doc.publishedAt || null;
+    doc.academicYear = existing?.publishedAt && existing.academicYear ? existing.academicYear : academicYearOf(doc.publishedAt || now);   // the cohort is the year the post went live in
     if (existing) Object.assign(existing, doc); else state.posts.unshift(doc);
     save(); return structuredClone(doc);
   },

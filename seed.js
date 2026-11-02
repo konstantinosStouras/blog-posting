@@ -53,7 +53,7 @@ export const SEED_BLOGS = [
   {id: 'project-management', title: 'Project Management', description: 'How organisations face the megatrends shaping business and society: blog posts by students of the project management modules.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...PM_EXERCISE},
   {id: 'operations', title: 'Operations', description: 'Blog posts by students of BMGT41040 Operations, Innovation and Management.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...EMPTY_EXERCISE, brief: '<p>The brief for this blog has not been written yet.</p>'},
 ];
-const M = (o) => ({description: '', teacherIds: ['u-admin'], teacherName: 'Konstantinos Stouras', createdBy: 'u-admin', createdAt: T0, updatedAt: T0, academicYear: '2026/27', submissionsOpen: true, requireApproval: false, deadline: '2026-11-28', ...o});
+const M = (o) => ({description: '', teacherIds: ['u-admin'], teacherName: 'Konstantinos Stouras', createdBy: 'u-admin', createdAt: T0, updatedAt: T0, submissionsOpen: true, requireApproval: false, deadline: '2026-11-28', ...o});
 export const SEED_MODULES = [
   M({id: 'bmgt45540-2026-27', code: 'BMGT45540', title: 'Managing Innovative Projects', blogId: 'project-management'}),
   M({id: 'bmgt46260-2026-27', code: 'BMGT46260', title: 'Managing Performance', blogId: 'project-management'}),

@@ -16,7 +16,7 @@ export function configurePlatform(target, renderCanvas) { app = target; canvas =
 export const blogUrl = id => publicUrl('/' + encodeURIComponent(id));
 const staff = u => u && ['admin', 'lecturer'].includes(u.role);
 const instructs = (u, x) => !!u && !u.studentPreview && (u.role === 'admin' || (x?.teacherIds || []).includes(u.uid));   // a student preview hides the instructor's controls
-const moduleLabel = m => [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '');
+const moduleLabel = m => [m.code, m.title].filter(Boolean).join(' ');
 const isTeaching = m => m.teaching;
 
 // ---------- directory: every blog, with the modules writing on it ----------
@@ -40,7 +40,7 @@ export async function myModules(target = app, embedded = false) {
   if (!staff(u)) {
     // Students: the blog(s) of the module(s) they belong to, and the way to write.
     target.innerHTML = `${pageHead('My modules', `Writing as <b>${esc(u.penName)}</b> · <a href="/profile">Edit profile</a>`, embedded)}
-      ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}${m.academicYear ? ' · ' + esc(m.academicYear) : ''}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDate(m.deadline)}</b>.` : ''}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/${esc(b.id)}">Open blog</a><a class="btn small" href="/${esc(b.id)}/brief">The brief</a>` : ''}${m.brightspaceUrl ? `<a class="btn small" href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Brightspace</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
+      ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDate(m.deadline)}</b>.` : ''}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/${esc(b.id)}">Open blog</a><a class="btn small" href="/${esc(b.id)}/brief">The brief</a>` : ''}${m.brightspaceUrl ? `<a class="btn small" href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Brightspace</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
       <p class="actions"><a class="btn" href="/mine">My posts</a><button class="btn" id="platform-register">Enter an invitation code</button></p>`;
     target.querySelector('#platform-register')?.addEventListener('click', () => openAuthModal('register'));
     return;
@@ -48,7 +48,7 @@ export async function myModules(target = app, embedded = false) {
   const teaching = mine.filter(isTeaching), byBlog = new Map();
   for (const m of teaching) (byBlog.get(m.blogId || '') || byBlog.set(m.blogId || '', []).get(m.blogId || '')).push(m);
   const section = (blogId, ms) => { const b = blogOf(blogId); return `<section class="blog-group"><h2 class="group-title">${b ? `<a href="/${esc(b.id)}">${esc(b.title)}</a>` : 'Modules without a blog'}</h2>${b ? `<p class="actions small"><a href="/blogs/edit/${esc(b.id)}">Blog settings</a><a href="/${esc(b.id)}/brief">Brief</a><a href="/review?blog=${esc(b.id)}">Review posts</a><button class="linkish" data-copy="${esc(blogUrl(b.id))}">Copy public link</button></p>` : '<p class="muted small">Open each module’s settings to attach it to a blog.</p>'}
-    <table class="list"><thead><tr><th>Module</th><th>Academic year</th><th>Deadline</th><th>Submissions</th><th></th></tr></thead><tbody>${ms.map(m => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${esc(m.academicYear || '—')}</td><td>${m.deadline ? fmtDate(m.deadline) : '—'}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.requireApproval ? ' · approval' : ''}</td><td class="actions"><a href="/modules/edit/${esc(m.id)}">Settings</a><a href="/modules/invite/${esc(m.id)}">Invite students</a><a href="/review/roster?module=${esc(m.id)}">Roster</a><a href="/review?module=${esc(m.id)}">Posts</a></td></tr>`).join('')}</tbody></table></section>`; };
+    <table class="list"><thead><tr><th>Module</th><th>Deadline</th><th>Submissions</th><th></th></tr></thead><tbody>${ms.map(m => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${m.deadline ? fmtDate(m.deadline) : '—'}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.requireApproval ? ' · approval' : ''}</td><td class="actions"><a href="/modules/edit/${esc(m.id)}">Settings</a><a href="/modules/invite/${esc(m.id)}">Invite students</a><a href="/review/roster?module=${esc(m.id)}">Roster</a><a href="/review?module=${esc(m.id)}">Posts</a></td></tr>`).join('')}</tbody></table></section>`; };
   target.innerHTML = `${pageHead(embedded ? 'Manage modules' : 'My modules', 'Your teaching modules, grouped by the blog they write on.', embedded)}
     <p class="actions"><a class="btn primary" href="/modules/new">Create module</a><a class="btn" href="/blogs">Explore blogs</a><a class="btn" href="/review">Instructor area</a>${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
     ${teaching.length ? [...byBlog.entries()].map(([id, ms]) => section(id, ms)).join('') : '<p class="empty">Create your first module. You will choose a new blog for it, or reuse one of your existing blogs.</p>'}`;
@@ -115,10 +115,9 @@ export async function manageModule(id) {
   if (id && (!m || !instructs(u, m))) { app.innerHTML = '<p class="empty">You cannot manage this module.</p>'; return; }
   const existingBlogs = myBlogs.filter(b => b.id !== '');
   const chooseExisting = existingBlogs.length > 0 && (!m || !!m.blogId);
-  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is one cohort: its students and their deadline. Its posts appear on a blog that it may share with your other modules.</p>
+  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is a course you teach: its students and their deadline. Create it once and reuse it every year; each post is stamped with the academic year it was published in, so a blog can be filtered by year. Its posts appear on a blog that it may share with your other modules.</p>
     <form id="module-form">
-    <div class="two-col"><label class="field">Module code<input name="code" maxlength="40" placeholder="e.g. BMGT45540" value="${esc(m?.code || '')}"></label>
-    <label class="field">Academic year<input name="academicYear" required maxlength="20" pattern="\\d{4}/\\d{2}" title="Four-digit year, a slash, two digits: 2026/27" placeholder="e.g. 2026/27" value="${esc(m?.academicYear || defaultAcademicYear())}"><p class="hint">Prefilled for the current academic year (1 September to 31 August); change it if this cohort belongs to another. Stamped on every post, so posts can be listed by module and year.</p></label></div>
+    <label class="field">Module code<input name="code" maxlength="40" placeholder="e.g. BMGT45540" value="${esc(m?.code || '')}"></label>
     <label class="field">Module title<input name="title" required maxlength="160" placeholder="e.g. Managing Innovative Projects" value="${esc(m?.title || '')}"></label>
     <label class="field">Description for students (optional)<textarea name="description" maxlength="1200" rows="3">${esc(m?.description || '')}</textarea></label>
     <label class="field">Module Brightspace page URL (optional)<input name="brightspaceUrl" type="url" maxlength="300" placeholder="https://brightspace.ucd.ie/d2l/home/…" value="${esc(m?.brightspaceUrl || '')}"><p class="hint">Linked from the student's module card and the brief, so they can get back to Brightspace in one click.</p></label>
@@ -142,7 +141,7 @@ export async function manageModule(id) {
   form.onsubmit = async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(form)), button = form.querySelector('button'); button.disabled = true;
     try {
-      const data = {id: m?.id, title: d.title, code: d.code, academicYear: d.academicYear, description: d.description, deadline: d.deadline || '', brightspaceUrl: d.brightspaceUrl || '', submissionsOpen: !!d.submissionsOpen, requireApproval: false};   // posts go live when a student publishes; there is no moderation step
+      const data = {id: m?.id, title: d.title, code: d.code, description: d.description, deadline: d.deadline || '', brightspaceUrl: d.brightspaceUrl || '', submissionsOpen: !!d.submissionsOpen, requireApproval: false};   // posts go live when a student publishes; there is no moderation step
       if ((d.blogMode || 'new') === 'new') { if (!d.blogTitle?.trim() || !d.blogUrl?.trim()) throw Error('Give the new blog a title and a URL name.'); data.newBlog = {title: d.blogTitle.trim(), urlName: d.blogUrl.trim()}; }
       else data.blogId = d.blogId;
       const saved = await store.saveModule(data);
@@ -151,8 +150,6 @@ export async function manageModule(id) {
     } catch (err) { form.querySelector('.auth-msg').textContent = err.message; } finally { button.disabled = false; }
   };
 }
-// The academic year runs 1 September to 31 August, written 2026/27. Prefilled for a new module; each instructor may change it.
-function defaultAcademicYear(d = new Date()) { const y = d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; }
 
 // ---------- blog settings: the exercise ----------
 export async function manageBlog(id) {

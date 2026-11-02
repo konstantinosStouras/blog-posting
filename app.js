@@ -331,7 +331,7 @@ async function editorView(id, moduleId) {
   </div>
   <dialog class="sheet" id="sheet"><form method="dialog" class="sheet-form" onsubmit="return false"><button type="button" class="close" data-close aria-label="Close">×</button>
     <h2>${draft.status === 'published' ? 'Update your post' : needsReview ? 'Submit for review' : 'Ready to publish?'}</h2>
-    <p class="muted small">${esc(blog.title)} · ${esc(module.code || module.title)}${module.academicYear ? ' · ' + esc(module.academicYear) : ''}${module.deadline ? ' · deadline ' + fmtDate(module.deadline) : ''}</p>
+    <p class="muted small">${esc(blog.title)} · ${esc(module.code || module.title)}${module.deadline ? ' · deadline ' + fmtDate(module.deadline) : ''}</p>
     <div class="sheet-grid">
       <div>
         <h3>Featured image</h3>

@@ -11,7 +11,7 @@
 //   posts/{id}, comments/{id}, settings/site
 import {firebaseConfig, ADMIN_EMAIL} from './firebase-config.js';
 import {DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
-import {newId, slugify, wordCount, excerptOf, isReservedUrlName} from './util.js';
+import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
 import {registrationProfile} from './registration.js';
 import {randomCode, normalizeCode} from './invitation-codes.js';
 import {buildPeopleReport} from './people-model.js';
@@ -180,13 +180,13 @@ export const firebase = {
     const blog = await this.getBlog(blogId);
     if (!blog || !(role === 'admin' || blog.teacherIds.includes(user.uid))) throw Error('Choose one of your own blogs for this module, or create a new one.');
     let id = existing?.id;
-    if (!id && data.code && (await this.listModules()).some(m => m.code.toLowerCase() === String(data.code).trim().toLowerCase() && m.academicYear === String(data.academicYear || '').trim())) throw Error('A module with this code and academic year already exists. Open it from My modules instead.');
+    if (!id && data.code && (await this.listModules()).some(m => m.code.toLowerCase() === String(data.code).trim().toLowerCase())) throw Error('A module with this code already exists. Open it from My modules instead: one module serves every academic year.');
     if (!id) {
-      const base = slugify([data.code || data.title, data.academicYear].filter(Boolean).join(' ')).slice(0, 72);
+      const base = slugify(data.code || data.title).slice(0, 72);
       if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(base)) throw Error('Enter a module title.');
       id = base; for (let n = 2; await this.getModule(id); n++) id = base + '-' + n;
     }
-    const doc = {title: String(data.title || '').trim(), code: String(data.code || '').trim(), academicYear: String(data.academicYear || '').trim(), description: String(data.description || '').trim(), blogId, deadline: String(data.deadline || ''), brightspaceUrl: String(data.brightspaceUrl || '').trim(), teacherName: existing?.teacherName || [profile?.firstName, profile?.lastName].filter(Boolean).join(' '), teacherIds: existing?.teacherIds || [user.uid], createdBy: existing?.createdBy || user.uid, createdAt: existing?.createdAt || Date.now(), updatedAt: Date.now(), submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval};
+    const doc = {title: String(data.title || '').trim(), code: String(data.code || '').trim(), description: String(data.description || '').trim(), blogId, deadline: String(data.deadline || ''), brightspaceUrl: String(data.brightspaceUrl || '').trim(), teacherName: existing?.teacherName || [profile?.firstName, profile?.lastName].filter(Boolean).join(' '), teacherIds: existing?.teacherIds || [user.uid], createdBy: existing?.createdBy || user.uid, createdAt: existing?.createdAt || Date.now(), updatedAt: Date.now(), submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval};
     if (!doc.title) throw Error('Enter a module title.');
     await F.setDoc(F.doc(db, 'modules', id), doc);
     await F.setDoc(F.doc(db, 'blogs', blogId, 'members', user.uid), {uid: user.uid, moduleId: id, joinedAt: Date.now()}).catch(e => console.warn('blog membership', e.code || e.message));
@@ -316,7 +316,7 @@ export const firebase = {
     if (!module.blogId) throw Error('This module is not attached to a blog yet. Ask your instructor.');
     const now = Date.now();
     // Every post is stamped with its module's blog and academic year; the rules check the blog.
-    const doc = {...(existing || {createdAt: now, authorId: u.uid, featured: false}), ...post, moduleId: module.id, blogId: module.blogId, academicYear: existing?.academicYear || module.academicYear || '', updatedAt: now};
+    const doc = {...(existing || {createdAt: now, authorId: u.uid, featured: false}), ...post, moduleId: module.id, blogId: module.blogId, updatedAt: now};
     delete doc.id;
     doc.authorName = existing && existing.authorId !== u.uid ? existing.authorName : (u.penName || 'student');
     // The slug follows the title while the post is a draft and freezes once published (stable URL).
@@ -326,6 +326,7 @@ export const firebase = {
     doc.wordCount = wordCount(doc.body); doc.excerpt = String(doc.excerpt || '').trim();   // the subtitle; cards fall back to an excerpt of the body
     if (doc.status === 'published' && !doc.publishedAt) doc.publishedAt = now;
     if (doc.status !== 'published') doc.publishedAt = existing?.publishedAt || null;
+    doc.academicYear = existing?.publishedAt && existing.academicYear ? existing.academicYear : academicYearOf(doc.publishedAt || now);   // the cohort is the year the post went live in
     if (doc.body.length > 880000) throw Error(`This post is too large to save (about ${Math.round(doc.body.length / 1024)} KB; the limit is 880 KB). Inline images count towards it: remove or shrink one.`);
     await F.setDoc(F.doc(db, 'posts', id), doc);
     notify(); return {id, ...doc};

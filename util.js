@@ -4,6 +4,8 @@ export const slugify = s => String(s).toLowerCase().normalize('NFKD').replace(/[
 export const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
 export const fmtDate = t => t ? new Date(t).toLocaleDateString('en-IE', {day: 'numeric', month: 'long', year: 'numeric'}) : '';
 export const fmtDateTime = t => t ? new Date(t).toLocaleString('en-IE', {day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
+// The academic year runs 1 September to 31 August, written 2026/27. Posts are stamped with the year they were published in.
+export const academicYearOf = t => { const d = new Date(t || Date.now()), y = d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; };
 export const monthKey = t => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 export const monthName = k => new Date(k + '-01T00:00:00').toLocaleDateString('en-IE', {month: 'long', year: 'numeric'});
 // A LinkedIn profile address in its canonical form. Accepts the full address, "linkedin.com/in/name",
