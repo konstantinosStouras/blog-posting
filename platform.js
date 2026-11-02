@@ -120,7 +120,7 @@ export async function manageModule(id) {
     <label class="field">Module code<input name="code" maxlength="40" placeholder="e.g. BMGT45540" value="${esc(m?.code || '')}"></label>
     <label class="field">Module title<input name="title" required maxlength="160" placeholder="e.g. Managing Innovative Projects" value="${esc(m?.title || '')}"></label>
     <label class="field">Description for students (optional)<textarea name="description" maxlength="1200" rows="3">${esc(m?.description || '')}</textarea></label>
-    <label class="field">Module Brightspace page URL (optional)<input name="brightspaceUrl" type="url" maxlength="300" placeholder="https://brightspace.ucd.ie/d2l/home/…" value="${esc(m?.brightspaceUrl || '')}"><p class="hint">Linked from the student's module card and the brief, so they can get back to Brightspace in one click.</p></label>
+    <label class="field">Module Brightspace page URL (optional)<input name="brightspaceUrl" type="url" maxlength="300" placeholder="https://brightspace.ucd.ie/d2l/le/lessons/…" value="${esc(m?.brightspaceUrl || '')}"><p class="hint">Linked from the student's module card and the brief, so they can get back to Brightspace in one click.</p></label>
     <fieldset class="field blog-choice"><legend>Blog canvas</legend>
       ${existingBlogs.length ? `<label class="check"><input type="radio" name="blogMode" value="existing" ${chooseExisting ? 'checked' : ''}> Post to one of my existing blogs</label>
       <label class="field indent">Blog<select name="blogId">${existingBlogs.map(b => `<option value="${esc(b.id)}" ${m?.blogId === b.id ? 'selected' : ''}>${esc(b.title)}</option>`).join('')}</select></label>` : ''}
