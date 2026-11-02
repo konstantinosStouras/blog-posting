@@ -46,7 +46,6 @@ const routes = [
   [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+(?:-[0-9]{3})?)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
   [/^\/([a-z0-9-]+)\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (blogId, y, m, slug) => postView(slug, blogId)],   // a post under its blog's canvas
   [/^\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (y, m, slug) => postView(slug)],   // the address before 2 Nov 2026: sent on to the blog's own
-
   [/^\/post\/([^/?]+)$/, postView],
   [/^\/category\/([^/?]+)$/, slug => navigate('/posts' + filterQuery({trends: [slug]}), {replace: true})],   // old links keep working
   [/^\/tag\/([^/?]+)$/, tag => navigate('/posts' + filterQuery({tags: [decodeURIComponent(tag)]}), {replace: true})],
