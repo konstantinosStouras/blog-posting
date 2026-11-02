@@ -40,7 +40,7 @@ export async function myModules(target = app, embedded = false) {
   if (!staff(u)) {
     // Students: the blog(s) of the module(s) they belong to, and the way to write.
     target.innerHTML = `${pageHead('My modules', `Writing as <b>${esc(u.penName)}</b> · <a href="/profile">Edit profile</a>`, embedded)}
-      ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}${m.academicYear ? ' · ' + esc(m.academicYear) : ''}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDate(m.deadline)}</b>.` : ''}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/${esc(b.id)}">Open blog</a><a class="btn small" href="/${esc(b.id)}/brief">The brief</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
+      ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}${m.academicYear ? ' · ' + esc(m.academicYear) : ''}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDate(m.deadline)}</b>.` : ''}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/${esc(b.id)}">Open blog</a><a class="btn small" href="/${esc(b.id)}/brief">The brief</a>` : ''}${m.brightspaceUrl ? `<a class="btn small" href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Brightspace</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
       <p class="actions"><a class="btn" href="/mine">My posts</a><button class="btn" id="platform-register">Enter an invitation code</button></p>`;
     target.querySelector('#platform-register')?.addEventListener('click', () => openAuthModal('register'));
     return;
@@ -101,7 +101,7 @@ export async function briefPage(id) {
       <li><b>Publish</b> when you are done.${cohort?.requireApproval ? ' Your instructor checks each post before it appears on the blog.' : ' Your post appears on the blog immediately and its address never changes.'}</li>
       <li><b>Discuss.</b> Read the other posts on this blog and answer the open questions they raise in the comments.</li>
     </ol>
-    ${myHere.filter(m => m.deadline).map(m => `<div class="notice">${esc(moduleLabel(m))}: deadline <b>${fmtDate(m.deadline)}</b>${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}</div>`).join('')}
+    ${myHere.filter(m => m.deadline || m.brightspaceUrl).map(m => `<div class="notice">${esc(moduleLabel(m))}${m.deadline ? `: deadline <b>${fmtDate(m.deadline)}</b>` : ''}${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}${m.brightspaceUrl ? ` · <a href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Module page on Brightspace</a>` : ''}</div>`).join('')}
     ${cohort ? `<p><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : u ? '' : '<p><button class="btn primary" id="brief-signin">Log in</button></p>'}
     <p class="muted small">Modules writing on this blog: ${esc(modules.filter(m => m.blogId === id).map(moduleLabel).join(' · ') || 'none yet')}.</p></div>`;
   app.querySelector('#brief-signin')?.addEventListener('click', () => openAuthModal());
@@ -115,12 +115,13 @@ export async function manageModule(id) {
   if (id && (!m || !instructs(u, m))) { app.innerHTML = '<p class="empty">You cannot manage this module.</p>'; return; }
   const existingBlogs = myBlogs.filter(b => b.id !== '');
   const chooseExisting = existingBlogs.length > 0 && (!m || !!m.blogId);
-  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is one cohort: its students, deadline and moderation. Its posts appear on a blog that it may share with your other modules.</p>
+  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is one cohort: its students and their deadline. Its posts appear on a blog that it may share with your other modules.</p>
     <form id="module-form">
     <div class="two-col"><label class="field">Module code<input name="code" maxlength="40" placeholder="e.g. BMGT45540" value="${esc(m?.code || '')}"></label>
-    <label class="field">Academic year<input name="academicYear" required maxlength="20" placeholder="e.g. 2026/27" value="${esc(m?.academicYear || defaultAcademicYear())}"><p class="hint">Stamped on every post, so posts can be listed by module and year.</p></label></div>
+    <label class="field">Academic year<input name="academicYear" required maxlength="20" pattern="\\d{4}/\\d{2}" title="Four-digit year, a slash, two digits: 2026/27" placeholder="e.g. 2026/27" value="${esc(m?.academicYear || defaultAcademicYear())}"><p class="hint">Prefilled for the current academic year (1 September to 31 August); change it if this cohort belongs to another. Stamped on every post, so posts can be listed by module and year.</p></label></div>
     <label class="field">Module title<input name="title" required maxlength="160" placeholder="e.g. Managing Innovative Projects" value="${esc(m?.title || '')}"></label>
     <label class="field">Description for students (optional)<textarea name="description" maxlength="1200" rows="3">${esc(m?.description || '')}</textarea></label>
+    <label class="field">Module Brightspace page URL (optional)<input name="brightspaceUrl" type="url" maxlength="300" placeholder="https://brightspace.ucd.ie/d2l/home/…" value="${esc(m?.brightspaceUrl || '')}"><p class="hint">Linked from the student's module card and the brief, so they can get back to Brightspace in one click.</p></label>
     <fieldset class="field blog-choice"><legend>Blog canvas</legend>
       ${existingBlogs.length ? `<label class="check"><input type="radio" name="blogMode" value="existing" ${chooseExisting ? 'checked' : ''}> Post to one of my existing blogs</label>
       <label class="field indent">Blog<select name="blogId">${existingBlogs.map(b => `<option value="${esc(b.id)}" ${m?.blogId === b.id ? 'selected' : ''}>${esc(b.title)}</option>`).join('')}</select></label>` : ''}
@@ -131,8 +132,6 @@ export async function manageModule(id) {
     <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(m?.deadline || '')}"><p class="hint">For information only: shown to students on their module card, in the brief and in your modules list. It does not lock anything. To stop students writing or publishing after it, untick <b>Students can write and publish</b> below.</p></label>
     <label class="check"><input type="checkbox" name="submissionsOpen" ${m?.submissionsOpen !== false ? 'checked' : ''}> Students can write and publish</label>
     <p class="hint indent">Untick to close submissions: students can still read the blog, but not write, edit or publish.</p>
-    <label class="check"><input type="checkbox" name="requireApproval" ${m?.requireApproval ? 'checked' : ''}> Review student posts before publication</label>
-    <p class="hint indent">Off by default. Leave it off and posts go live the moment a student publishes. Tick it only if you want every post to wait in your Review queue until you approve it.</p>
     <p class="actions"><button class="btn primary">${m ? 'Save module' : 'Create module'}</button><a class="btn" href="/my-modules">Cancel</a></p><p class="auth-msg" aria-live="polite"></p></form></div>`;
   const form = app.querySelector('form'), modeInputs = [...form.querySelectorAll('[name=blogMode]')];
   const sync = () => { const mode = form.querySelector('[name=blogMode]:checked')?.value || 'new'; form.querySelector('.new-blog').hidden = mode !== 'new'; const sel = form.querySelector('[name=blogId]'); if (sel) sel.closest('label').hidden = mode !== 'existing'; };
@@ -143,7 +142,7 @@ export async function manageModule(id) {
   form.onsubmit = async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(form)), button = form.querySelector('button'); button.disabled = true;
     try {
-      const data = {id: m?.id, title: d.title, code: d.code, academicYear: d.academicYear, description: d.description, deadline: d.deadline || '', submissionsOpen: !!d.submissionsOpen, requireApproval: !!d.requireApproval};
+      const data = {id: m?.id, title: d.title, code: d.code, academicYear: d.academicYear, description: d.description, deadline: d.deadline || '', brightspaceUrl: d.brightspaceUrl || '', submissionsOpen: !!d.submissionsOpen, requireApproval: false};   // posts go live when a student publishes; there is no moderation step
       if ((d.blogMode || 'new') === 'new') { if (!d.blogTitle?.trim() || !d.blogUrl?.trim()) throw Error('Give the new blog a title and a URL name.'); data.newBlog = {title: d.blogTitle.trim(), urlName: d.blogUrl.trim()}; }
       else data.blogId = d.blogId;
       const saved = await store.saveModule(data);
@@ -152,7 +151,8 @@ export async function manageModule(id) {
     } catch (err) { form.querySelector('.auth-msg').textContent = err.message; } finally { button.disabled = false; }
   };
 }
-function defaultAcademicYear() { const d = new Date(), y = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; }
+// The academic year runs 1 September to 31 August, written 2026/27. Prefilled for a new module; each instructor may change it.
+function defaultAcademicYear(d = new Date()) { const y = d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; }
 
 // ---------- blog settings: the exercise ----------
 export async function manageBlog(id) {

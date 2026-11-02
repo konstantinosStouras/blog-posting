@@ -601,7 +601,7 @@ async function admin(tab = 'users', moduleId = '') {
     body = `${pageHead('Site settings', 'The masthead of the whole site. Everything else is set per blog or per module.', true)}<form id="settings" class="two-col">
       <div><label class="field">Blog title (masthead)<input name="title" value="${esc(S.title)}" maxlength="120"></label>
       <label class="field">Tagline<input name="tagline" value="${esc(S.tagline)}" maxlength="160"></label></div>
-      <div><p class="muted">Everything about an exercise (the brief, categories such as megatrends, the word target, the outline, the checklist and whether comments are open) is set per blog in <b>Blog settings</b>. Deadlines, approval and open/closed submissions are set per module in <b>Module settings</b>. <a href="/admin/modules">Manage modules</a>.</p></div>
+      <div><p class="muted">Everything about an exercise (the brief, categories such as megatrends, the word target, the outline, the checklist and whether comments are open) is set per blog in <b>Blog settings</b>. Deadlines, the Brightspace link and open/closed submissions are set per module in <b>Module settings</b>. <a href="/admin/modules">Manage modules</a>.</p></div>
       <div class="actions"><button class="btn primary">Save settings</button></div></form>`;
   }
   if (tab === 'data') {
