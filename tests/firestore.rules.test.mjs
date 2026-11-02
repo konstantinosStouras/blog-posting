@@ -1,7 +1,7 @@
 import {before,after,beforeEach,test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {initializeTestEnvironment,assertSucceeds,assertFails} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,getDocs,collection,query,where,updateDoc,deleteDoc,writeBatch} from 'firebase/firestore';
+import {doc,setDoc,getDoc,getDocs,collection,query,where,updateDoc,deleteDoc,writeBatch,arrayUnion,arrayRemove} from 'firebase/firestore';
 let env;
 const time=Date.now();
 const profile=(email='student@ucdconnect.ie')=>({firstName:'Student',lastName:'Example',penName:'quiet-heron-482',studentId:'12345678',contactEmail:email,affiliation:'Example University',registrationKind:'student'});
@@ -212,6 +212,16 @@ test('members of any module on a blog may comment on its published posts; the bl
  await assertFails(setDoc(doc(d,'comments/other-blog'),comment({postId:'other-draft',moduleId:'two',blogId:'ops'})));
  await env.withSecurityRulesDisabled(c=>updateDoc(doc(c.firestore(),'blogs/pm'),{allowComments:false}));
  await assertFails(setDoc(doc(d,'comments/closed'),comment()));
+});
+test('a reply names its thread; a like is an account adding or removing only itself from likedBy',async()=>{
+ const d=db('student','student@ucdconnect.ie'), peer=db('peer','peer@ucd.ie');
+ await assertSucceeds(setDoc(doc(d,'comments/reply'),comment({parentId:'comment',likedBy:[]})));
+ await assertFails(setDoc(doc(d,'comments/pre-liked'),comment({likedBy:['student']})));   // a comment cannot be born liked
+ await assertSucceeds(updateDoc(doc(peer,'comments/comment'),{likedBy:arrayUnion('peer')}));
+ await assertFails(updateDoc(doc(peer,'comments/comment'),{likedBy:arrayUnion('student')}));   // not on someone else's behalf
+ await assertFails(updateDoc(doc(peer,'comments/comment'),{likedBy:['peer'],body:'edited'}));   // nothing but likedBy changes
+ await assertSucceeds(updateDoc(doc(peer,'comments/comment'),{likedBy:arrayRemove('peer')}));
+ await assertFails(updateDoc(doc(db('outsider','o@ucd.ie',false),'comments/comment'),{likedBy:arrayUnion('outsider')}));   // unverified
 });
 test('joining a module writes the blog membership only alongside a valid module membership',async()=>{
  const d=db('new-student','student@ucdconnect.ie');

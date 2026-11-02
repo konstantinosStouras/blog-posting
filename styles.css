@@ -155,16 +155,52 @@ dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background
 .post-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 18px; padding: 10px; background: var(--soft); border-radius: 6px; align-items: center; font-size: 13px; }
 .authorbox { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 0; margin: 24px 0; font-size: 13px; display: flex; gap: 12px; align-items: center; }
 .authorbox .avatar { width: 36px; height: 36px; font-size: 15px; }
-.prevnext { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; border-top: 2px solid var(--rule); border-bottom: 2px solid var(--rule); padding: 14px 0; margin: 26px 0; }
-.prevnext a { max-width: 48%; color: var(--ink); }
-.prevnext small { display: block; color: var(--muted); font-style: italic; }
-.comments h2 { font: 700 20px var(--serif); color: var(--ink); margin: 0 0 14px; }
-.comment { border-bottom: 1px solid var(--line); padding: 12px 0; font-size: 14px; }
-.comment .who { font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
-.comment .who b { color: var(--ink); }
-.comment .who button { margin-left: auto; }
-.comment p { margin: 6px 0 0; white-space: pre-wrap; }
-.reply textarea { width: 100%; min-height: 90px; padding: 10px; border: 1px solid #cfcfcf; border-radius: 6px; margin: 8px 0; }
+.prevnext { display: flex; justify-content: space-between; gap: 16px; margin: 26px 0 40px; font-family: var(--ui); }
+.nav-btn { display: inline-flex; align-items: center; gap: 10px; padding: 12px 22px; border: 0; border-radius: 6px; background: var(--soft); color: var(--ink); font-size: 16px; font-weight: 600; }
+.nav-btn:hover { background: #ebebe8; text-decoration: none; }
+/* The discussion: the comment box first, then the threads. */
+.comments { font-family: var(--ui); }
+.comments h2 { font: 700 22px var(--ui); color: var(--ink); margin: 0 0 18px; }
+.comment-count { font: 600 15px var(--ui); color: var(--ink); margin: 26px 0 6px; }
+.comment-count:empty { display: none; }
+.comment { padding: 16px 0 4px; font-size: 15px; line-height: 1.55; }
+.comment .who { font-size: 13px; color: var(--muted); display: flex; gap: 10px; align-items: flex-start; }
+.comment .who > div { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.comment .who b { color: var(--ink); font-size: 14px; }
+.comment .who .avatar { width: 32px; height: 32px; margin-top: 2px; }
+.comment .who button { margin-left: auto; }   /* the instructor area's comment list: Delete on the right */
+.liked-by { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #8a6d1d; background: #fdf6e3; border: 1px solid #efe1b5; border-radius: 4px; padding: 1px 6px; }
+.liked-by svg { width: 12px; height: 12px; fill: #e0a21b; stroke: #e0a21b; }
+.comment > p { margin: 8px 0 0 42px; white-space: pre-wrap; color: var(--body); }
+.c-actions { display: flex; align-items: center; gap: 18px; margin: 8px 0 0 42px; }
+.c-act { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 0; color: var(--muted); font: 600 11px/1 var(--ui); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.c-act svg { width: 16px; height: 16px; }
+.c-act:hover { color: var(--ink); }
+.c-act.on { color: var(--accent); }
+.c-act.on svg { fill: var(--accent); }
+.c-act.danger:hover { color: var(--bad); }
+.c-act[disabled] { cursor: default; opacity: .7; }
+.c-actions .grow { flex: 1; }
+.replies { margin: 6px 0 0 42px; padding-left: 20px; border-left: 2px solid var(--line); }
+.replies .comment { padding-top: 14px; }
+.reply-slot:empty { display: none; }
+.reply-slot { margin: 14px 0 6px 42px; }
+form.reply { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 10px; }
+form.reply .avatar { width: 32px; height: 32px; margin-top: 4px; }
+.reply-box { flex: 1; border: 1px solid #d6d6d6; border-radius: 8px; background: #fff; padding: 10px 12px 10px; }
+.reply-box:focus-within { border-color: var(--ink); }
+.reply-box textarea { display: block; width: 100%; min-height: 96px; padding: 2px 0; border: 0; outline: 0; resize: vertical; font: 15px/1.5 var(--ui); color: var(--ink); background: transparent; }
+form.reply.inline .reply-box textarea { min-height: 72px; }
+.reply-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 6px 0 0; }
+.reply-rules { font-size: 12px; color: var(--muted); }
+.reply-rules summary { cursor: pointer; list-style: none; text-align: right; padding: 2px 0; }
+.reply-rules summary::-webkit-details-marker { display: none; }
+.reply-rules summary::after { content: ' ⌄'; }
+.reply-rules[open] summary::after { content: ' ⌃'; }
+.rules-box { background: var(--soft); border-radius: 8px; padding: 12px 14px; margin: 8px 0 4px; font-size: 14px; color: var(--body); }
+.rules-box b { display: block; color: var(--ink); margin-bottom: 4px; }
+.rules-box p { margin: 0; }
+.comment:target { background: #fffbea; outline: 6px solid #fffbea; border-radius: 4px; }
 .linkish { background: none; border: 0; color: var(--blue); cursor: pointer; padding: 0; font-size: inherit; }
 .linkish.danger { color: var(--bad); }
 

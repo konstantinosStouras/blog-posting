@@ -14,6 +14,7 @@ import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl} from './util.js';
 import {openShare, printPost} from './share.js';
+import {replyRulesOf} from './seed.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
@@ -70,7 +71,7 @@ function render() { queue = queue.then(doRender).catch(e => console.error(e)); r
 async function doRender() {
   const seq = ++renderSeq;
   const path = route();   // '/x?trend=y': the app route, whatever the site is mounted at
-  liveView = null; $app.onclick = null;
+  liveView = null; $app.onclick = null; $app.onsubmit = null;
   resetAccess();   // who may read what is decided afresh for this navigation
   if (!user() && !PUBLIC.some(re => re.test(path.split('?')[0]))) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
   try { BLOGS = await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
@@ -244,27 +245,35 @@ async function postView(slug) {
     ${lateNote(p, module, u)}
     ${articleHtml(p, {blog, words, likes, comments: comments.length, me: u})}
     <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
-    <div class="prevnext"><span>${prev ? `<a href="${postPath(prev)}"><small>« Previous</small>${esc(prev.title)}</a>` : ''}</span><span style="text-align:right">${next ? `<a href="${postPath(next)}"><small>Next »</small>${esc(next.title)}</a>` : ''}</span></div>
-    <section class="comments" id="comments"><h2>${comments.length ? `${comments.length} comment${comments.length === 1 ? '' : 's'}` : 'Leave a reply'}</h2>
-      <div id="comment-list">${comments.map(c => commentHtml(c, u, p)).join('')}</div>
-      ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? `<form class="reply"><textarea name="body" required maxlength="4000" placeholder="Add to the discussion as ${esc(u.penName)}…"></textarea><button class="btn primary">Post comment</button></form>` : u ? '<p class="muted">An invitation from this blog’s instructor is required to comment. <button class="linkish" id="invite-to-comment">Enter invitation code</button></p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
+    <div class="prevnext">${prev ? `<a class="btn nav-btn" href="${postPath(prev)}" title="${esc(prev.title)}">${ICON.arrowLeft}<span>Previous</span></a>` : '<span></span>'}${next ? `<a class="btn nav-btn" href="${postPath(next)}" title="${esc(next.title)}"><span>Next</span>${ICON.arrowRight}</a>` : '<span></span>'}</div>
+    <section class="comments" id="comments"><h2>Discussion about this post</h2>
+      ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? commentFormHtml(u, blog) : u ? '<p class="muted">An invitation from this blog’s instructor is required to comment. <button class="linkish" id="invite-to-comment">Enter invitation code</button></p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
+      <p class="comment-count" id="comment-count"></p>
+      <div id="comment-list"></div>
     </section></article>`;
   $app.querySelector('#login-to-comment')?.addEventListener('click', () => store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'));
   $app.querySelector('#invite-to-comment')?.addEventListener('click',()=>openAuthModal('register'));
-  // Posting or deleting a comment redraws the comments section only. A full render() scrolls
-  // the page to the top and back down, so the article flickers twice; the store's change
+  // Posting, liking or deleting a comment redraws the comments section only. A full render()
+  // scrolls the page to the top and back down, so the article flickers twice; the store's change
   // notification would trigger one, so it is muted (liveView) while the comment is written.
   const quietly = async fn => { const was = liveView; liveView = 'comments'; try { return await fn(); } finally { liveView = was; } };
-  const refreshComments = async () => {
-    const cs = await store.listComments(p.id);
-    $app.querySelector('#comments h2').textContent = cs.length ? `${cs.length} comment${cs.length === 1 ? '' : 's'}` : 'Leave a reply';
-    $app.querySelector('#comment-list').innerHTML = cs.map(c => commentHtml(c, u, p)).join('');
-    const n = $app.querySelector('[data-comments] span'); if (n) n.textContent = cs.length || '';
+  const canReply = canParticipate && context.allowComments !== false;
+  const drawComments = cs => {
+    const n = cs.length;
+    $app.querySelector('#comment-count').textContent = n ? `${n} comment${n === 1 ? '' : 's'}` : '';
+    $app.querySelector('#comment-list').innerHTML = threadsHtml(cs, {u, p, blog, canReply, canLike: !!canParticipate});
+    const badge = $app.querySelector('[data-comments] span'); if (badge) badge.textContent = n || '';
   };
-  $app.querySelector('.reply')?.addEventListener('submit', async e => {
-    e.preventDefault(); const body = e.target.body.value.trim(); if (!body) return;
-    try { await quietly(() => store.addComment({postId: p.id, body}, u)); e.target.reset(); toast('Comment posted.'); await refreshComments(); } catch (err) { toast(err.message, 'error'); }
-  });
+  const refreshComments = async () => drawComments(await store.listComments(p.id));
+  drawComments(comments);
+  // One handler for the comment box and every inline reply box (they are drawn and redrawn).
+  $app.onsubmit = async e => {
+    const f = e.target.closest('form.reply'); if (!f) return;
+    e.preventDefault(); const body = f.body.value.trim(); if (!body) return;
+    const button = f.querySelector('button[type="submit"]'); button.disabled = true;
+    try { await quietly(() => store.addComment({postId: p.id, body, parentId: f.dataset.parent || ''}, u)); toast(f.dataset.parent ? 'Reply posted.' : 'Comment posted.'); await refreshComments(); if (!f.dataset.parent) f.reset(); }
+    catch (err) { toast(err.message, 'error'); button.disabled = false; }
+  };
   enhance($app.querySelector('.post .body'), {post: p, user: u, store});
   $app.querySelector('[data-share]').onclick = () => openShare(p, {blog, module});
   $app.querySelector('[data-pdf]').onclick = () => printPost(p, blog);
@@ -275,7 +284,24 @@ async function postView(slug) {
   };
   $app.onclick = async e => {
     const del = e.target.closest('[data-del-comment]');
-    if (del && confirm('Delete this comment?')) { try { await quietly(() => store.deleteComment(del.dataset.delComment)); await refreshComments(); } catch (err) { return toast(err.message, 'error'); } return; }
+    if (del) { if (confirm('Delete this comment?')) { try { await quietly(() => store.deleteComment(del.dataset.delComment)); await refreshComments(); } catch (err) { return toast(err.message, 'error'); } } return; }
+    const like = e.target.closest('[data-like-comment]');
+    if (like) {
+      if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
+      try { const n = await quietly(() => store.toggleCommentLike(like.dataset.likeComment, u)); like.classList.toggle('on', n.liked); like.setAttribute('aria-pressed', n.liked); like.querySelector('span').textContent = `Like${n.count ? ` (${n.count})` : ''}`; if (!$app.querySelector('form.reply.inline')) await refreshComments(); } catch (err) { toast(err.message, 'error'); }   // redrawn for the "Liked by" badge, unless a reply is being written
+      return;
+    }
+    const sh = e.target.closest('[data-share-comment]');
+    if (sh) { const c = (await store.listComments(p.id)).find(x => x.id === sh.dataset.shareComment); if (c) openShare(p, {blog, module, comment: c}); return; }
+    const rp = e.target.closest('[data-reply-to]');
+    if (rp) {   // the reply box opens under the thread's first comment; one box at a time
+      $app.querySelectorAll('.reply-slot').forEach(s => { s.innerHTML = ''; });
+      const slot = $app.querySelector(`.reply-slot[data-slot="${CSS.escape(rp.dataset.replyTo)}"]`); if (!slot) return;
+      slot.innerHTML = `<form class="reply inline" data-parent="${esc(rp.dataset.replyTo)}"><span class="avatar">${esc((u.penName || '?')[0].toUpperCase())}</span><div class="reply-box"><textarea name="body" required maxlength="4000" placeholder="Reply to ${esc(rp.dataset.replyName)}…"></textarea><p class="reply-actions"><button type="submit" class="btn primary small">Post reply</button><button type="button" class="btn small" data-cancel-reply>Cancel</button></p></div></form>`;
+      slot.querySelector('textarea').focus();
+      return;
+    }
+    if (e.target.closest('[data-cancel-reply]')) { e.target.closest('.reply-slot').innerHTML = ''; return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
     try {
@@ -287,8 +313,38 @@ async function postView(slug) {
     } catch (err) { toast(err.message, 'error'); }
   };
 }
-function commentHtml(c, u, p) {
-  return `<div class="comment"><div class="who"><span class="avatar">${esc((c.authorName || '?')[0].toUpperCase())}</span><b>${esc(c.authorName)}</b> · ${fmtDateTime(c.createdAt)}${u && can(u, 'deleteComment', {...c, blogId: p?.blogId}, S) ? `<button class="linkish danger small" data-del-comment="${c.id}">Delete</button>` : ''}</div><p>${esc(c.body)}</p></div>`;
+// The comment box: the reader's avatar beside it and, underneath, the blog's reply rules
+// (its own, or the site default) folded behind a toggle.
+function commentFormHtml(u, blog) {
+  const name = blog?.title || 'UCD blog';
+  return `<form class="reply"><span class="avatar">${esc((u.penName || '?')[0].toUpperCase())}</span><div class="reply-box"><textarea name="body" required maxlength="4000" placeholder="Write a comment…"></textarea>
+    <details class="reply-rules"><summary>${esc(name)} reply rules</summary><div class="rules-box"><b>${esc(name)} reply rules</b><p>${esc(replyRulesOf(blog))}</p></div></details>
+    <p class="reply-actions"><button type="submit" class="btn primary">Post comment</button></p></div></form>`;
+}
+// Threads: a comment and, indented beneath it, the replies to it. A reply to a reply joins the
+// same thread (one level), and a reply whose first comment is gone stands on its own.
+function threadsHtml(cs, ctx) {
+  const ids = new Set(cs.map(c => c.id));
+  const tops = cs.filter(c => !c.parentId || !ids.has(c.parentId)).sort((a, b) => a.createdAt - b.createdAt);
+  const replies = groupBy(cs.filter(c => c.parentId && ids.has(c.parentId)), c => c.parentId);
+  return tops.map(c => commentHtml(c, ctx, (replies[c.id] || []).sort((a, b) => a.createdAt - b.createdAt))).join('') || (ctx.canReply ? '' : '<p class="muted">No comments yet.</p>');
+}
+function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
+  const likedBy = c.likedBy || [], liked = !!u && likedBy.includes(u.uid);
+  const byAuthor = p && c.authorId !== p.authorId && likedBy.includes(p.authorId);   // the post's author liked this comment
+  const thread = c.parentId || c.id;
+  return `<div class="comment${replies ? '' : ' is-reply'}" id="c-${esc(c.id)}">
+    <div class="who"><span class="avatar">${esc((c.authorName || '?')[0].toUpperCase())}</span><div><b>${esc(c.authorName)}</b> <span class="when">${fmtDateTime(c.createdAt)}</span>${byAuthor ? `<span class="liked-by">${ICON.heart} Liked by ${esc(p.authorName)}</span>` : ''}</div></div>
+    <p>${esc(c.body)}</p>
+    <div class="c-actions">
+      <button type="button" class="c-act${liked ? ' on' : ''}" data-like-comment="${esc(c.id)}" aria-pressed="${liked}" ${canLike ? '' : 'disabled'}>${ICON.heart}<span>Like${likedBy.length ? ` (${likedBy.length})` : ''}</span></button>
+      ${canReply ? `<button type="button" class="c-act" data-reply-to="${esc(thread)}" data-reply-name="${esc(c.authorName)}">${ICON.comment}<span>Reply${replies?.length ? ` (${replies.length})` : ''}</span></button>` : replies?.length ? `<span class="c-act muted">${ICON.comment}<span>${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}</span></span>` : ''}
+      <span class="grow"></span>
+      ${u && can(u, 'deleteComment', {...c, blogId: p?.blogId}, S) ? `<button type="button" class="c-act danger" data-del-comment="${esc(c.id)}">Delete</button>` : ''}
+      <button type="button" class="c-act" data-share-comment="${esc(c.id)}">${ICON.share}<span>Share</span></button>
+    </div>
+    ${replies ? `<div class="reply-slot" data-slot="${esc(c.id)}"></div>${replies.length ? `<div class="replies">${replies.map(r => commentHtml(r, {u, p, blog, canReply, canLike})).join('')}</div>` : ''}` : ''}
+  </div>`;
 }
 
 // ---------- the writer (laid out like Substack's post editor) ----------

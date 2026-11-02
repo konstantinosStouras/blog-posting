@@ -47,6 +47,10 @@ export const PM_EXERCISE = {
   checklist: ['Why the megatrend matters to management', 'How management is affected (+/−)', 'Current steps: next 2 years and 2–10 years', 'Your recommendations, short and medium term', 'One or two open questions for classmates', 'Sources as hyperlinks (FT50, HBR, MIT SMR, The Economist…)'],
 };
 export const EMPTY_EXERCISE = {categoryLabel: 'Category', categories: [], organisationLabel: '', minWords: 0, maxWords: 0, brief: '', outline: '', checklist: []};
+// The reply rules shown under the comment box: every blog starts with these; an instructor
+// rewrites them in Blog settings, and they apply to every post on that blog's canvas.
+export const DEFAULT_REPLY_RULES = 'Be nice, and be specific: reply to what the author actually argued, with your own reasoning and, where you can, evidence. Disagreement is welcome; dismissiveness is not. If you use AI to help, make sure the idea is yours and the words are too.';
+export const replyRulesOf = blog => (blog && typeof blog.replyRules === 'string' && blog.replyRules.trim()) || DEFAULT_REPLY_RULES;
 
 const T0 = new Date('2026-09-01T09:00:00').getTime();
 export const SEED_BLOGS = [
@@ -152,8 +156,8 @@ export const SEED_POSTS = [
 ];
 
 export const SEED_COMMENTS = [
-  {id: 'c1', postId: 'p6', authorId: 'u-s3', authorName: 'swift-osprey-215', createdAt: d('2026-10-16T08:10:00'), body: 'Really clear explanation of why planning permission has become the critical path. Do you know whether heat reuse has actually been delivered anywhere in Ireland yet?'},
-  {id: 'c2', postId: 'p6', authorId: 'u-s2', authorName: 'amber-falcon-731', createdAt: d('2026-10-16T12:40:00'), body: 'Good question. Two schemes are in planning but, as far as I could find, none is live. I would love a classmate with an engineering background to weigh in.'},
+  {id: 'c1', postId: 'p6', authorId: 'u-s3', authorName: 'swift-osprey-215', createdAt: d('2026-10-16T08:10:00'), likedBy: ['u-s2'], body: 'Really clear explanation of why planning permission has become the critical path. Do you know whether heat reuse has actually been delivered anywhere in Ireland yet?'},
+  {id: 'c2', postId: 'p6', parentId: 'c1', authorId: 'u-s2', authorName: 'amber-falcon-731', createdAt: d('2026-10-16T12:40:00'), body: 'Good question. Two schemes are in planning but, as far as I could find, none is live. I would love a classmate with an engineering background to weigh in.'},
   {id: 'c3', postId: 'p7', authorId: 'u-s1', authorName: 'quiet-heron-482', createdAt: d('2026-10-12T19:00:00'), body: 'The rolling-wave planning recommendation fits the lecture on uncertainty well. One worry: does quarterly updating of a master plan create its own coordination cost?'},
   {id: 'c4', postId: 'p7', authorId: 'u-lect', authorName: 'tutor_eve', createdAt: d('2026-10-13T09:00:00'), body: 'Nice structure. For the final version, link each recommendation to the evidence you cite in the first half.'},
 ];

@@ -148,12 +148,19 @@ export const local = {
   // ---- comments ----
   async listComments(postId) { return delay(structuredClone(state.comments.filter(c => c.postId === postId).sort((a, b) => a.createdAt - b.createdAt))); },
   async recentComments(n = 5) { return delay(structuredClone([...state.comments].sort((a, b) => b.createdAt - a.createdAt).slice(0, n))); },
-  async addComment({postId, body}, user) {
+  // A reply names its parent (one level: a reply to a reply joins the same thread).
+  async addComment({postId, body, parentId = ''}, user) {
     const post = state.posts.find(p => p.id === postId);
-    const c = {id: newId(), postId, moduleId: post?.moduleId || '', blogId: post?.blogId || '', body, authorId: user.uid, authorName: user.penName, createdAt: Date.now()};
+    const c = {id: newId(), postId, parentId: parentId || '', moduleId: post?.moduleId || '', blogId: post?.blogId || '', body, authorId: user.uid, authorName: user.penName, createdAt: Date.now(), likedBy: []};
     state.comments.push(c); save(); return c;
   },
-  async deleteComment(id) { state.comments = state.comments.filter(c => c.id !== id); save(); },
+  async deleteComment(id) { state.comments = state.comments.filter(c => c.id !== id && c.parentId !== id); save(); },   // a thread goes with its first comment
+  async toggleCommentLike(id, u) {
+    const c = state.comments.find(x => x.id === id); if (!c) throw Error('Comment not found.');
+    c.likedBy = c.likedBy || []; const i = c.likedBy.indexOf(u.uid);
+    if (i >= 0) c.likedBy.splice(i, 1); else c.likedBy.push(u.uid);
+    save(); return {liked: i < 0, count: c.likedBy.length};
+  },
 
   // ---- people ----
   async listUsers(moduleId = '') { return delay(structuredClone(moduleId ? state.users.filter(u => state.memberships.some(x => x.uid === u.uid && x.moduleId === moduleId)) : state.users)); },

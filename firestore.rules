@@ -181,9 +181,9 @@ service cloud.firestore {
     }
     function blogShape() {
       let d = request.resource.data;
-      return d.keys().hasOnly(['title','description','teacherIds','createdBy','createdAt','updatedAt','brief','categoryLabel','categories','organisationLabel','minWords','maxWords','outline','checklist','allowComments'])
+      return d.keys().hasOnly(['title','description','teacherIds','createdBy','createdAt','updatedAt','brief','categoryLabel','categories','organisationLabel','minWords','maxWords','outline','checklist','allowComments','replyRules'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 160
-        && str('description',1200) && str('brief',60000) && str('categoryLabel',40) && str('organisationLabel',60) && str('outline',20000)
+        && str('description',1200) && str('brief',60000) && str('categoryLabel',40) && str('organisationLabel',60) && str('outline',20000) && str('replyRules',1000)
         && d.get('categories',[]) is list && d.get('categories',[]).size() <= 30
         && d.get('checklist',[]) is list && d.get('checklist',[]).size() <= 12
         && d.get('minWords',0) is number && d.get('maxWords',0) is number && d.get('allowComments',true) is bool
@@ -269,7 +269,8 @@ service cloud.firestore {
     match /comments/{id} {
       allow read: if signedIn();
       allow create: if verified()
-        && request.resource.data.keys().hasOnly(['postId','moduleId','blogId','body','authorId','authorName','createdAt'])
+        && request.resource.data.keys().hasOnly(['postId','parentId','moduleId','blogId','body','authorId','authorName','createdAt','likedBy'])
+        && request.resource.data.get('parentId','') is string && request.resource.data.get('likedBy',[]) == []
         && request.resource.data.authorId == request.auth.uid
         && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
           || ((memberOf(request.resource.data.moduleId) || blogMember(request.resource.data.blogId))
@@ -282,7 +283,14 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.moduleId == request.resource.data.moduleId
         && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.get('blogId','') == request.resource.data.blogId
         && get(blogPath(request.resource.data.blogId)).data.get('allowComments', true);
-      allow update: if false;
+      // Likes on a comment: the only change allowed is an account adding or removing itself from likedBy.
+      allow update: if verified()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy'])
+        && request.resource.data.likedBy is list
+        && ((request.resource.data.likedBy.toSet().difference(resource.data.get('likedBy', []).toSet()) == [request.auth.uid].toSet()
+             && resource.data.get('likedBy', []).toSet().difference(request.resource.data.likedBy.toSet()).size() == 0)
+          || (resource.data.get('likedBy', []).toSet().difference(request.resource.data.likedBy.toSet()) == [request.auth.uid].toSet()
+             && request.resource.data.likedBy.toSet().difference(resource.data.get('likedBy', []).toSet()).size() == 0));
       allow delete: if own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.get('blogId',''));
     }
     match /settings/site { allow read: if true; allow write: if isAdmin(); }

@@ -358,8 +358,23 @@ export const firebase = {
   // ---- comments ----
   async listComments(postId) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', postId))); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt); },
   async recentComments(n = 5) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.orderBy('createdAt', 'desc'), F.limit(n))); return s.docs.map(norm); },
-  async addComment({postId, body}, u) { if (!user?.emailVerified) throw Error('Verify your sign-in email before commenting.'); const post = await this.getPost(postId); if (!post) throw Error('Post not found.'); const c = {postId, moduleId:post.moduleId, blogId: post.blogId || '', body, authorId: u.uid, authorName: u.penName || 'student', createdAt: Date.now()}; const ref = await F.addDoc(F.collection(db, 'comments'), c); notify(); return {id: ref.id, ...c}; },
-  async deleteComment(id) { await F.deleteDoc(F.doc(db, 'comments', id)); notify(); },
+  // A reply names its parent (one level: a reply to a reply joins the same thread).
+  async addComment({postId, body, parentId = ''}, u) { if (!user?.emailVerified) throw Error('Verify your sign-in email before commenting.'); const post = await this.getPost(postId); if (!post) throw Error('Post not found.'); const c = {postId, parentId: parentId || '', moduleId:post.moduleId, blogId: post.blogId || '', body, authorId: u.uid, authorName: u.penName || 'student', createdAt: Date.now(), likedBy: []}; const ref = await F.addDoc(F.collection(db, 'comments'), c); notify(); return {id: ref.id, ...c}; },
+  // A thread goes with its first comment where the rules allow (staff, or replies of one's own);
+  // a reply that cannot be removed is shown at the top level afterwards.
+  async deleteComment(id) {
+    await F.deleteDoc(F.doc(db, 'comments', id));
+    const rs = await F.getDocs(F.query(F.collection(db, 'comments'), F.where('parentId', '==', id)));
+    for (const r of rs.docs) { try { await F.deleteDoc(r.ref); } catch {} }
+    notify();
+  },
+  // Likes on a comment live on the comment (likedBy): the rules let an account add or remove only itself.
+  async toggleCommentLike(id, u) {
+    if (!user?.emailVerified) throw Error('Verify your sign-in email to like comments.');
+    const ref = F.doc(db, 'comments', id), had = ((await F.getDoc(ref)).data()?.likedBy || []).includes(u.uid);
+    await F.updateDoc(ref, {likedBy: had ? F.arrayRemove(u.uid) : F.arrayUnion(u.uid)});
+    const n = ((await F.getDoc(ref)).data()?.likedBy || []).length; return {liked: !had, count: n};
+  },
 
   // ---- people (staff only, enforced by the rules) ----
   async listUsers(moduleId = '') {

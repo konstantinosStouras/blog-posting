@@ -8,7 +8,7 @@ import {store, canReadBlog} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
 import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
-import {PM_EXERCISE} from './seed.js';
+import {PM_EXERCISE, DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
 
 let app, canvas;
@@ -170,6 +170,7 @@ export async function manageBlog(id) {
       <label class="field">Checklist shown beside the editor (one item per line)<textarea name="checklist" rows="7">${esc(lines(b.checklist))}</textarea></label>
       <label class="check"><input type="checkbox" name="allowComments" ${b.allowComments !== false ? 'checked' : ''}> Allow comments on published posts</label></div>
     </div>
+    <label class="field">Reply rules (shown under the comment box on every post of this blog; empty restores the default)<textarea name="replyRules" maxlength="1000" rows="3" placeholder="${esc(DEFAULT_REPLY_RULES)}">${esc(b.replyRules || '')}</textarea></label>
     <label class="field">Outline the student can insert (HTML; <code>{organisation}</code> and <code>{category}</code> are filled in)<textarea name="outline" rows="8">${esc(b.outline || '')}</textarea></label>
     <p class="actions"><button class="btn primary">Save blog</button><a class="btn" href="/${esc(id)}">Back to the blog</a><button type="button" class="btn" id="fill-pm" title="Fills the form with the PM Challenge brief, the six megatrends, the 900–1,100 word target, the outline and the checklist. Nothing is saved until you press Save blog.">Fill in the PM Challenge exercise</button></p><p class="auth-msg" aria-live="polite"></p></form>
     <h2 class="page-title" style="font-size:20px;margin-top:30px">Modules writing on this blog</h2>
@@ -185,7 +186,7 @@ export async function manageBlog(id) {
     e.preventDefault(); const f = e.target, d = Object.fromEntries(new FormData(f)), button = f.querySelector('button'); button.disabled = true;
     try {
       if (+d.minWords > +d.maxWords && +d.maxWords > 0) throw Error('The minimum word count cannot exceed the maximum.');
-      await store.saveBlog({id, title: d.title.trim(), description: d.description.trim(), brief: d.brief, categoryLabel: d.categoryLabel.trim() || 'Category', organisationLabel: d.organisationLabel.trim(), minWords: +d.minWords || 0, maxWords: +d.maxWords || 0, outline: d.outline, allowComments: !!d.allowComments,
+      await store.saveBlog({id, title: d.title.trim(), description: d.description.trim(), brief: d.brief, categoryLabel: d.categoryLabel.trim() || 'Category', organisationLabel: d.organisationLabel.trim(), minWords: +d.minWords || 0, maxWords: +d.maxWords || 0, outline: d.outline, allowComments: !!d.allowComments, replyRules: d.replyRules.trim(),
         categories: d.categories.split('\n').map(l => l.split('|')).filter(a => a[0]?.trim()).map(a => ({slug: slugify(a[0]), name: (a[1] || a[0]).trim()})).slice(0, 30),
         checklist: d.checklist.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 12)});
       toast('Blog saved.'); navigate('/' + id);
