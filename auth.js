@@ -25,9 +25,8 @@ export function renderAccountControl(el,{previewModules=[]}={}){
   el.innerHTML=`<label class="viewas">View as<select id="viewas"><option value="">Visitor (signed out)</option>${store.users().map(x=>`<option value="${x.uid}" ${u?.uid===x.uid?'selected':''}>${esc(fullName(x))} · ${esc(roleLabel(x.role))}</option>`).join('')}</select></label>${u?accountMenu(u,previewModules):''}`;
   el.querySelector('#viewas').onchange=e=>store.viewAs(e.target.value);return;
  }
- el.innerHTML=u?accountMenu(u,previewModules):'<button class="btn small" id="signin-btn">Log in</button> <button class="btn small" id="register-btn">Register with an invitation</button>';
+ el.innerHTML=u?accountMenu(u,previewModules):'<button class="btn small" id="signin-btn">Log in</button>';
  el.querySelector('#signin-btn')?.addEventListener('click',()=>openAuthModal('signin'));
- el.querySelector('#register-btn')?.addEventListener('click',()=>openAuthModal('register'));
 }
 // The signed-in person's own name and picture (Google's, when they signed in with Google).
 // A student's alias is for the byline of their posts and comments, not for this control.
@@ -56,7 +55,7 @@ export async function openAuthModal(view='signin',invitation=null){
  if(!activeInvitation){try{activeInvitation=await routeInvitation();}catch{}}
  const collecting=view==='register'||view==='complete',u=currentUser();
  if(collecting&&!activeInvitation){
-  m.innerHTML=`<form method="dialog" class="auth-form"><button type="button" class="close" aria-label="Close">×</button><h2>Enter your invitation code</h2><p class="muted">Use the city name supplied by the platform admin or your module instructor.</p><label>Registration code<input name="registrationCode" required autocomplete="off" placeholder="e.g. Madrid-483"></label><button class="btn primary" value="submit">Continue</button><p class="auth-msg" aria-live="polite"></p></form>`;
+  m.innerHTML=`<form method="dialog" class="auth-form"><button type="button" class="close" aria-label="Close">×</button><h2>Enter your invitation code</h2><p class="muted">Use the invitation code supplied by the platform admin or your module instructor.</p><label>Registration code<input name="registrationCode" required autocomplete="off" placeholder="Your invitation code"></label><button class="btn primary" value="submit">Continue</button><p class="auth-msg" aria-live="polite"></p></form>`;
   m.querySelector('form').onsubmit=async e=>{if(e.submitter?.value!=='submit')return;e.preventDefault();try{const data=Object.fromEntries(new FormData(e.target));const info=await store.resolveRegistrationCode(data.registrationCode);activeInvitation=info;navigate(invitationRoute(info));await openAuthModal(u?'complete':'register',info);}catch(err){m.querySelector('.auth-msg').textContent=friendly(err);}};
   if(!m.open)m.showModal();return;
  }
@@ -72,7 +71,7 @@ export async function openAuthModal(view='signin',invitation=null){
   <h2>${view==='complete'?'Complete your profile':view==='register'?teacher?'Instructor registration':'Module student registration':view==='reset'?'Reset password':'Log in'}</h2>
   <p class="muted">${collecting?'Your invitation determines which space you can access. Your university details remain private to you and authorised teaching staff.':'Sign in with the same email or Google account you registered with.'}</p>${fields}
   ${google&&view!=='reset'&&view!=='complete'?`${collecting?'<label>Gmail for Google sign-in (optional)<input name="googleEmail" type="email" autocomplete="off" placeholder="yourname@gmail.com"></label><p class="hint">Choose this account in the next window. No password below is needed when using Google.</p>':''}<button type="button" class="btn provider" data-provider="google.com">Continue with Google</button>`:''}
-  ${view==='complete'?'<button class="btn primary" value="submit">Save profile and continue</button>':pw?`${view!=='reset'?'<div class="or">or with email and password</div>':''}${collecting?'':'<label>Email<input name="email" type="email" required autocomplete="username"></label>'}${view==='reset'?'':`<label>Password${collecting?' (for university email sign-in)':''}<input name="password" type="password" required minlength="8" autocomplete="${collecting?'new-password':'current-password'}"></label>`}<button class="btn primary" value="submit">${collecting?'Register with university email':view==='reset'?'Send reset email':'Log in'}</button><p class="muted small">${collecting?'Already registered? <a href="#" data-view="signin">Log in</a>':'Have an invitation? <a href="#" data-view="register">Register</a> · <a href="#" data-view="reset">Forgot password?</a>'}</p>`:''}
+  ${view==='complete'?'<button class="btn primary" value="submit">Save profile and continue</button>':pw?`${view!=='reset'?'<div class="or">or with email and password</div>':''}${collecting?'':'<label>Email<input name="email" type="email" required autocomplete="username"></label>'}${view==='reset'?'':`<label>Password${collecting?' (for university email sign-in)':''}<input name="password" type="password" required minlength="8" autocomplete="${collecting?'new-password':'current-password'}"></label>`}<button class="btn primary" value="submit">${collecting?'Register with university email':view==='reset'?'Send reset email':'Log in'}</button><p class="muted small">${collecting?'Already registered? <a href="#" data-view="signin">Log in</a>':'New here? <a href="#" data-view="register">Register with your invitation code</a> · <a href="#" data-view="reset">Forgot password?</a>'}</p>`:''}
   <p class="auth-msg" aria-live="polite"></p></form>`;
  const msg=m.querySelector('.auth-msg');
  m.querySelectorAll('[data-view]').forEach(a=>a.onclick=e=>{e.preventDefault();openAuthModal(a.dataset.view,activeInvitation);});

@@ -68,8 +68,8 @@ canvas simply shows no megatrend chips.
 
 ## 5. Invite the students
 
-Per module: **My modules → Invite students → Generate student city code**.
-Share the registration link (it prefills the city code and ties the student to
+Per module: **My modules → Invite students → Generate student invitation code**.
+Share the registration link (it prefills the code and ties the student to
 that module only). Students register with name, university, university email
 and ID, verify their email, and land on the module's blog with a **Write your
 blog post** button. Members of any module on a blog can comment on all of its

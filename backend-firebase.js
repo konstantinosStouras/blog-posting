@@ -44,7 +44,7 @@ async function createCodedInvite(kind, data) {
     });
     if(result)return result;
   }
-  throw Error('Could not allocate an unused city code. Please try again.');
+  throw Error('Could not allocate an unused invitation code. Please try again.');
 }
 
 async function loadRole(uid, email, verified) {
@@ -225,7 +225,7 @@ export const firebase = {
   },
   async resolveRegistrationCode(code) {
     const key=normalizeCode(code);
-    if(!/^[a-z]+(-[0-9]{3})?$/.test(key))throw Error('Enter the city code supplied with your invitation, e.g. Madrid-483.');
+    if(!/^[a-z]+(-[0-9]{3})?$/.test(key))throw Error('Enter the invitation code exactly as it was supplied to you.');
     const s=await F.getDoc(F.doc(db,'registrationCodes',key));
     if(!s.exists() || s.data().revoked || s.data().expiresAt<Date.now())throw Error('That registration code is invalid, revoked or expired.');
     return s.data();
