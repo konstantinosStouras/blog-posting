@@ -84,24 +84,30 @@ function landed(seq) {
 function renderHeader(path = route()) {
   const u = user();
   const active = h => (h === '/' ? path === '/' : path.startsWith(h)) ? 'active' : '';
-  $header.innerHTML = `<div class="brand"><h1><a href="/">${esc(S.title)}</a></h1><div class="account" id="account"></div></div>
+  // Two rows. Top: the masthead with the account control on the right (a Write button and the
+  // avatar menu, where everything personal lives). Under the rule: the site's public tabs on the
+  // left and search on the right. On a phone the tabs fold into a drawer that slides in from the left.
+  document.body.classList.remove('nav-locked');
+  $header.innerHTML = `<div class="brand">
+    <button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>
+    <div class="masthead"><h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p></div>
+    <div class="account" id="account"></div></div>
   <hr class="rule">
-  <div class="sub"><p class="tagline">${esc(S.tagline)}</p>
-    <nav><a href="/blogs" class="${active('/blogs')}">Explore blogs</a><a href="/posts" class="${active('/posts')}">All posts</a>
-      ${u ? `<a href="/my-modules" class="${active('/my-modules')}">My modules</a>` : ''}
-      ${u ? `<a href="/write" class="${active('/write')}">Write</a><a href="/mine" class="${active('/mine')}">My posts</a>` : ''}
-      ${u && rank(u.role) >= 1 ? `<a href="/review" class="${active('/review')}">Instructor</a>` : ''}
-      ${u && rank(u.role) >= 2 ? `<a href="/admin" class="${active('/admin')}">Admin</a>` : ''}
+  <div class="sub">
+    <nav id="site-nav" class="site-nav" aria-label="Site">
+      <button type="button" class="nav-close" aria-label="Close menu">×</button>
+      <a href="/blogs" class="${active('/blogs')}">Explore blogs</a><a href="/posts" class="${active('/posts')}">All posts</a>
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>
-    </nav></div><hr class="thin">
-    ${u?.studentPreview ? `<div class="preview-bar" role="status">You are seeing this as a student of <b>${esc(u.studentPreview.label)}</b> sees it. <button class="btn small" data-exit-student-view>Exit student view</button></div>` : ''}`;
-  renderAccountControl($header.querySelector('#account'));
-  // On a blog that one of their modules writes on, an instructor's account menu offers "View as student".
-  const blogId = path.match(/^\/blog\/([a-z0-9-]+)/)?.[1];
-  if (u && blogId && !u.studentPreview && rank(u.role) >= 1) store.listModules().then(ms => {
-    const previewModules = ms.filter(m => m.blogId === blogId && (u.role === 'admin' || (m.teacherIds || []).includes(u.uid))).map(m => ({id: m.id, blogId, label: [m.code, m.title].filter(Boolean).join(' ')}));
-    if (previewModules.length && route() === path) renderAccountControl($header.querySelector('#account'), {previewModules});
-  }).catch(() => {});
+    </nav>
+    <div class="nav-backdrop" hidden></div></div><hr class="thin">`;
+  renderAccountControl($header.querySelector('#account'));   // includes "View as Instructor X" / "View as Student" when they apply
+  const toggle = $header.querySelector('.nav-toggle'), nav = $header.querySelector('#site-nav'), backdrop = $header.querySelector('.nav-backdrop');
+  const setNav = open => { $header.classList.toggle('nav-open', open); toggle.setAttribute('aria-expanded', String(open)); backdrop.hidden = !open; document.body.classList.toggle('nav-locked', open); };
+  toggle.onclick = () => { const open = !$header.classList.contains('nav-open'); setNav(open); if (open) nav.querySelector('a')?.focus(); };
+  backdrop.onclick = () => setNav(false);
+  nav.querySelector('.nav-close').onclick = () => { setNav(false); toggle.focus(); };
+  nav.addEventListener('click', e => { if (e.target.closest('a')) setNav(false); });
+  nav.addEventListener('keydown', e => { if (e.key === 'Escape') { setNav(false); toggle.focus(); } });
   $header.querySelector('.searchbox').onsubmit = e => { e.preventDefault(); navigate('/posts' + filterQuery({q: e.target.q.value.trim()})); };
 }
 async function renderFooter(seq = renderSeq) {
@@ -277,7 +283,7 @@ async function editorView(id, moduleId) {
   }
   p = p || {moduleId, title: '', body: '', category: '', organisation: '', tags: [], featuredImage: '', status: 'draft', excerpt: ''};
   const draft = {...p, title: p.title === 'Untitled draft' ? '' : (p.title || ''), tags: [...(p.tags || [])]};   // the placeholder title is for the database only
-  const trackTime=store.mode==='firebase'&&rank(u.role)===0&&(!p.authorId||p.authorId===u.uid);
+  const trackTime=store.mode==='firebase'&&rank(u.role)===0&&!u.preview&&(!p.authorId||p.authorId===u.uid);   // nothing is recorded while an instructor previews the writer
   if(trackTime&&!p.id){p.id=newId();draft.id=p.id;}
   const previousWritingSeconds=0;
   let writingTimer;
@@ -442,7 +448,7 @@ async function profileView() {
   if (!u) { $app.innerHTML = `<p class="empty">Log in to edit your profile.</p>`; return; }
   const student = u.registrationKind !== 'teacher' && u.registrationKind !== 'instructor' && u.role === 'student';
   const f = (name, label, hint = '', type = 'text') => `<label class="field">${label}<input name="${name}" type="${type}" value="${esc(u[name] || '')}" maxlength="${name === 'studentId' ? 40 : 120}" ${student && (name === 'studentId' || name === 'contactEmail' || name === 'firstName' || name === 'lastName' || name === 'affiliation') ? 'required' : ''}>${hint ? `<p class="hint">${hint}</p>` : ''}</label>`;
-  if (u.studentPreview) { $app.innerHTML = `<p class="empty">Your profile is not part of the student view. <button class="btn small" data-exit-student-view>Exit student view</button></p>`; return; }
+  if (u.preview) { $app.innerHTML = `<p class="empty">Your profile is not part of a preview. <button class="btn small" data-exit-preview>Return to your own view</button></p>`; return; }
   $app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">Your profile</h1><p class="page-sub">Role: <b>${esc(roleLabel(u.role))}</b>${u.email ? ` · signed in as ${esc(u.email)}` : ''}</p>
     <form id="profile" class="two-col">
       <div>${rank(u.role) >= 1 ? f('penName', 'Pen name', 'Shown on your posts and comments.') : `<label class="field">Alias<input value="${esc(u.penName || '')}" disabled><p class="hint">Assigned at random when your account was created and shown on your posts and comments instead of your name. It cannot be changed, so classmates cannot identify you; your instructor alone sees who is behind it.</p></label>`}${f('firstName', 'First name')}${f('lastName', 'Last name')}</div>

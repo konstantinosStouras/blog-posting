@@ -43,6 +43,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .account-menu summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 20px; border: 1px solid var(--line); }
 .account-menu summary::-webkit-details-marker { display: none; }
 .account-menu small { color: var(--muted); }
+.account-menu .who { display: flex; flex-direction: column; line-height: 1.15; }
+.account-menu .who small { font-size: 11px; }
+.account-menu.previewing summary { border-color: #e08a2e; background: #fff7ee; }
+.account-menu.previewing .who small { color: #b4621a; font-weight: 600; }
+.account-menu .preview-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.account-menu .preview-head .small { color: var(--muted); font-size: 12px; }
+.account-menu .menu .preview-head .close-preview { margin-left: auto; padding: 0; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 6px; display: grid; place-items: center; font-size: 18px; line-height: 1; color: var(--ink); }
+.account-menu .menu .preview-head .close-preview:hover { border-color: var(--blue); color: var(--blue); background: #fff; }
+.account-menu .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: #fff; display: inline-grid; place-items: center; font-size: 11px; font-weight: 600; }
 img.avatar { object-fit: cover; background: var(--soft); flex: none; }
 .account-menu .menu p.small { margin: 2px 10px 6px; color: var(--muted); font-size: 12px; line-height: 1.35; }
@@ -201,8 +210,6 @@ dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background
 .invite-box[open] summary { margin-bottom: 6px; }
 .invite-box .guide { margin: 0; }
 /* An instructor's "View as student": the banner stays while the preview is on. */
-.preview-bar { background: #fff8e6; border: 1px solid #f1dfae; border-radius: 6px; padding: 8px 14px; margin: 12px 0 0; font-size: 13px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.preview-bar .btn { margin-left: auto; }
 table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.list th, table.list td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.list th { font-weight: 500; color: var(--muted); font-size: 12px; }

@@ -1,16 +1,27 @@
-import {store} from './store.js';
+import {store, setStorePreview} from './store.js';
 import {esc, toast} from './util.js';
 import {enabledProviders} from './firebase-config.js';
 import {registrationProfile} from './registration.js';
 import {route, navigate} from './router.js';
-// An instructor's "View as student": while it is on, the signed-in instructor (or
-// admin) is drawn as a student of one of their modules, so the blog, its brief and
-// its posts look exactly as that module's students see them. It lives in this
-// browser tab only; the backend still knows who they really are.
-const PREVIEW='ucd-blog.studentPreview';
-export const studentPreview=()=>{try{return JSON.parse(sessionStorage.getItem(PREVIEW))||null;}catch{return null;}};
-export function setStudentPreview(p){try{if(p)sessionStorage.setItem(PREVIEW,JSON.stringify(p));else sessionStorage.removeItem(PREVIEW);}catch{}}
-export const currentUser=()=>{const u=store.currentUser();const p=u&&studentPreview();return p&&['lecturer','admin'].includes(u.role)?{...u,role:'student',managedModuleIds:[],managedBlogIds:[],studentPreview:p}:u;};
+// Staff previews, as in a learning platform's "View as Student": the admin's account
+// menu offers "View as Instructor X" for each instructor, and on a blog canvas any
+// instructor (or the admin) gets "View as Student". While a preview is on, the
+// signed-in person is drawn as that instructor or as a student of that module, so
+// the pages look exactly as they do to them; the × in the menu returns to their own
+// view. It lives in this browser tab only, the backend still knows who they really
+// are, and store.js refuses every write until the preview is closed.
+//   {kind:'instructor', uid, name, moduleIds, blogIds}
+//   {kind:'student', moduleId, blogId, label, back}   back: the instructor preview to return to, if any
+const PREVIEW='ucd-blog.preview';
+export const preview=()=>{try{const p=JSON.parse(sessionStorage.getItem(PREVIEW));return p&&p.kind?p:null;}catch{return null;}};
+export function setPreview(p){try{if(p)sessionStorage.setItem(PREVIEW,JSON.stringify(p));else sessionStorage.removeItem(PREVIEW);}catch{}setStorePreview(p||null);}
+setStorePreview(preview());
+export const currentUser=()=>{
+ const u=store.currentUser();const p=u&&preview();
+ if(!p||!['lecturer','admin'].includes(u.role))return u;
+ if(p.kind==='instructor')return u.role==='admin'?{...u,uid:p.uid,role:'lecturer',managedModuleIds:p.moduleIds||[],managedBlogIds:p.blogIds||[],preview:p}:u;
+ return {...u,role:'student',managedModuleIds:[],managedBlogIds:[],preview:p,studentPreview:p};
+};
 let activeInvitation=null;
 export const roleLabel=role=>role==='lecturer'?'instructor':role;
 export function invitationRoute(info){return `/${info.kind==='instructor'?'invite':'join'}/${info.inviteId}/${info.code}`;}
@@ -19,32 +30,62 @@ async function routeInvitation(){
  const code=route().match(/^\/(?:invite|join)\/[a-zA-Z0-9-]+\/([a-z]+(?:-[0-9]{3})?)$/i)?.[1];
  return code?store.resolveRegistrationCode(code):null;
 }
-export function renderAccountControl(el,{previewModules=[]}={}){
+export function renderAccountControl(el){
  const u=currentUser();
  if(store.mode==='local'){
-  el.innerHTML=`<label class="viewas">View as<select id="viewas"><option value="">Visitor (signed out)</option>${store.users().map(x=>`<option value="${x.uid}" ${u?.uid===x.uid?'selected':''}>${esc(fullName(x))} · ${esc(roleLabel(x.role))}</option>`).join('')}</select></label>${u?accountMenu(u,previewModules):''}`;
-  el.querySelector('#viewas').onchange=e=>store.viewAs(e.target.value);return;
+  el.innerHTML=`<label class="viewas">Sample account<select id="viewas"><option value="">Visitor (signed out)</option>${store.users().map(x=>`<option value="${x.uid}" ${store.currentUser()?.uid===x.uid?'selected':''}>${esc(fullName(x))} · ${esc(roleLabel(x.role))}</option>`).join('')}</select></label>${u?writeButton()+accountMenu(u):''}`;
+  el.querySelector('#viewas').onchange=e=>{setPreview(null);store.viewAs(e.target.value);};
+ } else {
+  el.innerHTML=u?writeButton()+accountMenu(u):'<button class="btn small" id="signin-btn">Log in</button>';
+  el.querySelector('#signin-btn')?.addEventListener('click',()=>openAuthModal('signin'));
  }
- el.innerHTML=u?accountMenu(u,previewModules):'<button class="btn small" id="signin-btn">Log in</button>';
- el.querySelector('#signin-btn')?.addEventListener('click',()=>openAuthModal('signin'));
+ if(u)previewOptions(u).then(html=>{const slot=el.querySelector('[data-preview-options]');if(slot&&html)slot.innerHTML=html;}).catch(()=>{});
+}
+// What the menu offers: the admin may view the site as any instructor; on a blog
+// canvas, an instructor of one of its modules (or the admin) may view it as a student.
+async function previewOptions(u){
+ const p=u.preview||null;
+ if(p?.kind==='student')return '';
+ const out=[];
+ const blogId=route().match(/^\/blog\/([a-z0-9-]+)/)?.[1];
+ const modules=await store.listModules();
+ if(blogId&&['lecturer','admin'].includes(u.role)){
+  const m=modules.find(m=>m.blogId===blogId&&(m.teacherIds||[]).includes(u.uid))||(u.role==='admin'?modules.find(m=>m.blogId===blogId):null);
+  if(m)out.push(`<button data-preview-student="${esc(m.id)}" data-blog="${esc(blogId)}" data-label="${esc([m.code,m.title].filter(Boolean).join(' '))}">View as Student</button>`);
+ }
+ if(u.role==='admin'&&!p){
+  const [users,blogs]=await Promise.all([store.listUsers(),store.listBlogs()]);
+  const teaches=x=>modules.some(m=>(m.teacherIds||[]).includes(x.uid))||blogs.some(b=>(b.teacherIds||[]).includes(x.uid));
+  for(const x of users.filter(x=>x.uid!==u.uid&&(x.role==='lecturer'||teaches(x))).sort((a,b)=>fullName(a).localeCompare(fullName(b))))
+   out.push(`<button data-preview-instructor="${esc(x.uid)}" data-name="${esc(fullName(x))}" data-modules="${esc(modules.filter(m=>(m.teacherIds||[]).includes(x.uid)).map(m=>m.id).join(','))}" data-blogs="${esc(blogs.filter(b=>(b.teacherIds||[]).includes(x.uid)).map(b=>b.id).join(','))}">View as Instructor ${esc(fullName(x))}</button>`);
+ }
+ return out.length?out.join('')+'<hr>':'';
 }
 // The signed-in person's own name and picture (Google's, when they signed in with Google).
 // A student's alias is for the byline of their posts and comments, not for this control.
 export const fullName=u=>[u?.firstName,u?.lastName].filter(Boolean).join(' ')||u?.displayName||u?.penName||u?.email||'Account';
 export function avatarHtml(u,name=fullName(u)){return u?.photoURL?`<img class="avatar" src="${esc(u.photoURL)}" alt="" referrerpolicy="no-referrer">`:`<span class="avatar">${esc((name||'?')[0].toUpperCase())}</span>`;}
-function accountMenu(u,previewModules=[]){const name=fullName(u),pv=u.studentPreview;return `<details class="account-menu"><summary>${avatarHtml(u,name)} ${esc(name)} <small>${pv?'student view':esc(roleLabel(u.role))}</small></summary><div class="menu">
- ${pv?`<p class="small">Viewing <b>${esc(pv.label)}</b> as its students see it.</p><button data-exit-student-view>Exit student view</button>`:previewModules.map(m=>`<button data-student-preview="${esc(m.id)}" data-blog="${esc(m.blogId)}" data-label="${esc(m.label)}">View as student${previewModules.length>1?' · '+esc(m.label):''}</button>`).join('')}
- ${u.role==='student'&&u.penName&&!pv?`<p class="small">Your posts and comments appear as <b>${esc(u.penName)}</b>.</p>`:''}<a href="/my-modules">My modules</a><a href="/write">Compose a post</a><a href="/mine">My posts</a><a href="/profile">Edit profile</a>
+// "Write" is the one action that stays visible beside the avatar; everything else personal
+// (modules, posts, profile, the instructor and admin areas, sign out) lives in the menu, so the
+// site tabs under the rule can stay public: Explore blogs, All posts, search.
+const writeButton=()=>`<a href="/write" class="btn primary small write-btn">Write</a>`;
+function accountMenu(u){
+ const name=fullName(u),p=u.preview,as=p?(p.kind==='student'?'Student':p.name):'';
+ return `<details class="account-menu ${p?'previewing':''}"><summary aria-label="Account menu">${avatarHtml(u,name)} <span class="who">${esc(name)}<small>${p?'as '+esc(as):esc(roleLabel(u.role))}</small></span><span class="caret" aria-hidden="true"></span></summary><div class="menu">
+ <div class="menu-who"><b>${esc(name)}</b><small>${p?'as '+esc(as):esc(roleLabel(u.role))}${u.email?' · '+esc(u.email):''}</small></div>
+ ${p?`<div class="preview-head"><b>Viewing as ${esc(as)}</b>${p.kind==='student'?`<span class="small">${esc(p.label)}</span>`:''}<button type="button" class="close-preview" data-exit-preview aria-label="Close the preview and return to your own view" title="Return to your own view">×</button></div>`:''}<div data-preview-options></div>
+ ${u.role==='student'&&u.penName&&!p?`<p class="small">Your posts and comments appear as <b>${esc(u.penName)}</b>.</p>`:''}<a href="/my-modules">My modules</a><a href="/mine">My posts</a><a href="/profile">Edit profile</a>
  ${store.mode==='firebase'&&!u.emailVerified?'<p class="small">Verify your sign-in email before participating.</p><button id="resend-verification">Resend verification email</button><button id="refresh-verification">I have verified my email</button>':''}
- ${u.role!=='student'?'<a href="/review">Instructor area</a>':''}${u.role==='admin'?'<a href="/admin">Admin area</a>':''}${store.mode==='firebase'?'<button id="signout">Sign out</button>':''}</div></details>`;}
+ ${u.role!=='student'?`<hr><a href="/review">Instructor area</a>${u.role==='admin'?'<a href="/admin">Admin area</a>':''}`:''}${store.mode==='firebase'?'<hr><button id="signout">Sign out</button>':''}</div></details>`;}
  document.addEventListener('click',async e=>{
  try{
   if(e.target.id==='resend-verification'){await store.resendVerification();toast('Verification email sent.');}
   if(e.target.id==='refresh-verification')toast(await store.refreshVerification()?'Email verified. You can now accept your invitation.':'Open the verification link in your email first.');
-  if(e.target.id==='signout'){setStudentPreview(null);await store.signOut();activeInvitation=null;navigate('/');toast('Signed out.');}
-  const pv=e.target.closest('[data-student-preview]');
-  if(pv){setStudentPreview({moduleId:pv.dataset.studentPreview,blogId:pv.dataset.blog,label:pv.dataset.label});if(!navigate('/blog/'+pv.dataset.blog))dispatchEvent(new CustomEvent('routechange'));toast('Showing the blog as a student of '+pv.dataset.label+' sees it.');}
-  if(e.target.closest('[data-exit-student-view]')){setStudentPreview(null);dispatchEvent(new CustomEvent('routechange'));}
+  if(e.target.id==='signout'){setPreview(null);await store.signOut();activeInvitation=null;navigate('/');toast('Signed out.');}
+  const st=e.target.closest('[data-preview-student]'),ins=e.target.closest('[data-preview-instructor]');
+  if(st){const back=preview();setPreview({kind:'student',moduleId:st.dataset.previewStudent,blogId:st.dataset.blog,label:st.dataset.label,back:back?.kind==='instructor'?back:null});if(!navigate('/blog/'+st.dataset.blog))dispatchEvent(new CustomEvent('routechange'));toast('Viewing as a student of '+st.dataset.label+'. Close the preview from the account menu.');}
+  if(ins){setPreview({kind:'instructor',uid:ins.dataset.previewInstructor,name:ins.dataset.name,moduleIds:ins.dataset.modules.split(',').filter(Boolean),blogIds:ins.dataset.blogs.split(',').filter(Boolean)});if(!navigate('/my-modules'))dispatchEvent(new CustomEvent('routechange'));toast('Viewing as '+ins.dataset.name+'. Close the preview from the account menu.');}
+  if(e.target.closest('[data-exit-preview]')){const p=preview();setPreview(p?.back||null);dispatchEvent(new CustomEvent('routechange'));}
  }catch(err){toast(friendly(err));}
  const menu=document.querySelector('.account-menu[open]');if(menu&&!menu.contains(e.target))menu.removeAttribute('open');
 });
