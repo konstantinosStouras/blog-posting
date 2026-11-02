@@ -6,7 +6,7 @@
 //   modules of the same instructor may share one blog canvas.
 import {store} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
-import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize} from './util.js';
+import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
 import {PM_EXERCISE} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
 
@@ -24,34 +24,34 @@ export async function blogDirectory() {
   const [blogs, modules] = await Promise.all([store.listBlogs(), store.listModules()]);
   const card = b => { const ms = modules.filter(m => m.blogId === b.id); return `<article class="module-card"><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/blog/${esc(b.id)}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions"><a class="btn small" href="/blog/${esc(b.id)}">Open blog</a>${instructs(u, b) ? `<a class="btn small" href="/blogs/edit/${esc(b.id)}">Blog settings</a>` : ''}</div></article>`; };
   app.innerHTML = `<h1 class="page-title">Explore blogs</h1><p class="page-sub">Each blog is a public canvas written by one or more modules. Read without signing in; sign in with your module's invitation to write and comment.</p>
-    <p class="actions">${u ? '<a class="btn" href="/my-modules">My modules</a>' : '<button class="btn" id="platform-signin">Log in</button><button class="btn primary" id="platform-register">Register with an invitation</button>'}${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u?.role === 'admin' ? '<a class="btn" href="/invitations">Invite instructor</a>' : ''}</p>
+    <p class="actions">${u ? '<a class="btn" href="/my-modules">My modules</a>' : '<button class="btn" id="platform-signin">Log in</button><button class="btn primary" id="platform-register">Register with an invitation</button>'}${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u?.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
     ${blogs.length ? `<div class="module-grid">${blogs.map(card).join('')}</div>` : '<p class="empty">No blogs have been created yet.</p>'}`;
   app.querySelector('#platform-signin')?.addEventListener('click', () => openAuthModal());
   app.querySelector('#platform-register')?.addEventListener('click', () => openAuthModal('register'));
 }
 
 // ---------- my modules: a student's way in, an instructor's control room ----------
-export async function myModules() {
+export async function myModules(target = app, embedded = false) {
   const u = currentUser();
-  if (!u) { app.innerHTML = '<p class="empty">Sign in to see your modules.</p>'; if (store.mode === 'firebase') openAuthModal(); return; }
+  if (!u) { target.innerHTML = '<p class="empty">Sign in to see your modules.</p>'; if (store.mode === 'firebase') openAuthModal(); return; }
   const [mine, blogs] = await Promise.all([store.listMyModules(), store.listBlogs()]);
   const blogOf = id => blogs.find(b => b.id === id);
   if (!staff(u)) {
     // Students: the blog(s) of the module(s) they belong to, and the way to write.
-    app.innerHTML = `<h1 class="page-title">My modules</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b> · <a href="/profile">Edit profile</a></p>
+    target.innerHTML = `${pageHead('My modules', `Writing as <b>${esc(u.penName)}</b> · <a href="/profile">Edit profile</a>`, embedded)}
       ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}${m.academicYear ? ' · ' + esc(m.academicYear) : ''}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/blog/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDate(m.deadline)}</b>.` : ''}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/blog/${esc(b.id)}">Open blog</a><a class="btn small" href="/blog/${esc(b.id)}/brief">The brief</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
       <p class="actions"><a class="btn" href="/mine">My posts</a><button class="btn" id="platform-register">Enter an invitation code</button></p>`;
-    app.querySelector('#platform-register')?.addEventListener('click', () => openAuthModal('register'));
+    target.querySelector('#platform-register')?.addEventListener('click', () => openAuthModal('register'));
     return;
   }
   const teaching = mine.filter(isTeaching), byBlog = new Map();
   for (const m of teaching) (byBlog.get(m.blogId || '') || byBlog.set(m.blogId || '', []).get(m.blogId || '')).push(m);
   const section = (blogId, ms) => { const b = blogOf(blogId); return `<section class="blog-group"><h2 class="group-title">${b ? `<a href="/blog/${esc(b.id)}">${esc(b.title)}</a>` : 'Modules without a blog'}</h2>${b ? `<p class="actions small"><a href="/blogs/edit/${esc(b.id)}">Blog settings</a><a href="/blog/${esc(b.id)}/brief">Brief</a><a href="/review?blog=${esc(b.id)}">Review posts</a><button class="linkish" data-copy="${esc(blogUrl(b.id))}">Copy public link</button></p>` : '<p class="muted small">Open each module’s settings to attach it to a blog.</p>'}
     <table class="list"><thead><tr><th>Module</th><th>Academic year</th><th>Deadline</th><th>Submissions</th><th></th></tr></thead><tbody>${ms.map(m => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${esc(m.academicYear || '—')}</td><td>${m.deadline ? fmtDate(m.deadline) : '—'}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.requireApproval ? ' · approval' : ''}</td><td class="actions"><a href="/modules/edit/${esc(m.id)}">Settings</a><a href="/modules/invite/${esc(m.id)}">Invite students</a><a href="/review/roster?module=${esc(m.id)}">Roster</a><a href="/review?module=${esc(m.id)}">Posts</a></td></tr>`).join('')}</tbody></table></section>`; };
-  app.innerHTML = `<h1 class="page-title">My modules</h1><p class="page-sub">Your teaching modules, grouped by the blog they write on.</p>
-    <p class="actions"><a class="btn primary" href="/modules/new">Create module</a><a class="btn" href="/blogs">Explore blogs</a><a class="btn" href="/review">Instructor area</a>${u.role === 'admin' ? '<a class="btn" href="/invitations">Invite instructor</a>' : ''}</p>
+  target.innerHTML = `${pageHead(embedded ? 'Manage modules' : 'My modules', 'Your teaching modules, grouped by the blog they write on.', embedded)}
+    <p class="actions"><a class="btn primary" href="/modules/new">Create module</a><a class="btn" href="/blogs">Explore blogs</a><a class="btn" href="/review">Instructor area</a>${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
     ${teaching.length ? [...byBlog.entries()].map(([id, ms]) => section(id, ms)).join('') : '<p class="empty">Create your first module. You will choose a new blog for it, or reuse one of your existing blogs.</p>'}`;
-  app.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Public link copied.'); } catch { prompt('Public blog link', b.dataset.copy); } });
+  target.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Public link copied.'); } catch { prompt('Public blog link', b.dataset.copy); } });
 }
 
 // ---------- the public blog canvas ----------
@@ -87,7 +87,7 @@ export async function briefPage(id) {
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
   const myHere = mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;
   const words = blog.minWords && blog.maxWords ? `${blog.minWords}–${blog.maxWords} words` : blog.maxWords ? `up to ${blog.maxWords} words` : '';
-  app.innerHTML = `<div class="guide"><p class="page-sub" style="margin:0"><a href="/blog/${esc(id)}">${esc(blog.title)}</a></p><h1 class="page-title">The brief</h1>
+  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/blog/${esc(id)}">${esc(blog.title)}</a></p><h1 class="page-title">The brief</h1>
     ${blog.brief ? `<div class="body">${sanitize(blog.brief)}</div>` : '<p class="muted">The instructor has not written a brief for this blog yet.</p>'}
     <h2 class="page-title" style="font-size:20px;margin-top:30px">How publishing works here</h2>
     <ol class="steps">
@@ -111,7 +111,7 @@ export async function manageModule(id) {
   if (id && (!m || !instructs(u, m))) { app.innerHTML = '<p class="empty">You cannot manage this module.</p>'; return; }
   const existingBlogs = myBlogs.filter(b => b.id !== '');
   const chooseExisting = existingBlogs.length > 0 && (!m || !!m.blogId);
-  app.innerHTML = `<div class="guide"><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is one cohort: its students, deadline and moderation. Its posts appear on a blog that it may share with your other modules.</p>
+  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is one cohort: its students, deadline and moderation. Its posts appear on a blog that it may share with your other modules.</p>
     <form id="module-form">
     <div class="two-col"><label class="field">Module code<input name="code" maxlength="40" placeholder="e.g. BMGT45540" value="${esc(m?.code || '')}"></label>
     <label class="field">Academic year<input name="academicYear" required maxlength="20" placeholder="e.g. 2026/27" value="${esc(m?.academicYear || defaultAcademicYear())}"><p class="hint">Stamped on every post, so posts can be listed by module and year.</p></label></div>
@@ -154,7 +154,7 @@ export async function manageBlog(id) {
   const [b, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
   if (!b || !instructs(u, b)) { app.innerHTML = '<p class="empty">Only this blog’s instructor can change its settings.</p>'; return; }
   const lines = arr => (arr || []).join('\n');
-  app.innerHTML = `<div class="guide"><p class="page-sub" style="margin:0"><a href="/blog/${esc(id)}">${esc(b.title)}</a></p><h1 class="page-title">Blog settings</h1><p class="page-sub">What every module writing on this blog shares: the brief, the categories, the word target and the comments policy. Public link: <a href="${esc(blogUrl(id))}">${esc(blogUrl(id))}</a></p>
+  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/blog/${esc(id)}">${esc(b.title)}</a></p><h1 class="page-title">Blog settings</h1><p class="page-sub">What every module writing on this blog shares: the brief, the categories, the word target and the comments policy. Public link: <a href="${esc(blogUrl(id))}">${esc(blogUrl(id))}</a></p>
     <form id="blog-form">
     <label class="field">Blog title<input name="title" required maxlength="160" value="${esc(b.title)}"></label>
     <label class="field">Description (shown above the canvas)<textarea name="description" maxlength="1200" rows="3">${esc(b.description || '')}</textarea></label>
@@ -191,14 +191,14 @@ export async function manageBlog(id) {
 }
 
 // ---------- invitations (admin → instructor; instructor → students) ----------
-export async function invitationsPage() {
-  if(currentUser()?.role!=='admin'){app.innerHTML='<p class="empty">Admin access required.</p>';return;}
+export async function invitationsPage(target = app, embedded = false) {
+  if(currentUser()?.role!=='admin'){target.innerHTML='<p class="empty">Admin access required.</p>';return;}
   const invites=await store.listTeacherInvites();
-  app.innerHTML=`<h1 class="page-title">Invite an instructor</h1><p class="page-sub">Generate a city code and invitation link for one instructor. It expires after seven days and is tied to the email addresses below.</p>
+  target.innerHTML=`${pageHead('Invite an instructor', 'Generate a city code and invitation link for one instructor. It expires after seven days and is tied to the email addresses below.', embedded)}
     <form id="invite-form" class="guide"><label class="field">Instructor’s university email<input type="email" name="universityEmail" required maxlength="200"></label><label class="field">Instructor’s Gmail for Google sign-in (optional)<input type="email" name="gmail" maxlength="200"></label><button class="btn primary">Generate city code and invitation</button><p class="auth-msg" aria-live="polite"></p></form>
     <div id="new-invite" aria-live="polite"></div><h2>Invitations</h2><table class="list"><thead><tr><th>University email</th><th>City code</th><th>Status</th><th>Expires</th><th></th></tr></thead><tbody>${invites.map(i=>`<tr><td>${esc(i.ucdEmail)}</td><td>${esc(i.code||'—')}</td><td>${i.revoked?'Revoked':i.acceptedBy?'Accepted':i.expiresAt<Date.now()?'Expired':'Pending'}</td><td>${fmtDateTime(i.expiresAt)}</td><td>${!i.acceptedBy&&!i.revoked?`<button class="linkish" data-revoke="${esc(i.id)}">Revoke</button>`:''}</td></tr>`).join('')}</tbody></table>`;
-  app.querySelector('#invite-form').onsubmit=async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;try{const invite=await store.createTeacherInvite(Object.fromEntries(new FormData(f)));await invitationsPage();const url=publicUrl(invitationRoute({kind:'instructor',inviteId:invite.id,code:invite.code.toLowerCase()}));app.querySelector('#new-invite').innerHTML=`<div class="notice ok"><b>City code: ${esc(invite.code)}</b><label class="field">Instructor registration link<input readonly value="${esc(url)}" onclick="this.select()"></label><p class="small">The code is prefilled by this link. Share it only with the invited instructor.</p></div>`;}catch(err){f.querySelector('.auth-msg').textContent=err.message;}finally{b.disabled=false;}};
-  app.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{try{await store.revokeTeacherInvite(b.dataset.revoke);await invitationsPage();}catch(e){toast(e.message,'error');}});
+  target.querySelector('#invite-form').onsubmit=async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;try{const invite=await store.createTeacherInvite(Object.fromEntries(new FormData(f)));await invitationsPage(target, embedded);const url=publicUrl(invitationRoute({kind:'instructor',inviteId:invite.id,code:invite.code.toLowerCase()}));target.querySelector('#new-invite').innerHTML=`<div class="notice ok"><b>City code: ${esc(invite.code)}</b><label class="field">Instructor registration link<input readonly value="${esc(url)}" onclick="this.select()"></label><p class="small">The code is prefilled by this link. Share it only with the invited instructor.</p></div>`;}catch(err){f.querySelector('.auth-msg').textContent=err.message;}finally{b.disabled=false;}};
+  target.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{try{await store.revokeTeacherInvite(b.dataset.revoke);await invitationsPage(target, embedded);}catch(e){toast(e.message,'error');}});
 }
 
 export async function acceptInvitationPage(id,code='',kind='instructor') {
@@ -220,7 +220,7 @@ export async function studentInvitationsPage(moduleId){
  if(!m||!instructs(u,m)){app.innerHTML='<p class="empty">Only the module’s instructor or platform admin can invite students.</p>';return;}
  const invites=await store.listModuleInvites(moduleId);
  const link=i=>publicUrl(invitationRoute({kind:'student',inviteId:i.id,code:i.code.toLowerCase()}));
- app.innerHTML=`<h1 class="page-title">Invite students</h1><p class="page-sub">${esc(moduleLabel(m))}</p><p>Generate a city code and share its registration link with your students. The link prefills the code and connects students only to this module. Codes expire after 30 days and can be revoked.</p><label class="field">Student university email (optional)<input id="student-invite-email" type="email" maxlength="200" placeholder="Leave blank for a shared class link"><p class="hint">Enter an email to track a named invitation as pending. Names and university IDs are collected during registration.</p></label><button class="btn primary" id="create-student-invite">Generate student city code</button><a class="btn" href="/review/roster?module=${esc(moduleId)}">View roster & invitations</a><p class="auth-msg" aria-live="polite"></p>${invites.map(i=>`<div class="notice"><b>City code: ${esc(i.code)}</b><p>${i.recipientEmail?'Invited university email: '+esc(i.recipientEmail):'Shared class link'} · ${i.revoked?'Revoked':i.expiresAt<Date.now()?'Expired':'Active'} · Expires ${fmtDateTime(i.expiresAt)}</p><label class="field">Student registration link<input readonly value="${esc(link(i))}" onclick="this.select()"></label>${!i.revoked?`<button class="btn small" data-revoke-student="${esc(i.id)}">Revoke code</button>`:''}</div>`).join('')}<p><a href="/my-modules">Back to my modules</a></p>`;
+ app.innerHTML=`<p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">Invite students</h1><p class="page-sub">${esc(moduleLabel(m))}</p><p>Generate a city code and share its registration link with your students. The link prefills the code and connects students only to this module. Codes expire after 30 days and can be revoked.</p><label class="field">Student university email (optional)<input id="student-invite-email" type="email" maxlength="200" placeholder="Leave blank for a shared class link"><p class="hint">Enter an email to track a named invitation as pending. Names and university IDs are collected during registration.</p></label><button class="btn primary" id="create-student-invite">Generate student city code</button><a class="btn" href="/review/roster?module=${esc(moduleId)}">View roster & invitations</a><p class="auth-msg" aria-live="polite"></p>${invites.map(i=>`<div class="notice"><b>City code: ${esc(i.code)}</b><p>${i.recipientEmail?'Invited university email: '+esc(i.recipientEmail):'Shared class link'} · ${i.revoked?'Revoked':i.expiresAt<Date.now()?'Expired':'Active'} · Expires ${fmtDateTime(i.expiresAt)}</p><label class="field">Student registration link<input readonly value="${esc(link(i))}" onclick="this.select()"></label>${!i.revoked?`<button class="btn small" data-revoke-student="${esc(i.id)}">Revoke code</button>`:''}</div>`).join('')}<p><a href="/my-modules">Back to my modules</a></p>`;
  app.querySelector('#create-student-invite').onclick=async e=>{e.target.disabled=true;try{const email=app.querySelector('#student-invite-email');if(!email.reportValidity())return;await store.createModuleInvite(moduleId,email.value);await studentInvitationsPage(moduleId);}catch(err){app.querySelector('.auth-msg').textContent=err.message;}finally{e.target.disabled=false;}};
  app.querySelectorAll('[data-revoke-student]').forEach(b=>b.onclick=async()=>{try{await store.revokeModuleInvite(b.dataset.revokeStudent);await studentInvitationsPage(moduleId);}catch(err){toast(err.message,'error');}});
 }

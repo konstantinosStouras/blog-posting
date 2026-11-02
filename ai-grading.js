@@ -8,7 +8,7 @@
 import {store} from './store.js';
 import {currentUser} from './auth.js';
 import {navigate, publicUrl} from './router.js';
-import {esc, fmtDateTime, toast, postPath, wordCount} from './util.js';
+import {esc, fmtDateTime, toast, postPath, wordCount, pageHead} from './util.js';
 import {PROVIDERS, callProvider} from './ai-providers.js';
 import {DEFAULT_GRADER, PLACEHOLDERS, buildReview, buildPolish, parseReview, gradingRows, GRADING_COLUMNS} from './ai-grading-model.js';
 import {downloadExcelSheet} from './roster-export.js';
@@ -31,7 +31,7 @@ async function demoCall({user, system}) {
   return {text: reply, usage: {input: Math.round(user.length / 4), output: Math.round(reply.length / 4)}, stop: 'end_turn', model: 'demo'};
 }
 
-export async function renderGrading(target, {moduleId = ''} = {}) {
+export async function renderGrading(target, {moduleId = '', embedded = false} = {}) {
   const u = currentUser();
   if (!u || u.role !== 'admin') { target.innerHTML = '<p class="empty">This page is private to the platform admin.</p>'; return; }
   const providers = {...PROVIDERS, ...(store.mode === 'local' ? {demo: DEMO} : {})};
@@ -52,7 +52,7 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
   const byId = new Map(rows.map(r => [r.postId, r]));
 
   const providerOptions = Object.entries(providers).map(([id, p]) => `<option value="${id}" ${id === prefs.provider ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
-  target.innerHTML = `<h1 class="page-title">AI grading</h1><p class="page-sub">Private to the platform admin: grade and draft feedback for the posts of the modules you teach, with your own API keys. <a href="/admin">Admin area</a></p>
+  target.innerHTML = `${pageHead('AI grading', 'Private to the platform admin: grade and draft feedback for the posts of the modules you teach, with your own API keys.' + (embedded ? '' : ' <a href="/admin">Admin area</a>'), embedded)}
     <div class="notice info"><b>How this works.</b> Your API keys are kept in this browser only (never in the database) and are sent only to the lab that issued them. Each review sends the post text, the blog's brief and your grader persona to that lab's API from this browser; nothing is shown to students or other instructors. Check the lab's data-use terms before grading real student work.</div>
     <div class="grading-setup two-col">
       <div class="panel"><h3>1. Model</h3>

@@ -72,3 +72,9 @@ export function toast(msg, kind = '') {
   t.textContent = msg; t.className = 'show ' + kind;
   clearTimeout(t._h); t._h = setTimeout(() => t.className = '', 3500);
 }
+
+// The heading of a page: an h1 on its own, or an h2 when the page is shown inside
+// the admin or instructor area, whose own title is already the page's h1.
+export const pageHead = (title, sub = '', embedded = false) => embedded
+  ? `<h2 class="section-title">${title}</h2>${sub ? `<p class="section-sub">${sub}</p>` : ''}`
+  : `<h1 class="page-title">${title}</h1>${sub ? `<p class="page-sub">${sub}</p>` : ''}`;

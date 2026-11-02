@@ -1,7 +1,7 @@
 import {store} from './store.js';
 import {navigate} from './router.js';
 import {currentUser,roleLabel} from './auth.js';
-import {esc,fmtDateTime,toast} from './util.js';
+import {esc,fmtDateTime,toast,pageHead} from './util.js';
 import {filterPeopleReport} from './people-model.js';
 import {downloadRosterExcel} from './roster-export.js';
 import {makeTablesSortable} from './sortable-tables.js';
@@ -9,13 +9,13 @@ import {showStudentWritingBreakdown} from './student-breakdown.js';
 const cell=value=>esc(value||'—');
 const utc=value=>value?esc(new Date(value).toISOString().replace('T',' ').slice(0,19)):'—';
 const sessionState=value=>({legacy:'Legacy editor visit; detailed timestamps unavailable',checkpoint:'Last checkpoint; end not recorded',inactive:'30 seconds without editing',away:'Tab hidden or window unfocused',preview:'Preview / left editor',left:'Left the post',interrupted:'Reopened after interruption'}[value]||value);
-export async function renderPeople(target,{moduleId='',admin=false}={}){
+export async function renderPeople(target,{moduleId='',admin=false,embedded=false,moduleFilter=true}={}){
  const u=currentUser();
  if(!u || (admin?u.role!=='admin':!['admin','lecturer'].includes(u.role))){target.innerHTML='<p class="empty">You do not have access to these records.</p>';return;}
  const modules=(await store.listModules()).filter(m=>u.role==='admin'||m.teacherIds.includes(u.uid));
  const report=await store.peopleReport(moduleId);report.includeInstructorSheet=admin&&!moduleId;
- target.innerHTML=`<h1 class="page-title">${admin?'People & invitations':'Module roster & invitations'}</h1><p class="page-sub">${admin?'All recorded platform users and invitations.':'Private records for your assigned modules only.'}</p><p class="actions">${admin?'<a href="/admin">Admin area</a><a href="/admin/guide">Admin guide</a>':'<a href="/review">Instructor area</a>'}<button class="btn primary" id="download-people-excel">Download Excel</button></p>
- <div class="people-filters"><label class="field">Module<select id="people-module"><option value="">${admin?'All modules and platform invitations':'All my modules'}</option>${modules.map(m=>`<option value="${esc(m.id)}" ${m.id===moduleId?'selected':''}>${esc(m.title)}</option>`).join('')}</select></label><label class="field">Search people or invitations<input id="people-search" type="search" placeholder="Name, email, university ID, school or city code"></label><label class="field">Invitation status<select id="people-status"><option value="all">All invitations</option><option value="pending">Pending / active shared links</option><option value="registered">Registered</option><option value="accepted">Accepted</option><option value="expired">Expired</option><option value="revoked">Revoked</option></select></label></div>
+ target.innerHTML=`${pageHead(admin?'People & invitations':'Module roster & invitations',admin?'All recorded platform users and invitations.':'Private records for your assigned modules only.',embedded)}<p class="actions">${embedded?'':admin?'<a href="/admin">Admin area</a><a href="/admin/guide">Admin guide</a>':'<a href="/review">Instructor area</a>'}<button class="btn primary" id="download-people-excel">Download Excel</button></p>
+ <div class="people-filters">${moduleFilter?`<label class="field">Module<select id="people-module"><option value="">${admin?'All modules and platform invitations':'All my modules'}</option>${modules.map(m=>`<option value="${esc(m.id)}" ${m.id===moduleId?'selected':''}>${esc(m.title)}</option>`).join('')}</select></label>`:''}<label class="field">Search people or invitations<input id="people-search" type="search" placeholder="Name, email, university ID, school or city code"></label><label class="field">Invitation status<select id="people-status"><option value="all">All invitations</option><option value="pending">Pending / active shared links</option><option value="registered">Registered</option><option value="accepted">Accepted</option><option value="expired">Expired</option><option value="revoked">Revoked</option></select></label></div>
  <p class="muted small">Pending invitation details are blank until supplied at registration. Shared class links do not identify recipients. Sign-in activity is recorded when an account uses the platform.</p><div id="people-tables"></div>`;
  let filtered=report;
  const draw=()=>{
@@ -34,6 +34,6 @@ export async function renderPeople(target,{moduleId='',admin=false}={}){
  };
  draw();target.querySelector('#people-search').oninput=draw;target.querySelector('#people-status').onchange=draw;
  target.querySelector('#people-tables').addEventListener('click',e=>{const button=e.target.closest('[data-writing-student]');if(button)showStudentWritingBreakdown(target,report,button.dataset.writingStudent,button.dataset.writingModule,button);});
- target.querySelector('#people-module').onchange=e=>{navigate(admin?'/admin/people'+(e.target.value?'?module='+e.target.value:''):'/review/roster'+(e.target.value?'?module='+e.target.value:''));};
+ const moduleSelect=target.querySelector('#people-module');if(moduleSelect)moduleSelect.onchange=e=>{navigate(admin?'/admin/people'+(e.target.value?'?module='+e.target.value:''):'/review/roster'+(e.target.value?'?module='+e.target.value:''));};
  target.querySelector('#download-people-excel').onclick=async e=>{const button=e.target;button.disabled=true;try{await downloadRosterExcel(filtered,`ucd-blog-${moduleId||'all-modules'}-${new Date().toISOString().slice(0,10)}.xlsx`);toast('Excel file downloaded.');}catch(err){toast(err.message,'error');}finally{button.disabled=false;}};
 }

@@ -12,7 +12,7 @@ import {startWritingTimer} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
-import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId} from './util.js';
+import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead} from './util.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
@@ -38,7 +38,7 @@ const routes = [
   [/^\/modules\/new$/, () => manageModule(null)],
   [/^\/modules\/edit\/([a-z0-9-]+)$/, manageModule],
   [/^\/modules\/invite\/([a-z0-9-]+)$/, studentInvitationsPage],
-  [/^\/invitations$/, invitationsPage],
+  [/^\/invitations$/, () => navigate('/admin/invite', {replace: true})],   // old address: the page lives in the admin area
   [/^\/invite\/([a-zA-Z0-9-]+)(?:\/([a-z]+(?:-[0-9]{3})?))?$/i, (id,code)=>acceptInvitationPage(id,code,'instructor')],
   [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+(?:-[0-9]{3})?)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
   [/^\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (y, m, slug) => postView(slug)],
@@ -435,7 +435,7 @@ async function profileView() {
   if (!u) { $app.innerHTML = `<p class="empty">Log in to edit your profile.</p>`; return; }
   const student = u.registrationKind !== 'teacher' && u.registrationKind !== 'instructor' && u.role === 'student';
   const f = (name, label, hint = '', type = 'text') => `<label class="field">${label}<input name="${name}" type="${type}" value="${esc(u[name] || '')}" maxlength="${name === 'studentId' ? 40 : 120}" ${student && (name === 'studentId' || name === 'contactEmail' || name === 'firstName' || name === 'lastName' || name === 'affiliation') ? 'required' : ''}>${hint ? `<p class="hint">${hint}</p>` : ''}</label>`;
-  $app.innerHTML = `<div class="guide"><h1 class="page-title">Your profile</h1><p class="page-sub">Role: <b>${esc(roleLabel(u.role))}</b>${u.email ? ` · signed in as ${esc(u.email)}` : ''}</p>
+  $app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">Your profile</h1><p class="page-sub">Role: <b>${esc(roleLabel(u.role))}</b>${u.email ? ` · signed in as ${esc(u.email)}` : ''}</p>
     <form id="profile" class="two-col">
       <div>${rank(u.role) >= 1 ? f('penName', 'Pen name', 'Shown on your posts and comments.') : `<label class="field">Alias<input value="${esc(u.penName || '')}" disabled><p class="hint">Assigned at random when your account was created and shown on your posts and comments instead of your name. It cannot be changed, so classmates cannot identify you; your instructor alone sees who is behind it.</p></label>`}${f('firstName', 'First name')}${f('lastName', 'Last name')}</div>
       <div>${f('contactEmail', 'University email', 'Your university contact address, separate from your Google sign-in email.', 'email')}${u.registrationKind !== 'teacher' && u.role === 'student' ? f('studentId', 'University ID', 'Seen only by you and your module teachers.') : ''}${f('affiliation', 'School / university')}${f('website', 'Website or LinkedIn (optional)', '', 'url')}<label class="field">Short bio (optional)<textarea name="bio" maxlength="400" rows="3">${esc(u.bio || '')}</textarea></label></div>
@@ -455,9 +455,9 @@ async function lecturer(tab = 'posts', query = '') {
   const q = new URLSearchParams(query || ''), moduleId = q.get('module') || '', blogId = q.get('blog') || '', year = q.get('year') || '';
   if (!u || rank(u.role) < 1) { $app.innerHTML = `<p class="empty">Instructor access required.</p>`; return; }
   const canRoster = !moduleId || u.role === 'admin' || (u.managedModuleIds || []).includes(moduleId);   // blog owners see posts of guest modules, not their rosters
-  if(tab==='roster'&&store.mode==='firebase'){if(!canRoster){$app.innerHTML='<p class="empty">This module writes on your blog, but its roster is private to its own instructor.</p>';return;}await renderPeople($app,{moduleId,admin:false});return;}
   tab = tab || 'posts';
-  let [posts, users, allModules] = await Promise.all([store.listAllPosts(), canRoster ? store.listUsers(moduleId) : Promise.resolve([]), store.listModules()]);
+  const liveRoster = tab === 'roster' && store.mode === 'firebase';   // the live roster and invitation records (people.js) load their own data
+  let [posts, users, allModules] = await Promise.all([store.listAllPosts(), canRoster && !liveRoster ? store.listUsers(moduleId) : Promise.resolve([]), store.listModules()]);
   const teachingModules = allModules.filter(m => u.role === 'admin' || m.teacherIds.includes(u.uid) || (u.managedBlogIds || []).includes(m.blogId));
   const myBlogs = BLOGS.filter(b => u.role === 'admin' || b.teacherIds.includes(u.uid) || teachingModules.some(m => m.blogId === b.id));
   const modOf = id => allModules.find(m => m.id === id);
@@ -468,7 +468,7 @@ async function lecturer(tab = 'posts', query = '') {
   const who = Object.fromEntries(users.map(x => [x.uid, x]));
   const real = uid => { const x = who[uid]; return x ? `${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || '—')}${x.studentId ? ` <span class="muted">${esc(x.studentId)}</span>` : ''}` : '<span class="muted">unknown</span>'; };
   const pending = posts.filter(p => p.status === 'pending');
-  const tabs = `<div class="tabs"><a href="/review/posts${qs({})}" class="${tab === 'posts' ? 'active' : ''}">All posts (${posts.length})</a><a href="/review/queue${qs({})}" class="${tab === 'queue' ? 'active' : ''}">Review queue (${pending.length})</a><a href="/review/comments${qs({})}" class="${tab === 'comments' ? 'active' : ''}">Comments</a><a href="/review/roster${qs({})}" class="${tab === 'roster' ? 'active' : ''}">Roster (${users.length})</a></div>`;
+  const tabs = `<nav class="tabs" aria-label="Instructor area"><a href="/review/posts${qs({})}" class="${tab === 'posts' ? 'active' : ''}">All posts (${posts.length})</a><a href="/review/queue${qs({})}" class="${tab === 'queue' ? 'active' : ''}">Review queue (${pending.length})</a><a href="/review/comments${qs({})}" class="${tab === 'comments' ? 'active' : ''}">Comments</a><a href="/review/roster${qs({})}" class="${tab === 'roster' ? 'active' : ''}">Roster${liveRoster ? '' : ` (${users.length})`}</a></nav>`;
   const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + (wordCount(p.body)), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
   // Posts per module and academic year, for the whole scope (before the year filter).
   const cells = groupBy(scope, p => (p.moduleId || '?') + '|' + (p.academicYear || '—'));
@@ -482,17 +482,22 @@ async function lecturer(tab = 'posts', query = '') {
   if (tab === 'posts') body = summary + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
   if (tab === 'queue') body = '<p class="muted">Posts submitted for review. Approval is switched on per module in its settings.</p>' + table(pending);
   if (tab === 'comments') { const cs = (await store.recentComments(500)).filter(c=>posts.some(p=>p.id===c.postId)); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
-  if (tab === 'roster' && blogId && !moduleId && canRoster) { const lists = await Promise.all(teachingModules.filter(m => m.blogId === blogId && (u.role === 'admin' || (u.managedModuleIds || []).includes(m.id))).map(m => store.listUsers(m.id))); users = [...new Map(lists.flat().map(x => [x.uid, x])).values()]; }
-  if (tab === 'roster') { users = users.filter(x => rank(x.role || 'student') === 0); const count = groupBy(posts, p => p.authorId); body = `<table class="list sortable"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th></tr></thead><tbody>${users.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td></tr>`).join('')}</tbody></table>`; }
+  if (tab === 'roster' && !liveRoster && blogId && !moduleId && canRoster) { const lists = await Promise.all(teachingModules.filter(m => m.blogId === blogId && (u.role === 'admin' || (u.managedModuleIds || []).includes(m.id))).map(m => store.listUsers(m.id))); users = [...new Map(lists.flat().map(x => [x.uid, x])).values()]; }
+  if (tab === 'roster' && !liveRoster) { users = users.filter(x => rank(x.role || 'student') === 0); const count = groupBy(posts, p => p.authorId); body = `<table class="list sortable"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th></tr></thead><tbody>${users.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td></tr>`).join('')}</tbody></table>`; }
   const sel = (id, label, rows, value, all) => `<label class="field">${label}<select id="${id}"><option value="">${all}</option>${rows.map(([v, l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
-  $app.innerHTML = `<h1 class="page-title">Instructor area</h1><p class="page-sub">Posts, review queue, comments and rosters for your modules, by blog, module and academic year.</p>
+  $app.innerHTML = `<div class="area-head"><h1 class="page-title">Instructor area</h1><p class="page-sub">Posts, review queue, comments and rosters for your modules, by blog, module and academic year.</p>
     <div class="review-filters">${sel('review-blog', 'Blog', myBlogs.map(b => [b.id, b.title]), blogId, 'All my blogs')}${sel('review-module', 'Module', teachingModules.filter(m => !blogId || m.blogId === blogId).map(m => [m.id, [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '')]), moduleId, 'All modules')}${sel('review-year', 'Academic year', years.map(y => [y, y]), year, 'All years')}</div>
-    ${stats}${tabs}${body}`;
-  if (tab === 'roster') makeTablesSortable($app);
+    ${tabs}</div><div class="area-body">${liveRoster ? '' : stats + body}</div>`;
   const go = patch => { navigate('/review/' + tab + qs(patch)); };
   $app.querySelector('#review-blog').onchange = e => go({blog: e.target.value, module: ''});
   $app.querySelector('#review-module').onchange = e => go({module: e.target.value});
   $app.querySelector('#review-year').onchange = e => go({year: e.target.value});
+  if (liveRoster) {   // drawn by people.js under the area head, so the tabs and filters stay in place
+    const area = $app.querySelector('.area-body');
+    if (!canRoster) { area.innerHTML = '<p class="empty">This module writes on your blog, but its roster is private to its own instructor.</p>'; return; }
+    await renderPeople(area, {moduleId, admin: false, embedded: true, moduleFilter: false}); return;
+  }
+  if (tab === 'roster') makeTablesSortable($app);
   $app.querySelector('#export-csv')?.addEventListener('click', () => {
     const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
     const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, publicUrl(postPath(p)), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, wordCount(p.body), catName(p.category, p), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
@@ -513,37 +518,43 @@ async function lecturer(tab = 'posts', query = '') {
 }
 
 // ---------- admin area ----------
-async function admin(tab = 'users',moduleId='') {
+// Every admin page is drawn under one head (the title and the tab strip), so the
+// tabs stay in place whichever page is open and every other page is one click away.
+const ADMIN_TABS = [['guide', 'Admin guide'], ['people', 'People & invitations'], ['grading', 'AI grading'], ['users', 'Users & roles'], ['feedback', 'Feedback'], ['invite', 'Invite instructor'], ['modules', 'Manage modules'], ['settings', 'Site settings'], ['data', 'Data & backend']];
+async function admin(tab = 'users', moduleId = '') {
   const u = user();
   if (!u || rank(u.role) < 2) { $app.innerHTML = `<p class="empty">Admin access required.</p>`; return; }
-  tab = tab || 'users';
-  const tabs = `<div class="tabs"><a href="/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="/admin/grading" class="${tab==='grading'?'active':''}">AI grading</a><a href="/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="/admin/feedback" class="${tab === 'feedback' ? 'active' : ''}">Feedback</a><a href="/invitations">Invite instructor</a><a href="/my-modules">Manage modules</a><a href="/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
-  if(tab==='people'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:true});return;}
-  if(tab==='people'){$app.innerHTML='<h1 class="page-title">Admin area</h1><p class="muted">People and invitation records exist only on the live platform.</p>';return;}
-  if(tab==='grading'){liveView='grading';await renderGrading($app,{moduleId});return;}   // like the editor: a store notification must not rebuild the page mid-batch
-  if (tab === 'feedback') { $app.innerHTML = `<h1 class="page-title">Feedback inbox</h1><p class="page-sub">What visitors, students and instructors sent with the Feedback button: notes, screenshots and voice notes.</p>${tabs}<div id="fb-inbox"></div>`; await renderFeedbackInbox($app.querySelector('#fb-inbox')); return; }
+  if (!ADMIN_TABS.some(([id]) => id === tab)) tab = 'users';
+  $app.innerHTML = `<div class="area-head"><h1 class="page-title">Admin area</h1><p class="page-sub">Everything an instructor can do, plus roles, site settings and the backend.</p>
+    <nav class="tabs" aria-label="Admin area">${ADMIN_TABS.map(([id, label]) => `<a href="/admin/${id}" class="${tab === id ? 'active' : ''}">${label}</a>`).join('')}</nav></div><div class="area-body"></div>`;
+  const area = $app.querySelector('.area-body');
+  if (tab === 'people') { if (store.mode === 'firebase') await renderPeople(area, {moduleId, admin: true, embedded: true}); else area.innerHTML = `${pageHead('People & invitations', '', true)}<p class="muted">People and invitation records exist only on the live platform.</p>`; return; }
+  if (tab === 'grading') { liveView = 'grading'; await renderGrading(area, {moduleId, embedded: true}); return; }   // like the editor: a store notification must not rebuild the page mid-batch
+  if (tab === 'feedback') { area.innerHTML = `${pageHead('Feedback inbox', 'What visitors, students and instructors sent with the Feedback button: notes, screenshots and voice notes.', true)}<div id="fb-inbox"></div>`; await renderFeedbackInbox(area.querySelector('#fb-inbox')); return; }
+  if (tab === 'invite') { await invitationsPage(area, true); return; }
+  if (tab === 'modules') { await myModules(area, true); return; }
   let body = '';
-  if(tab==='guide')body=store.mode==='firebase'?sanitize(await store.getAdminGuide()):'<p>The private admin guide is available on the live Firebase platform.</p>';
+  if (tab === 'guide') body = `<div class="admin-guide">${store.mode === 'firebase' ? sanitize(await store.getAdminGuide()) : pageHead('Admin guide', '', true) + '<p>The private admin guide is available on the live Firebase platform.</p>'}</div>`;
   if (tab === 'users') {
     const users = (await store.listUsers()).sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || ''));
-    body = `<p class="muted">Everyone who has signed in. Instructors get everything a student has plus the Instructor area; admins get everything plus this page.</p>
+    body = `${pageHead('Users & roles', 'Everyone who has signed in. Instructors get everything a student has plus the Instructor area; admins get everything plus this area.', true)}
       <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option value="${r}" ${(x.role || 'student') === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
   }
   if (tab === 'settings') {
-    body = `<form id="settings" class="two-col">
+    body = `${pageHead('Site settings', 'The masthead of the whole site. Everything else is set per blog or per module.', true)}<form id="settings" class="two-col">
       <div><label class="field">Blog title (masthead)<input name="title" value="${esc(S.title)}" maxlength="120"></label>
       <label class="field">Tagline<input name="tagline" value="${esc(S.tagline)}" maxlength="160"></label></div>
-      <div><p class="muted">Everything about an exercise (the brief, categories such as megatrends, the word target, the outline, the checklist and whether comments are open) is set per blog in <b>Blog settings</b>. Deadlines, approval and open/closed submissions are set per module in <b>Module settings</b>. <a href="/my-modules">Manage modules</a>.</p></div>
+      <div><p class="muted">Everything about an exercise (the brief, categories such as megatrends, the word target, the outline, the checklist and whether comments are open) is set per blog in <b>Blog settings</b>. Deadlines, approval and open/closed submissions are set per module in <b>Module settings</b>. <a href="/admin/modules">Manage modules</a>.</p></div>
       <div class="actions"><button class="btn primary">Save settings</button></div></form>`;
   }
   if (tab === 'data') {
-    body = `<div class="two-col"><div class="panel" style="border:1px solid var(--line);border-radius:8px;padding:14px"><h3>Backend</h3>
+    body = `${pageHead('Data & backend', 'Where the data lives, and a full export.', true)}<div class="two-col"><div class="panel" style="border:1px solid var(--line);border-radius:8px;padding:14px"><h3>Backend</h3>
       <p>Mode: <b>${store.mode === 'firebase' ? 'Firebase (live)' : 'Local prototype'}</b></p>
       ${store.mode === 'local' ? `<p class="muted small">Posts, comments and accounts live in this browser's storage. To go live for the class, create the Firebase project and paste its config into <code>firebase-config.js</code>, then deploy <code>firestore.rules</code>. Steps in <code>_SETUP-FIREBASE.md</code>.</p>` : `<p class="muted small">Security rules live in <code>firestore.rules</code>; the admin is the verified e-mail named there.</p>`}
       </div><div class="panel" style="border:1px solid var(--line);border-radius:8px;padding:14px"><h3>Data</h3>
       <p class="actions"><button class="btn small" id="export-json">Download everything as JSON</button>${store.mode === 'local' ? `<button class="btn small danger" id="reset-demo">Reset sample data</button>` : ''}</p></div></div>`;
   }
-  $app.innerHTML = `<h1 class="page-title">Admin area</h1><p class="page-sub">Everything an instructor can do, plus roles, site settings and the backend.</p>${tabs}${body}`;
+  area.innerHTML = body;
   $app.querySelectorAll('[data-role]').forEach(sel => sel.onchange = async () => { try { await store.setRole(sel.dataset.role, sel.value); toast('Role updated.'); } catch (e) { toast(e.message, 'error'); } });
   $app.querySelector('#settings')?.addEventListener('submit', async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));
