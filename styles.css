@@ -154,6 +154,17 @@ dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background
 .body img { display: block; margin: 0 auto; }
 .post .tags { margin: 26px 0 10px; }
 .post-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 18px; padding: 10px; background: var(--soft); border-radius: 6px; align-items: center; font-size: 13px; }
+/* The post and, to its right, a column with the author's tools, the late note and the post's details. */
+.post-layout { display: grid; grid-template-columns: minmax(0, 760px) 240px; gap: 40px; justify-content: center; align-items: start; }
+.post-layout .post { max-width: none; margin: 0; min-width: 0; }
+.post-side { position: sticky; top: 20px; font-family: var(--ui); font-size: 13px; }
+.post-side .post-actions { margin: 0 0 14px; }
+.post-side .side-status { flex-basis: 100%; display: flex; align-items: center; gap: 6px; }
+.post-side .late-note { margin: 0 0 14px; }
+.post-facts { margin: 0; padding: 14px 0 0; border-top: 1px solid var(--line); }
+.post-facts .fact { padding: 0 0 12px; }
+.post-facts dt { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 2px; }
+.post-facts dd { margin: 0; color: var(--ink); line-height: 1.45; overflow-wrap: anywhere; }
 .authorbox { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 0; margin: 24px 0; font-size: 13px; display: flex; gap: 12px; align-items: center; }
 .authorbox .avatar { width: 36px; height: 36px; font-size: 15px; }
 .prevnext { display: flex; justify-content: space-between; gap: 16px; margin: 26px 0 40px; font-family: var(--ui); }
@@ -284,6 +295,9 @@ table.list select { padding: 3px 6px; border: 1px solid var(--line); border-radi
 .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 600; }
 
 @media (max-width: 900px) {
+  .post-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .post-side { order: -1; position: static; }
+  .post-facts { display: none; }
   .compose { grid-template-columns: 1fr; }
   .site-footer .inner { grid-template-columns: 1fr 1fr; }
   .two-col { grid-template-columns: 1fr; }
@@ -732,8 +746,9 @@ dialog.share-sheet { width: min(520px, 94vw); border: 0; border-radius: 12px; bo
 @media print {
   body.printing-post { background: #fff; color: #222; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
   body.printing-post .site-header, body.printing-post .site-footer, body.printing-post .page-sub, body.printing-post .post-actions, body.printing-post .post-actions-row,
-  body.printing-post .late-note, body.printing-post .authorbox, body.printing-post .prevnext, body.printing-post .comments, body.printing-post .notice, body.printing-post #toast, body.printing-post dialog { display: none !important; }
+  body.printing-post .post-side, body.printing-post .late-note, body.printing-post .authorbox, body.printing-post .prevnext, body.printing-post .comments, body.printing-post .notice, body.printing-post #toast, body.printing-post dialog { display: none !important; }
   body.printing-post .app, body.printing-post .post { max-width: none; margin: 0; padding: 0; }
+  body.printing-post .post-layout { display: block; }
   body.printing-post .post .cat { font-size: 9pt; letter-spacing: .08em; text-transform: uppercase; color: #777; margin: 0 0 6pt; }
   body.printing-post .post .cat a { color: inherit; text-decoration: none; }
   body.printing-post .post h1 { font-weight: 700; font-size: 30pt; line-height: 1.15; color: #222; margin: 0 0 10pt; letter-spacing: -.01em; }

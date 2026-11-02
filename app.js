@@ -203,6 +203,30 @@ function lateNote(p, module, u) {
   const n = daysLate(p, module);
   return n ? `<p class="notice late-note">Just so you know: this post went live ${n === 1 ? 'a day' : n + ' days'} after the module deadline of ${fmtDate(module.deadline)}. Only you can see this note.</p>` : '';
 }
+// The column beside the post: the author's own tools (status, Edit, Publish, Delete) and the
+// late note at the top, then the post's details for every reader. On a narrow screen the column
+// moves above the article and the details list is dropped, as the byline already shows them.
+function postSideHtml(p, {u, module, blog, words, context}) {
+  const row = (k, v) => v ? `<div class="fact"><dt>${k}</dt><dd>${v}</dd></div>` : '';
+  const editor = u && can(u, 'edit', p, context);
+  const tools = editor ? `<div class="post-actions side-tools"><div class="side-status"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span></div>
+      <a class="btn small" href="/edit/${p.id}">Edit</a>
+      ${p.status !== 'published' && can(u, 'publish', p, context) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
+      ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : '';
+  const edited = p.updatedAt && (!p.publishedAt || p.updatedAt - p.publishedAt > 60000) ? fmtDate(p.updatedAt) : '';
+  return `<aside class="post-side" aria-label="About this post">${tools}${lateNote(p, module, u)}
+    <dl class="post-facts">
+      ${row('Published', p.status === 'published' && p.publishedAt ? fmtDate(p.publishedAt) : '<span class="muted">Not yet</span>')}
+      ${row('Last edited', edited)}
+      ${row('Length', `${readingTime(words)} · ${words} words`)}
+      ${row('Author', `<a href="/author/${esc(p.authorId || '')}">${esc(p.authorName || 'you')}</a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}`)}
+      ${row('Blog', blog ? `<a href="/${esc(blog.id)}">${esc(blog.title)}</a>` : '')}
+      ${row('Module', module ? `${esc(module.code || module.title)}${module.code && module.title ? ` <span class="muted">${esc(module.title)}</span>` : ''}${p.academicYear ? ` <span class="muted">${esc(p.academicYear)}</span>` : ''}` : '')}
+      ${row('Deadline', editor && module?.deadline ? fmtDate(module.deadline) : '')}
+      ${row('Trend', p.category ? `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a>` : '')}
+      ${row('Industries', (p.industries || []).map(s => `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?industry=${esc(s)}">${esc(industryName(s))}</a>`).join(', '))}
+    </dl></aside>`;
+}
 function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me = null, preview = false} = {}) {
   const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
   const liked = !!me && likes.includes(me.uid);
@@ -237,12 +261,7 @@ async function postView(slug, blogId = null) {
   const [comments, likes] = await Promise.all([store.listComments(p.id), store.listLikes(p.id)]);
   if (blog) renderHeader(route(), blog);   // a post's masthead is its blog's
   const words = wordCount(p.body);
-  $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<article class="post">
-    ${u && can(u, 'edit', p, context) ? `<div class="post-actions"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span>
-      <a class="btn small" href="/edit/${p.id}">Edit</a>
-      ${p.status !== 'published' && can(u, 'publish', p, context) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
-      ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : ''}
-    ${lateNote(p, module, u)}
+  $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<div class="post-layout"><article class="post">
     ${articleHtml(p, {blog, words, likes, comments: comments.length, me: u})}
     <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
     <div class="prevnext">${prev ? `<a class="btn nav-btn" href="${postPath(prev)}" title="${esc(prev.title)}">${ICON.arrowLeft}<span>Previous</span></a>` : '<span></span>'}${next ? `<a class="btn nav-btn" href="${postPath(next)}" title="${esc(next.title)}"><span>Next</span>${ICON.arrowRight}</a>` : '<span></span>'}</div>
@@ -250,7 +269,7 @@ async function postView(slug, blogId = null) {
       ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? commentFormHtml(u, blog) : u ? '<p class="muted">An invitation from this blog’s instructor is required to comment. <button class="linkish" id="invite-to-comment">Enter invitation code</button></p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
       <p class="comment-count" id="comment-count"></p>
       <div id="comment-list"></div>
-    </section></article>`;
+    </section></article>${postSideHtml(p, {u, module, blog, words, context})}</div>`;
   $app.querySelector('#login-to-comment')?.addEventListener('click', () => store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'));
   $app.querySelector('#invite-to-comment')?.addEventListener('click',()=>openAuthModal('register'));
   // Posting, liking or deleting a comment redraws the comments section only. A full render()
