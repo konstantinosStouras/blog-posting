@@ -1,0 +1,15 @@
+{
+  "name": "UCD blog",
+  "short_name": "UCD blog",
+  "description": "Blog posts by UCD students on how organisations face the megatrends shaping business and society.",
+  "id": "/ucd-blog/",
+  "start_url": "/ucd-blog/",
+  "scope": "/ucd-blog/",
+  "display": "browser",
+  "background_color": "#ffffff",
+  "theme_color": "#1f5fd1",
+  "icons": [
+    {"src": "/ucd-blog/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/ucd-blog/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}
