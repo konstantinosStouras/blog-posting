@@ -250,9 +250,19 @@ async function postView(slug) {
     </section></article>`;
   $app.querySelector('#login-to-comment')?.addEventListener('click', () => store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'));
   $app.querySelector('#invite-to-comment')?.addEventListener('click',()=>openAuthModal('register'));
+  // Posting or deleting a comment redraws the comments section only. A full render() scrolls
+  // the page to the top and back down, so the article flickers twice; the store's change
+  // notification would trigger one, so it is muted (liveView) while the comment is written.
+  const quietly = async fn => { const was = liveView; liveView = 'comments'; try { return await fn(); } finally { liveView = was; } };
+  const refreshComments = async () => {
+    const cs = await store.listComments(p.id);
+    $app.querySelector('#comments h2').textContent = cs.length ? `${cs.length} comment${cs.length === 1 ? '' : 's'}` : 'Leave a reply';
+    $app.querySelector('#comment-list').innerHTML = cs.map(c => commentHtml(c, u, p)).join('');
+    const n = $app.querySelector('[data-comments] span'); if (n) n.textContent = cs.length || '';
+  };
   $app.querySelector('.reply')?.addEventListener('submit', async e => {
     e.preventDefault(); const body = e.target.body.value.trim(); if (!body) return;
-    try { await store.addComment({postId: p.id, body}, u); toast('Comment posted.'); render(); } catch (err) { toast(err.message, 'error'); }
+    try { await quietly(() => store.addComment({postId: p.id, body}, u)); e.target.reset(); toast('Comment posted.'); await refreshComments(); } catch (err) { toast(err.message, 'error'); }
   });
   enhance($app.querySelector('.post .body'), {post: p, user: u, store});
   $app.querySelector('[data-share]').onclick = () => shareLink(publicUrl(postPath(p)), p.title);
@@ -263,7 +273,7 @@ async function postView(slug) {
   };
   $app.onclick = async e => {
     const del = e.target.closest('[data-del-comment]');
-    if (del && confirm('Delete this comment?')) { try { await store.deleteComment(del.dataset.delComment); } catch (err) { return toast(err.message, 'error'); } render(); return; }
+    if (del && confirm('Delete this comment?')) { try { await quietly(() => store.deleteComment(del.dataset.delComment)); await refreshComments(); } catch (err) { return toast(err.message, 'error'); } return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
     try {
