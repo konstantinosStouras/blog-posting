@@ -21,11 +21,11 @@ service cloud.firestore {
     function memberOf(id) { return signedIn() && exists(/databases/$(database)/documents/modules/$(id)/members/$(request.auth.uid)); }
     function openSubmissions(id) { return moduleExists(id) && get(modulePath(id)).data.get('submissionsOpen', true); }
     function approvalRequired(id) { return get(modulePath(id)).data.get('requireApproval', false); }
-    function profileKeys() { return ['firstName','lastName','penName','affiliation','studentId','website','bio','contactEmail','photo','registrationKind']; }
+    function profileKeys() { return ['firstName','lastName','penName','affiliation','studentId','website','linkedin','bio','contactEmail','photo','registrationKind']; }
     function profileShape() {
       return request.resource.data.keys().hasOnly(profileKeys())
         && str('firstName',120) && str('lastName',120) && str('penName',40) && str('affiliation',200)
-        && str('studentId',40) && str('website',300) && str('bio',800) && str('contactEmail',200) && str('photo',120000)
+        && str('studentId',40) && str('website',300) && str('linkedin',300) && str('bio',800) && str('contactEmail',200) && str('photo',120000)
         && request.resource.data.get('registrationKind','student') in ['student','teacher','instructor'];
     }
     // Students write under a generated alias (adjective-noun-number, see aliases.js):

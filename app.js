@@ -12,7 +12,7 @@ import {startWritingTimer} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
-import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead} from './util.js';
+import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl} from './util.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
@@ -452,10 +452,19 @@ async function profileView() {
   $app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">Your profile</h1><p class="page-sub">Role: <b>${esc(roleLabel(u.role))}</b>${u.email ? ` · signed in as ${esc(u.email)}` : ''}</p>
     <form id="profile" class="two-col">
       <div>${rank(u.role) >= 1 ? f('penName', 'Pen name', 'Shown on your posts and comments.') : `<label class="field">Alias<input value="${esc(u.penName || '')}" disabled><p class="hint">Assigned at random when your account was created and shown on your posts and comments instead of your name. It cannot be changed, so classmates cannot identify you; your instructor alone sees who is behind it.</p></label>`}${f('firstName', 'First name')}${f('lastName', 'Last name')}</div>
-      <div>${f('contactEmail', 'University email', 'Your university contact address, separate from your Google sign-in email.', 'email')}${u.registrationKind !== 'teacher' && u.role === 'student' ? f('studentId', 'University ID', 'Seen only by you and your module teachers.') : ''}${f('affiliation', 'School / university')}${f('website', 'Website or LinkedIn (optional)', '', 'url')}<label class="field">Short bio (optional)<textarea name="bio" maxlength="400" rows="3">${esc(u.bio || '')}</textarea></label></div>
+      <div>${f('contactEmail', 'University email', 'Your university contact address, separate from your Google sign-in email.', 'email')}${u.registrationKind !== 'teacher' && u.role === 'student' ? f('studentId', 'University ID', 'Seen only by you and your module teachers.') : ''}${f('affiliation', 'School / university')}${f('website', 'Website (optional)', '', 'url')}<label class="field">LinkedIn profile (optional)<span class="field-row"><input name="linkedin" value="${esc(u.linkedin || '')}" maxlength="200" placeholder="linkedin.com/in/your-name" autocomplete="off"><button type="button" class="btn small" id="linkedin-btn">${u.linkedin ? 'Open profile' : 'Connect LinkedIn'}</button></span><p class="hint">Connect opens your own LinkedIn profile in a new tab: copy its address into this field and save. Once saved, the button opens your profile.</p></label><label class="field">Short bio (optional)<textarea name="bio" maxlength="400" rows="3">${esc(u.bio || '')}</textarea></label></div>
       <div class="actions"><button class="btn primary">Save profile</button></div></form></div>`;
+  const badLinkedin = () => toast('That is not a LinkedIn profile address. It should look like linkedin.com/in/your-name.', 'error');
+  const li = $app.querySelector('[name=linkedin]'), liBtn = $app.querySelector('#linkedin-btn');
+  li.oninput = () => { liBtn.textContent = li.value.trim() ? 'Open profile' : 'Connect LinkedIn'; };
+  liBtn.onclick = () => {   // with an address: open that profile; without one: LinkedIn's own shortcut to the signed-in member's profile, to copy the address from
+    const url = linkedinUrl(li.value); if (url === null) return badLinkedin();
+    if (url) li.value = url;
+    window.open(url || 'https://www.linkedin.com/in/me/', '_blank', 'noopener');
+  };
   document.getElementById('profile').onsubmit = async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));
+    d.linkedin = linkedinUrl(d.linkedin); if (d.linkedin === null) return badLinkedin();
     if (rank(u.role) >= 1) { d.penName = (d.penName || '').trim().replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 24); if (!d.penName) return toast('Choose a pen name.', 'error'); } else delete d.penName;   // students keep their generated alias
     try { await store.saveProfile(u.uid, d); toast('Profile saved.'); renderHeader(); } catch (err) { toast(err.message, 'error'); }
   };

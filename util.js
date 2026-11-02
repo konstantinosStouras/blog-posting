@@ -6,6 +6,13 @@ export const fmtDate = t => t ? new Date(t).toLocaleDateString('en-IE', {day: 'n
 export const fmtDateTime = t => t ? new Date(t).toLocaleString('en-IE', {day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
 export const monthKey = t => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 export const monthName = k => new Date(k + '-01T00:00:00').toLocaleDateString('en-IE', {month: 'long', year: 'numeric'});
+// A LinkedIn profile address in its canonical form. Accepts the full address, "linkedin.com/in/name",
+// "in/name" or the bare handle; '' when empty; null when it points somewhere other than a LinkedIn profile.
+export function linkedinUrl(v) {
+  const s = String(v ?? '').trim(); if (!s) return '';
+  const m = s.match(/^(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/([^\/?#\s]+)\/?(?:[?#].*)?$/i) || s.match(/^(?:in\/)?([^\/?#\s.@:]+)\/?$/);
+  return m ? 'https://www.linkedin.com/in/' + m[1] : null;
+}
 export const postPath = p => `/${monthKey(p.publishedAt || p.createdAt).replace('-', '/')}/${p.slug}`;
 
 // Everything a student writes is sanitised BOTH when saved and when rendered.

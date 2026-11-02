@@ -57,7 +57,7 @@ async function ensureProfile(u) {
   const snap = await F.getDoc(ref);
   if (snap.exists()) return snap.data();
   const [firstName = '', ...rest] = (u.displayName || '').split(' ');
-  const p = {firstName, lastName: rest.join(' '), penName: randomAlias(), affiliation: '', studentId: '', website: '', bio: '', contactEmail: '', photo: '', registrationKind: 'student'};
+  const p = {firstName, lastName: rest.join(' '), penName: randomAlias(), affiliation: '', studentId: '', website: '', linkedin: '', bio: '', contactEmail: '', photo: '', registrationKind: 'student'};
   if (registration && registration.email === u.email) Object.assign(p, registration.profile);
   await F.setDoc(ref, p);
   return p;

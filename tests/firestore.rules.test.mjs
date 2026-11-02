@@ -91,7 +91,7 @@ test('students write under generated aliases and cannot pick an identifying pen 
  await assertFails(updateDoc(doc(d,'profiles/student'),{penName:'Aoife Byrne'}));
  await assertFails(updateDoc(doc(d,'profiles/student'),{penName:'student_26000001'}));
  await assertSucceeds(updateDoc(doc(d,'profiles/student'),{penName:'amber-falcon-731'}));
- await assertSucceeds(updateDoc(doc(d,'profiles/student'),{bio:'Hello'}));
+ await assertSucceeds(updateDoc(doc(d,'profiles/student'),{bio:'Hello',linkedin:'https://www.linkedin.com/in/quiet-heron'}));
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'profiles/legacy'),{...profile('legacy@ucd.ie'),penName:'student_legacy12'}));
  await assertSucceeds(updateDoc(doc(db('legacy','legacy@ucd.ie'),'profiles/legacy'),{bio:'Kept my old pen name'}));
  await assertFails(updateDoc(doc(db('legacy','legacy@ucd.ie'),'profiles/legacy'),{penName:'Legacy Name'}));
