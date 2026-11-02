@@ -1,5 +1,7 @@
 # UCD blog
 
+Click a student’s module writing-time total to open a private breakdown of their posts and expandable sessions. It uses the complete authorised student/module report, independent of page search, and retains the roster’s sorting and Excel export.
+
 Staff reports include “Student totals by module”: one row per student/module, summing recorded active time across all their current posts (all statuses), with zero rows for enrolled students who have no posts. The Excel download includes a “Student module totals” worksheet. The report uses the same private module scope as rosters and session history; module and student searches filter the totals without reducing them to a subset of posts.
 
 Private per-post session history appears in People & invitations and module rosters and in the Excel “Writing sessions” sheet. Each active period records start, last edit/checkpoint, end and active seconds, with UTC timestamps and pause reasons. Idle pauses or returning to a post start new periods. New `writingHistory` records are write-only for the student and readable only by the admin / module instructor. Legacy `writingSessions` totals remain available, with unavailable historical timestamps left blank. Session checkpoints saved locally are retried after reopening the same post.
@@ -8,9 +10,9 @@ Writing activity starts only after an editing action, pauses after 30 seconds wi
 
 Student post writing time is recorded in private `writingSessions` documents and summed per post in People & invitations / module rosters and the Excel “Post writing time” sheet. The timer counts visible, focused editor time, pauses in preview, uses a browser lock to avoid simultaneous editor tabs, checkpoints every 15 seconds and retries locally pending checkpoints on reopening that post. This is approximate browser telemetry, not proof of typing. Time before this feature cannot be reconstructed. Column headings cycle ascending, descending and original order. Post typography is fixed; semantic styles remain available and pasted font families/sizes are stripped.
 
-Admins have a private walkthrough at `#/admin/guide` and searchable user and invitation records at `#/admin/people`. Instructors use `#/review/roster` for their assigned modules only. Both records views export `.xlsx` files with bold column headings, normal body text, frozen headings and text-formatted university IDs. Filters apply to downloads. Named student invitations track pending email recipients; shared class links track enrolments without inventing recipient identities. The guide content is stored in the admin-only Firestore document `adminContent/guide`.
+Admins have a private walkthrough at `/admin/guide` and searchable user and invitation records at `/admin/people`. Instructors use `/review/roster` for their assigned modules only. Both records views export `.xlsx` files with bold column headings, normal body text, frozen headings and text-formatted university IDs. Filters apply to downloads. Named student invitations track pending email recipients; shared class links track enrolments without inventing recipient identities. The guide content is stored in the admin-only Firestore document `adminContent/guide`.
 
-The platform admin alone has an **AI grading** assistant at `#/admin/grading` (`ai-grading.js`). It is not offered to other instructors. The admin saves their own API keys for Anthropic, OpenAI, Google and xAI in the browser only (localStorage, never the database), picks one of each lab's top models or types any model id, and a reasoning effort. The grader persona, the grading instructions and the feedback-polishing prompt (the prompts from the old grading spreadsheet, with each blog's brief inserted as `{brief}`) are edited on the page and stored in the admin-only document `adminContent/grader`. Grading sends the post text, the brief and the persona from the browser straight to the chosen lab; the reply (grade out of 10, summary, feedback) is stored per post in the admin-only `aiReviews` collection beside the admin's own final grade and feedback, which can be polished with the same model. The table covers the modules the admin teaches, with the student's name, university ID and email, and downloads as Excel in the layout of the old sheet. Request building and reply parsing live in `ai-providers.js` and `ai-grading-model.js` and are unit-tested; the local prototype has a demo grader that needs no key.
+The platform admin alone has an **AI grading** assistant at `/admin/grading` (`ai-grading.js`). It is not offered to other instructors. The admin saves their own API keys for Anthropic, OpenAI, Google and xAI in the browser only (localStorage, never the database), picks one of each lab's top models or types any model id, and a reasoning effort. The grader persona, the grading instructions and the feedback-polishing prompt (the prompts from the old grading spreadsheet, with each blog's brief inserted as `{brief}`) are edited on the page and stored in the admin-only document `adminContent/grader`. Grading sends the post text, the brief and the persona from the browser straight to the chosen lab; the reply (grade out of 10, summary, feedback) is stored per post in the admin-only `aiReviews` collection beside the admin's own final grade and feedback, which can be polished with the same model. The table covers the modules the admin teaches, with the student's name, university ID and email, and downloads as Excel in the layout of the old sheet. Request building and reply parsing live in `ai-providers.js` and `ai-grading-model.js` and are unit-tested; the local prototype has a demo grader that needs no key.
 
 Live platform: https://www.stouras.com/ucd-blog/
 
@@ -20,7 +22,7 @@ UCD blog hosts public **blogs**, each written on by one or more **modules**.
   category list (for example the six megatrends), the organisation field, the
   word target, an outline the student can insert, a pre-publish checklist and
   whether comments are open. Blogs are owned by instructors. Address:
-  `#/blog/<url-name>`.
+  `/blog/<url-name>`.
 - A **module** is one cohort: code, title, academic year (e.g. 2026/27),
   roster, invitations, deadline and whether student posts need approval. When
   an instructor creates a module they either create a new, separate blog for it
@@ -44,7 +46,7 @@ all of its posts.
   city-name code and a link which prefills it. Instructor invitations expire
   after seven days and are single-use.
 - Instructors create several modules from My modules → Create module.
-- Each public canvas has a stable `#/module/<url-name>` address.
+- Each public canvas has a stable `/module/<url-name>` address.
 - Module settings → Invite students generates a city code and registration link
   for that module. Student invitations are reusable for a class, expire after
   30 days, and can be revoked. Existing members remain enrolled after revocation.
@@ -98,14 +100,16 @@ drawn by `canvas.js`: cards plus facets for megatrend, organisation, year, tags
 and, across modules, the module itself, with free-text search and sorting. Facet
 counts follow the other active filters. The state lives in the hash query, so a
 filtered view is a shareable link, for example
-`#/module/managing-innovative-projects?trend=sustainability&org=Ryanair&year=2026&tag=ESG`.
+`/module/managing-innovative-projects?trend=sustainability&org=Ryanair&year=2026&tag=ESG`.
 Filtering happens in the browser on the published posts already fetched; no
-Firestore index is involved. Old `#/category/…`, `#/tag/…` and `#/search/…`
-links redirect into `#/posts?…`.
+Firestore index is involved. Old `/category/…`, `/tag/…` and `/search/…`
+links redirect into `/posts?…`.
 
 To check the design against the sample posts without touching the live
-database, open the dev server with `?local` before the hash, e.g.
-`http://127.0.0.1:8787/?local#/` (the `ucd-blog-local` launch configuration).
+database, start `python dev-server.py 8787` (the `ucd-blog-local` launch
+configuration) and open `http://127.0.0.1:8787/?local`. The router keeps the
+`?local` flag on every address it navigates to, so reloads stay on the sample
+data; a link opened in a new tab without it uses the live database.
 
 ## Implementation
 
@@ -113,6 +117,29 @@ Plain HTML and ES modules, with Firebase Authentication and Firestore.
 `platform.js` contains module and invitation pages; `auth.js` contains sign-in
 and registration; `registration.js` validates profile details. The real access
 controls live in `firestore.rules`.
+
+### Addresses
+
+Every page has a clean path, with no `#`: `/blog/project-management`,
+`/2026/10/my-post`, `/admin/feedback`. `router.js` owns this. The code speaks
+only in those app routes and writes links root-relative; the router reads where
+the app is mounted from its own URL (`/ucd-blog/` on stouras.com, `/` on a dev
+server), prefixes links as they enter the page, intercepts clicks and uses
+`history.pushState`. In-page anchors (`#comments`, footnotes) keep working.
+
+A static host has no file at `/ucd-blog/blog/x`. GitHub Pages serves the root
+`404.html` of the stouras.com repository instead, and that page sends the
+browser to `/ucd-blog/?redirect=<path>`; the router restores the path before
+the app starts, so a reload or a typed deep link lands on the right page.
+`dev-server.py` does the same locally. Old `/…` addresses, in bookmarks or in
+links shared before this change, are rewritten to the clean path on load.
+
+### Who is shown where
+
+The account control at the top right shows the signed-in person's own name and,
+after a Google sign-in, their Google picture. A student's random alias appears
+only where their writing does: the byline of posts and comments, the writer's
+byline and the My posts page.
 
 Firebase project: `stouras-ucd-blog` (display name **UCD blog**), database `eur3`.
 The public web configuration is in `firebase-config.js`. See `_SETUP-FIREBASE.md`.
@@ -134,7 +161,7 @@ ticket, who, page, browser and counts; each screenshot or voice note is its own
 data-URL document in `feedback/{id}/attachments/{n}`, so nothing approaches
 the 1 MB document limit. The rules let anyone create one bounded submission
 (a signed-in submitter may record only their own uid) and let the admin alone
-read, close, reopen or delete. The admin reads them at `#/admin/feedback`:
+read, close, reopen or delete. The admin reads them at `/admin/feedback`:
 newest first by day, Open / Closed / All, thumbnails that enlarge, inline audio
 players, **Mark complete & reply** (records the resolution, closes the ticket
 and opens a pre-composed e-mail when the submitter left an address),

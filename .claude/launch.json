@@ -5,11 +5,8 @@
       "name": "ucd-blog",
       "runtimeExecutable": "python",
       "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8765",
-        "--bind",
-        "127.0.0.1"
+        "dev-server.py",
+        "8765"
       ],
       "port": 8765
     },
@@ -17,13 +14,20 @@
       "name": "ucd-blog-local",
       "runtimeExecutable": "python",
       "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8787",
-        "--bind",
-        "127.0.0.1"
+        "dev-server.py",
+        "8787"
       ],
       "port": 8787
+    },
+    {
+      "name": "ucd-blog-mounted",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "dev-server.py",
+        "8768",
+        "/ucd-blog"
+      ],
+      "port": 8768
     }
   ]
 }

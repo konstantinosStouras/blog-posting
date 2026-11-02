@@ -6,7 +6,7 @@ export const fmtDate = t => t ? new Date(t).toLocaleDateString('en-IE', {day: 'n
 export const fmtDateTime = t => t ? new Date(t).toLocaleString('en-IE', {day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
 export const monthKey = t => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 export const monthName = k => new Date(k + '-01T00:00:00').toLocaleDateString('en-IE', {month: 'long', year: 'numeric'});
-export const postPath = p => `#/${monthKey(p.publishedAt || p.createdAt).replace('-', '/')}/${p.slug}`;
+export const postPath = p => `/${monthKey(p.publishedAt || p.createdAt).replace('-', '/')}/${p.slug}`;
 
 // Everything a student writes is sanitised BOTH when saved and when rendered.
 export function sanitize(html) {

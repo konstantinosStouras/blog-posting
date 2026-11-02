@@ -100,7 +100,7 @@ export const firebase = {
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
 
   // ---- auth ----
-  currentUser() { return user ? {uid: user.uid, email: user.email || '', emailVerified: user.emailVerified, ...profile, role, managedModuleIds, managedBlogIds} : null; },
+  currentUser() { return user ? {uid: user.uid, email: user.email || '', emailVerified: user.emailVerified, displayName: user.displayName || '', photoURL: user.photoURL || profile?.photo || '', ...profile, role, managedModuleIds, managedBlogIds} : null; },
   async signIn(provider, {email, password, googleEmail} = {}) {
     let cred;
     if (provider === 'google.com') {

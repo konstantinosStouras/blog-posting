@@ -1,0 +1,17 @@
+import {esc} from './util.js';
+import {currentUser} from './auth.js';
+import {makeTablesSortable} from './sortable-tables.js';
+import {studentWritingBreakdown} from './student-breakdown-model.js';
+const utc=t=>t?esc(new Date(t).toISOString().replace('T',' ').slice(0,19)):'—';
+const reason=s=>({legacy:'Legacy editor visit; detailed timestamps unavailable',checkpoint:'Last checkpoint; end not recorded',inactive:'30 seconds without editing',away:'Tab hidden or window unfocused',preview:'Preview / left editor',left:'Left the post',interrupted:'Reopened after interruption'}[s]||s);
+export function showStudentWritingBreakdown(target,report,authorId,moduleId,trigger){
+ const u=currentUser(),module=report.modules?.find(m=>m.id===moduleId);
+ if(!u||!module||!(u.role==='admin'||(u.role==='lecturer'&&module.teacherIds?.includes(u.uid))))return;
+ const data=studentWritingBreakdown(report,authorId,moduleId);if(!data)return;
+ target.querySelector('.writing-breakdown')?.remove();
+ const dialog=document.createElement('dialog');dialog.className='writing-breakdown';dialog.setAttribute('aria-labelledby','writing-breakdown-title');
+ const {total,posts}=data,name=[total.firstName,total.lastName].filter(Boolean).join(' ')||total.contactEmail||'Student';
+ dialog.innerHTML=`<form method="dialog" class="breakdown-heading"><h2 id="writing-breakdown-title">${esc(name)} — writing time</h2><button class="btn small" aria-label="Close writing breakdown" autofocus>Close</button></form><p>${esc(total.moduleTitle)}${total.code?' · '+esc(total.code):''}${total.academicYear?' · '+esc(total.academicYear):''}</p><p class="muted small">${esc(total.contactEmail||'')}${total.studentId?' · University ID: '+esc(total.studentId):''}</p><p><strong>Total active time: ${esc(total.writingTime)}</strong> · ${total.postCount} post${total.postCount===1?'':'s'}</p><p class="muted small">All this student’s posts in this module are included, regardless of the page search. Expand a post to see its sessions. Times below are UTC; missing older timestamps remain blank.</p>${posts.map((p,i)=>`<details class="session-history" ${i===0?'open':''}><summary>${esc(p.title)} · ${esc(p.writingTime)} · ${p.sessions.length} session${p.sessions.length===1?'':'s'}</summary><p class="muted small">Status: ${esc(p.status)}</p><div class="table-scroll"><table class="list"><thead><tr><th>Session start (UTC)</th><th>Last edit (UTC)</th><th>Session end (UTC)</th><th>Last recorded (UTC)</th><th>Active time (H:MM:SS)</th><th>Pause reason / state</th></tr></thead><tbody>${p.sessions.map(s=>`<tr><td data-sort-value="${s.startedAt||''}">${utc(s.startedAt)}</td><td data-sort-value="${s.lastActivityAt||''}">${utc(s.lastActivityAt)}</td><td data-sort-value="${s.endedAt||''}">${utc(s.endedAt)}</td><td data-sort-value="${s.lastRecordedAt||''}">${utc(s.lastRecordedAt)}</td><td data-sort-value="${s.seconds}">${esc(s.writingTime)}</td><td>${esc(reason(s.endReason))}</td></tr>`).join('')||'<tr><td colspan="6">No recorded sessions for this post yet.</td></tr>'}</tbody></table></div></details>`).join('')||'<p>No posts or recorded writing sessions for this student in this module yet.</p>'}<form method="dialog"><button class="btn">Back to student totals</button></form>`;
+ target.append(dialog);makeTablesSortable(dialog);
+ dialog.addEventListener('close',()=>{dialog.remove();if(trigger?.isConnected)trigger.focus();},{once:true});dialog.showModal();
+}

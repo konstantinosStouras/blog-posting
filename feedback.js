@@ -5,7 +5,8 @@
 // number and lands in the `feedback` collection, which only the admin can read.
 // Limits, validation and the ticket format live in feedback-model.js.
 import {store} from './store.js';
-import {currentUser} from './auth.js';
+import {currentUser, fullName} from './auth.js';
+import {route} from './router.js';
 import {esc, fmtDateTime, toast} from './util.js';
 import {FEEDBACK_LIMITS as L, buildFeedback, attachmentProblem, pickRecorderMime, recordingShouldStop, formatSeconds, formatBytes, validEmail, feedbackMarkdown, replyMail} from './feedback-model.js';
 
@@ -49,7 +50,7 @@ export function openFeedbackDialog() {
 
 function drawForm() {
   const u = currentUser();
-  const signed = u ? `Signed in as <b>${esc(u.penName || u.email || 'your account')}</b>${u.email ? ` (${esc(u.email)})` : ''} — included so we can follow up.` : 'You are not signed in. Leave an e-mail if you would like a reply.';
+  const signed = u ? `Signed in as <b>${esc(fullName(u))}</b>${u.email ? ` (${esc(u.email)})` : ''} — included so we can follow up.` : 'You are not signed in. Leave an e-mail if you would like a reply.';
   dialog.innerHTML = `<form method="dialog" class="fb-form" novalidate>
     <button type="button" class="close" aria-label="Close">×</button>
     <h2>Help improve this site</h2>
@@ -185,7 +186,7 @@ async function send(form) {
   let built;
   try {
     built = buildFeedback({text: fd.get('text'), name: fd.get('name'), email: fd.get('email'), attachments, user: currentUser(),
-      context: {url: location.href, route: location.hash, ua: navigator.userAgent, viewport: `${innerWidth}×${innerHeight}`}});
+      context: {url: location.href, route: route(), ua: navigator.userAgent, viewport: `${innerWidth}×${innerHeight}`}});
   } catch (e) { status(e.message, 'err'); return; }
   busy = true; $('#fb-send').disabled = true; status('Sending…');
   try { const {ticket} = await store.submitFeedback(built.doc, built.attachments); attachments = []; drawDone(ticket, built.doc.email); }
@@ -194,7 +195,7 @@ async function send(form) {
 }
 
 // ---------- admin inbox ----------
-// Visible at #/admin/feedback. The Firestore rules are what keep the collection
+// Visible at /admin/feedback. The Firestore rules are what keep the collection
 // private; this page only draws what the admin is already allowed to read.
 export async function renderFeedbackInbox(el) {
   el.innerHTML = '<p class="muted">Loading feedback…</p>';
@@ -208,7 +209,7 @@ export async function renderFeedbackInbox(el) {
     const open = items.filter(x => !isClosed(x)).length, closed = items.length - open;
     const shown = items.filter(x => view === 'all' || (view === 'closed' ? isClosed(x) : !isClosed(x)));
     let html = `<div class="fb-inbox-head"><p class="muted">${items.length} submission${items.length === 1 ? '' : 's'} — ${open} open, ${closed} closed. Visitors send these with the Feedback button; only the admin can read them.</p>
-      <div class="chips">${['open', 'closed', 'all'].map(v => `<a href="#/admin/feedback" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</a>`).join('')}</div></div>`;
+      <div class="chips">${['open', 'closed', 'all'].map(v => `<a href="/admin/feedback" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</a>`).join('')}</div></div>`;
     if (!shown.length) html += `<p class="empty">${items.length ? 'Nothing in this view.' : 'No feedback yet. When a visitor uses the Feedback button, it appears here.'}</p>`;
     let lastDay = '';
     for (const x of shown) {

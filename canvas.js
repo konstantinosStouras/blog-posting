@@ -2,11 +2,12 @@
 // year, tags, module) and free-text search. All filtering happens in the browser
 // on the posts the page already fetched, so Firestore needs no extra indexes.
 //
-// Filter state lives in the hash query so a filtered view has a shareable link:
-//   #/module/managing-innovative-projects?trend=sustainability&org=Ryanair&year=2026&tag=ESG,Supply%20Chain&q=fleet
+// Filter state lives in the query string so a filtered view has a shareable link:
+//   /module/managing-innovative-projects?trend=sustainability&org=Ryanair&year=2026&tag=ESG,Supply%20Chain&q=fleet
 // Changing a filter rewrites that query with history.replaceState (no page
 // re-render, no refetch) and redraws only the facets and the grid.
 import {esc, fmtDate, postPath, excerptOf, readingTime, wordCount, plainText} from './util.js';
+import {route, rewrite} from './router.js';
 
 const norm = s => String(s ?? '').trim().toLowerCase();
 const yearOf = p => new Date(p.publishedAt || p.updatedAt || p.createdAt || Date.now()).getFullYear();
@@ -26,7 +27,7 @@ export function filterQuery(f) {
   if (f.module) p.set('module', f.module); if (f.blog) p.set('blog', f.blog); if (f.tags?.length) p.set('tag', f.tags.join(',')); if (f.sort && f.sort !== 'featured') p.set('sort', f.sort);
   const s = p.toString(); return s ? '?' + s : '';
 }
-const hashParts = () => { const h = location.hash.replace(/^#/, '') || '/'; const i = h.indexOf('?'); return i < 0 ? [h, ''] : [h.slice(0, i), h.slice(i + 1)]; };
+const routeParts = () => { const h = route(); const i = h.indexOf('?'); return i < 0 ? [h, ''] : [h.slice(0, i), h.slice(i + 1)]; };
 export const activeFilterCount = f => [f.q, f.trend, f.org, f.year, f.module, f.blog].filter(Boolean).length + (f.tags?.length || 0);
 
 // One canvas per page. The page renders the string renderCanvas() returns; the
@@ -35,8 +36,8 @@ let current = null;
 const searchIndex = new Map();   // post id + updatedAt -> lower-cased searchable text
 
 export function renderCanvas(posts, opts = {}) {
-  const [base, query] = hashParts();
-  current = {posts: posts.slice(), opts, f: parseFilters(query), base: '#' + base, allTags: false, cats: opts.categories || [], modules: new Map((opts.modules || []).map(m => [m.id, m])), blogs: new Map((opts.blogs || []).map(b => [b.id, b]))};
+  const [base, query] = routeParts();
+  current = {posts: posts.slice(), opts, f: parseFilters(query), base, allTags: false, cats: opts.categories || [], modules: new Map((opts.modules || []).map(m => [m.id, m])), blogs: new Map((opts.blogs || []).map(b => [b.id, b]))};
   if (!posts.length) return `<p class="empty">${esc(opts.emptyText || 'No posts here yet.')}</p>`;
   return `<section class="canvas-root" aria-label="Posts">${headHtml(current)}<div class="canvas-filters">${filtersHtml(current)}</div><div class="canvas-grid">${gridHtml(current)}</div></section>`;
 }
@@ -126,7 +127,7 @@ function gridHtml(st) {
   if (!shown.length) return `<div class="canvas-empty"><p>No posts match these filters.</p><button type="button" class="btn small" data-clear>Clear filters</button></div>`;
   return `<div class="canvas">${shown.map(p => card(p, st)).join('')}</div>`;
 }
-export function card(p, st = current || {f: parseFilters(''), base: '#/posts', cats: [], modules: new Map(), blogs: new Map(), opts: {}}) {
+export function card(p, st = current || {f: parseFilters(''), base: '/posts', cats: [], modules: new Map(), blogs: new Map(), opts: {}}) {
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));
   const img = p.featuredImage ? `<a href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
   const org = String(p.organisation || '').trim(), words = p.wordCount ?? wordCount(p.body), module = st.modules?.get(p.moduleId);
@@ -136,14 +137,14 @@ export function card(p, st = current || {f: parseFilters(''), base: '#/posts', c
     <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}${p.featured ? '<span class="badge featured">Featured</span>' : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
     <p>${esc(p.excerpt || excerptOf(p.body))}</p>
     <div class="tags">${(p.tags || []).map(t => `<a href="${link({tags: [t]})}" data-tag="${esc(t)}" data-only="1">${esc(t)}</a>`).join('')}</div>
-    <div class="meta"><a href="#/author/${esc(p.authorId)}">${esc(p.authorName)}</a> · <a href="${link({year: yearKey(p)})}" data-set="year" data-v="${esc(yearKey(p))}" title="All posts from ${esc(yearKey(p))}">${fmtDate(p.publishedAt || p.updatedAt)}</a> · ${readingTime(words)}${module && st.f.module !== p.moduleId && st.modules.size > 1 ? ` · <a href="${link({module: p.moduleId})}" data-set="module" data-v="${esc(p.moduleId)}">${esc(module.code || module.title)}</a>` : ''}</div></article>`;
+    <div class="meta"><a href="/author/${esc(p.authorId)}">${esc(p.authorName)}</a> · <a href="${link({year: yearKey(p)})}" data-set="year" data-v="${esc(yearKey(p))}" title="All posts from ${esc(yearKey(p))}">${fmtDate(p.publishedAt || p.updatedAt)}</a> · ${readingTime(words)}${module && st.f.module !== p.moduleId && st.modules.size > 1 ? ` · <a href="${link({module: p.moduleId})}" data-set="module" data-v="${esc(p.moduleId)}">${esc(module.code || module.title)}</a>` : ''}</div></article>`;
 }
 
 // ---------- behaviour (delegated, so the page only has to render the string) ----------
 function root(el) { const r = el?.closest?.('.canvas-root'); return r && current ? r : null; }
 function apply(r, patch) {
   current.f = {...current.f, ...patch};
-  history.replaceState(null, '', current.base + filterQuery(current.f));
+  rewrite(current.base + filterQuery(current.f));
   r.querySelector('.canvas-filters').innerHTML = filtersHtml(current);
   r.querySelector('.canvas-grid').innerHTML = gridHtml(current);
   r.querySelector('.canvas-count').textContent = countText(current);

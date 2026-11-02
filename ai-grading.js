@@ -1,4 +1,4 @@
-// AI grading assistant: admin-only page at #/admin/grading. The admin brings
+// AI grading assistant: admin-only page at /admin/grading. The admin brings
 // their own API key for each lab (kept in this browser only), picks a model and a
 // reasoning effort, edits the grader persona, then grades the posts of the modules
 // they teach. Each post's AI grade and feedback are stored privately (aiReviews)
@@ -7,6 +7,7 @@
 // or to other instructors; the Firestore rules enforce the same.
 import {store} from './store.js';
 import {currentUser} from './auth.js';
+import {navigate, publicUrl} from './router.js';
 import {esc, fmtDateTime, toast, postPath, wordCount} from './util.js';
 import {PROVIDERS, callProvider} from './ai-providers.js';
 import {DEFAULT_GRADER, PLACEHOLDERS, buildReview, buildPolish, parseReview, gradingRows, GRADING_COLUMNS} from './ai-grading-model.js';
@@ -46,12 +47,12 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
   const posts = allPosts.filter(p => scope.some(m => m.id === p.moduleId));
   const blogOf = p => blogs.find(b => b.id === p.blogId) || {}, moduleOf = p => modules.find(m => m.id === p.moduleId) || {};
   const categoryName = p => (blogOf(p).categories || []).find(c => c.slug === p.category)?.name || p.category || '';
-  const postUrl = p => location.origin + location.pathname + postPath(p);
+  const postUrl = p => publicUrl(postPath(p));
   const rows = gradingRows({posts, users: members, reviews, modules, blogs, categoryName, postUrl, wordsOf: p => p.wordCount ?? wordCount(p.body || '')});
   const byId = new Map(rows.map(r => [r.postId, r]));
 
   const providerOptions = Object.entries(providers).map(([id, p]) => `<option value="${id}" ${id === prefs.provider ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
-  target.innerHTML = `<h1 class="page-title">AI grading</h1><p class="page-sub">Private to the platform admin: grade and draft feedback for the posts of the modules you teach, with your own API keys. <a href="#/admin">Admin area</a></p>
+  target.innerHTML = `<h1 class="page-title">AI grading</h1><p class="page-sub">Private to the platform admin: grade and draft feedback for the posts of the modules you teach, with your own API keys. <a href="/admin">Admin area</a></p>
     <div class="notice info"><b>How this works.</b> Your API keys are kept in this browser only (never in the database) and are sent only to the lab that issued them. Each review sends the post text, the blog's brief and your grader persona to that lab's API from this browser; nothing is shown to students or other instructors. Check the lab's data-use terms before grading real student work.</div>
     <div class="grading-setup two-col">
       <div class="panel"><h3>1. Model</h3>
@@ -111,7 +112,7 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
   const aiCells = r => `<td data-sort-value="${r.aiGrade ?? ''}"><span class="ai-grade">${grade(r.aiGrade)}</span>${r.aiModel ? `<br><span class="muted small">${esc(r.aiModel)}<br>${esc(fmtDateTime(r.aiReviewedAt))}</span>` : ''}${r.aiError ? `<br><span class="ai-error">${esc(r.aiError)}</span>` : ''}</td>
     <td><div class="ai-text">${r.aiSummary ? `<span class="summary">${esc(r.aiSummary)}</span>` : ''}${esc(r.aiFeedback) || '<span class="muted">Not graded yet.</span>'}</div>${r.aiFeedback ? `<p class="actions small"><button type="button" class="linkish" data-copy-ai="${r.postId}">Copy</button><button type="button" class="linkish" data-use-ai="${r.postId}">Use as final feedback</button></p>` : ''}</td>`;
   const rowHtml = r => `<tr data-post="${r.postId}"><td><b>${esc([r.firstName, r.lastName].filter(Boolean).join(' ') || '—')}</b><br><span class="muted small">${esc(r.moduleTitle)}${r.academicYear ? ' · ' + esc(r.academicYear) : ''}</span></td><td>${esc(r.studentId || '—')}</td><td>${esc(r.email || '—')}</td><td>${esc(r.penName || '—')}</td>
-    <td>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` : `<a href="#/edit/${esc(r.postId)}">${esc(r.title)}</a>`}<br><span class="muted small">${esc(r.organisation)}${r.category ? ' · ' + esc(r.category) : ''} · ${r.words} words · <span class="badge ${esc(r.status)}">${esc(r.status)}</span></span></td>
+    <td>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` : `<a href="/edit/${esc(r.postId)}">${esc(r.title)}</a>`}<br><span class="muted small">${esc(r.organisation)}${r.category ? ' · ' + esc(r.category) : ''} · ${r.words} words · <span class="badge ${esc(r.status)}">${esc(r.status)}</span></span></td>
     ${aiCells(r)}
     <td data-sort-value="${esc(String(r.finalGrade))}"><input class="final-grade" data-final-grade="${r.postId}" value="${esc(String(r.finalGrade))}" maxlength="20" aria-label="Final grade"></td>
     <td><textarea class="final-text" data-final-text="${r.postId}" rows="5" aria-label="Final feedback" placeholder="Your final feedback for the student">${esc(r.finalFeedback)}</textarea><p class="actions small"><button type="button" class="linkish" data-polish="${r.postId}">Polish with AI</button><button type="button" class="linkish" data-copy-final="${r.postId}">Copy</button><span class="muted small" data-final-status="${r.postId}">${r.finalEditedAt ? 'Saved ' + esc(fmtDateTime(r.finalEditedAt)) : ''}</span></p></td>
@@ -127,7 +128,7 @@ export async function renderGrading(target, {moduleId = ''} = {}) {
   const paintAi = r => { const tr = $('grading-table').querySelector(`tr[data-post="${r.postId}"]`); if (!tr) return; const cells = tr.querySelectorAll('td'); const t = document.createElement('template'); t.innerHTML = `<tr>${aiCells(r)}</tr>`; const [gradeCell, feedbackCell] = t.content.querySelectorAll('td'); cells[5].replaceWith(gradeCell); cells[6].replaceWith(feedbackCell); const b = tr.querySelector('[data-grade]'); b.textContent = r.aiFeedback ? 'Re-grade' : 'Grade'; b.classList.toggle('primary', r.aiGrade == null); };
   drawTable();
   $('grading-search').oninput = drawTable; $('grading-status').onchange = () => { prefs.status = $('grading-status').value; write(PREFS, prefs); drawTable(); };
-  $('grading-module').onchange = e => { location.hash = '#/admin/grading' + (e.target.value ? '?module=' + e.target.value : ''); };
+  $('grading-module').onchange = e => { navigate('/admin/grading' + (e.target.value ? '?module=' + e.target.value : '')); };
 
   // ---- reviewing ----
   const ident = r => ({postId: r.postId, moduleId: r.post.moduleId || '', blogId: r.post.blogId || '', authorId: r.authorId || ''});

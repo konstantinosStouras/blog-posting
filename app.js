@@ -1,4 +1,5 @@
-// Router + every page. Hash routes so the site works from any static host (stouras.com/ucd-blog/).
+// Router + every page. Clean URLs (router.js) that work from any static host (stouras.com/ucd-blog/).
+import {route, navigate, rewrite, publicUrl, startRouter} from './router.js';
 import {initStore, store} from './store.js';
 import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './auth.js';
 import {can, ROLES, rank} from './permissions.js';
@@ -17,7 +18,7 @@ const $app = document.getElementById('app'), $header = document.getElementById('
 let S;                      // site settings (masthead only; exercises live on blogs)
 let BLOGS = [];             // every blog, refreshed on each navigation: category names, titles, comment policy
 let liveView = null;        // the mounted view, when it must not be re-rendered on data changes (the editor)
-let lastRouteHash = '#/', renderSeq = 0;   // the last real route (in-page anchors restore it) and a stamp for async renders
+let renderSeq = 0;          // a stamp for async renders: a slow page must not paint over a later navigation
 const blogOf = p => BLOGS.find(b => b.id === (p?.blogId || p)) || null;
 const allCategories = () => { const seen = new Map(); for (const b of BLOGS) for (const c of b.categories || []) if (!seen.has(c.slug)) seen.set(c.slug, c); return [...seen.values()]; };
 // A category slug is named by the post's own blog (two blogs may use the same slug differently).
@@ -42,12 +43,12 @@ const routes = [
   [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+(?:-[0-9]{3})?)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
   [/^\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (y, m, slug) => postView(slug)],
   [/^\/post\/([^/?]+)$/, postView],
-  [/^\/category\/([^/?]+)$/, slug => location.replace('#/posts' + filterQuery({trend: slug}))],   // old links keep working
-  [/^\/tag\/([^/?]+)$/, tag => location.replace('#/posts' + filterQuery({tags: [decodeURIComponent(tag)]}))],
+  [/^\/category\/([^/?]+)$/, slug => navigate('/posts' + filterQuery({trend: slug}), {replace: true})],   // old links keep working
+  [/^\/tag\/([^/?]+)$/, tag => navigate('/posts' + filterQuery({tags: [decodeURIComponent(tag)]}), {replace: true})],
   [/^\/author\/([^/?]+)$/, uid => browse({author: uid})],
   [/^\/archive\/(\d{4}-\d{2})$/, month => browse({month})],
-  [/^\/search\/?(.*)$/, q => location.replace('#/posts' + filterQuery({q: decodeURIComponent(q || '')}))],
-  [/^\/challenge$/, () => location.replace('#/blogs')],
+  [/^\/search\/?(.*)$/, q => navigate('/posts' + filterQuery({q: decodeURIComponent(q || '')}), {replace: true})],
+  [/^\/challenge$/, () => navigate('/blogs', {replace: true})],
   [/^\/write$/, () => editorView(null)],
   [/^\/write\/([a-z0-9-]+)$/, moduleId => editorView(null,moduleId)],
   [/^\/edit\/([^/?]+)$/, editorView],
@@ -62,37 +63,39 @@ const routes = [
 let queue = Promise.resolve();
 function render() { queue = queue.then(doRender).catch(e => console.error(e)); return queue; }
 async function doRender() {
-  // A hash that is not a route (#comments, #fn-3, #app) is an in-page anchor: scroll, keep the page.
-  const raw = location.hash.slice(1);
-  if (raw && !raw.startsWith('/')) { const go = () => document.getElementById(raw)?.scrollIntoView({block: 'start'}); go(); setTimeout(go, 400); setTimeout(go, 1200); history.replaceState(null, '', lastRouteHash); return; }   // repeated: images and embeds shift the layout as they load
-  lastRouteHash = location.hash || '#/';
   const seq = ++renderSeq;
-  const path = location.hash.replace(/^#/, '') || '/';
+  const path = route();   // '/blog/x?trend=y': the app route, whatever the site is mounted at
   liveView = null; $app.onclick = null;
   try { BLOGS = await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
   renderHeader(path);
   window.scrollTo(0, 0);
   const bare = path.split('?')[0];   // canvas filters live in a ?query after the route; routes that expect their own query match first
-  for (const [re, fn] of routes) { const m = path.match(re) || bare.match(re); if (m) { try { await fn(...m.slice(1)); } catch (e) { console.error(e); $app.innerHTML = `<p class="empty">Something went wrong: ${esc(e.message)}</p>`; } renderFooter(seq); return; } }
-  $app.innerHTML = `<p class="empty">That page does not exist. <a href="#/">Back to the blog</a></p>`; renderFooter(seq);
+  for (const [re, fn] of routes) { const m = path.match(re) || bare.match(re); if (m) { try { await fn(...m.slice(1)); } catch (e) { console.error(e); $app.innerHTML = `<p class="empty">Something went wrong: ${esc(e.message)}</p>`; } landed(seq); return; } }
+  $app.innerHTML = `<p class="empty">That page does not exist. <a href="/">Back to the blog</a></p>`; landed(seq);
+}
+// After a page is drawn: a link that named an anchor (/2026/10/post#comments) scrolls to it.
+function landed(seq) {
+  const id = location.hash.slice(1);
+  if (id) { const go = () => document.getElementById(id)?.scrollIntoView({block: 'start'}); go(); setTimeout(go, 400); setTimeout(go, 1200); }   // repeated: images and embeds shift the layout as they load
+  renderFooter(seq);
 }
 
 // ---------- header & footer ----------
-function renderHeader(path = location.hash.slice(1) || '/') {
+function renderHeader(path = route()) {
   const u = user();
   const active = h => (h === '/' ? path === '/' : path.startsWith(h)) ? 'active' : '';
-  $header.innerHTML = `<div class="brand"><h1><a href="#/">${esc(S.title)}</a></h1><div class="account" id="account"></div></div>
+  $header.innerHTML = `<div class="brand"><h1><a href="/">${esc(S.title)}</a></h1><div class="account" id="account"></div></div>
   <hr class="rule">
   <div class="sub"><p class="tagline">${esc(S.tagline)}</p>
-    <nav><a href="#/blogs" class="${active('/blogs')}">Explore blogs</a><a href="#/posts" class="${active('/posts')}">All posts</a>
-      ${u ? `<a href="#/my-modules" class="${active('/my-modules')}">My modules</a>` : ''}
-      ${u ? `<a href="#/write" class="${active('/write')}">Write</a><a href="#/mine" class="${active('/mine')}">My posts</a>` : ''}
-      ${u && rank(u.role) >= 1 ? `<a href="#/review" class="${active('/review')}">Instructor</a>` : ''}
-      ${u && rank(u.role) >= 2 ? `<a href="#/admin" class="${active('/admin')}">Admin</a>` : ''}
+    <nav><a href="/blogs" class="${active('/blogs')}">Explore blogs</a><a href="/posts" class="${active('/posts')}">All posts</a>
+      ${u ? `<a href="/my-modules" class="${active('/my-modules')}">My modules</a>` : ''}
+      ${u ? `<a href="/write" class="${active('/write')}">Write</a><a href="/mine" class="${active('/mine')}">My posts</a>` : ''}
+      ${u && rank(u.role) >= 1 ? `<a href="/review" class="${active('/review')}">Instructor</a>` : ''}
+      ${u && rank(u.role) >= 2 ? `<a href="/admin" class="${active('/admin')}">Admin</a>` : ''}
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>
     </nav></div><hr class="thin">`;
   renderAccountControl($header.querySelector('#account'));
-  $header.querySelector('.searchbox').onsubmit = e => { e.preventDefault(); location.hash = '#/posts' + filterQuery({q: e.target.q.value.trim()}); };
+  $header.querySelector('.searchbox').onsubmit = e => { e.preventDefault(); navigate('/posts' + filterQuery({q: e.target.q.value.trim()})); };
 }
 async function renderFooter(seq = renderSeq) {
   document.body.classList.toggle('writing', liveView === 'editor');   // lifts the Feedback button above the writer's sticky footer
@@ -110,11 +113,11 @@ async function renderFooter(seq = renderSeq) {
       <h3>Recent posts</h3><ul>${posts.slice(0, 5).map(p => `<li><a href="${postPath(p)}">${esc(p.title)}</a></li>`).join('') || '<li class="muted">Nothing published yet.</li>'}</ul>
       <p class="colophon">${esc(S.title)}. Posts stay public so classmates can read and review them. Mode: ${store.mode === 'firebase' ? 'live database' : 'local prototype (this browser only)'}.</p></div>
     <div><h3>Recent comments</h3><ul>${comments.filter(c => byPost[c.postId]).map(c => `<li><b>${esc(c.authorName)}</b> on <a href="${postPath(byPost[c.postId])}">${esc(byPost[c.postId].title)}</a></li>`).join('') || '<li class="muted">No comments yet.</li>'}</ul>
-      <h3>Archives</h3><ul>${months.map(m => `<li><a href="#/archive/${m}">${monthName(m)}</a> <span class="muted">(${perMonth[m].length})</span></li>`).join('')}</ul></div>
-    <div><h3>Blogs</h3><ul>${BLOGS.map(b => `<li><a href="#/blog/${esc(b.id)}">${esc(b.title)}</a> <span class="muted">(${(perBlog[b.id] || []).length})</span></li>`).join('') || '<li class="muted">No blogs yet.</li>'}</ul>
-      <h3>About</h3><ul><li><a href="#/blogs">Explore blogs</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
+      <h3>Archives</h3><ul>${months.map(m => `<li><a href="/archive/${m}">${monthName(m)}</a> <span class="muted">(${perMonth[m].length})</span></li>`).join('')}</ul></div>
+    <div><h3>Blogs</h3><ul>${BLOGS.map(b => `<li><a href="/blog/${esc(b.id)}">${esc(b.title)}</a> <span class="muted">(${(perBlog[b.id] || []).length})</span></li>`).join('') || '<li class="muted">No blogs yet.</li>'}</ul>
+      <h3>About</h3><ul><li><a href="/blogs">Explore blogs</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
   </div>`;
-  $footer.querySelector('.widget-search').onsubmit = e => { e.preventDefault(); location.hash = '#/posts' + filterQuery({q: e.target.q.value.trim()}); };
+  $footer.querySelector('.widget-search').onsubmit = e => { e.preventDefault(); navigate('/posts' + filterQuery({q: e.target.q.value.trim()})); };
 }
 
 // ---------- cards ----------
@@ -130,7 +133,7 @@ async function home() {
   // (or, in the local prototype, on one canvas of every sample post).
   if (u && rank(u.role) < 1) {
     const ids = [...new Set((await store.listMyModules()).map(m => m.blogId).filter(Boolean))];
-    if (ids.length === 1) { location.replace('#/blog/' + ids[0]); return; }
+    if (ids.length === 1) { navigate('/blog/' + ids[0], {replace: true}); return; }
     if (ids.length > 1) { await myModules(); return; }
   }
   if (store.mode === 'firebase') { await blogDirectory(); return; }
@@ -159,10 +162,10 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
   const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
   const liked = !!me && likes.includes(me.uid);
   return `<header class="post-head">
-    ${p.category ? `<div class="cat"><a href="${p.blogId ? '#/blog/' + esc(p.blogId) : '#/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a></div>` : ''}
+    ${p.category ? `<div class="cat"><a href="${p.blogId ? '/blog/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a></div>` : ''}
     <h1>${esc(p.title || 'Untitled')}</h1>
     ${p.excerpt ? `<p class="subtitle">${esc(p.excerpt)}</p>` : ''}
-    <div class="byline"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div><a href="#/author/${esc(p.authorId || '')}"><b>${esc(p.authorName || 'you')}</b></a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}<br><span class="muted">${fmtDate(p.publishedAt || p.updatedAt || Date.now())} · ${readingTime(w)}${blog ? ` · <a href="#/blog/${esc(blog.id)}">${esc(blog.title)}</a>` : ''}</span></div></div>
+    <div class="byline"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div><a href="/author/${esc(p.authorId || '')}"><b>${esc(p.authorName || 'you')}</b></a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}<br><span class="muted">${fmtDate(p.publishedAt || p.updatedAt || Date.now())} · ${readingTime(w)}${blog ? ` · <a href="/blog/${esc(blog.id)}">${esc(blog.title)}</a>` : ''}</span></div></div>
     <div class="post-actions-row" role="group" aria-label="Post actions">
       <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes.length || ''}</span></button>
       <a class="react" href="#comments" data-comments aria-label="Comments">${ICON.comment}<span>${comments || ''}</span></a>
@@ -171,7 +174,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
     </div></header>
     ${p.featuredImage ? `<img class="hero" src="${esc(p.featuredImage)}" alt="">` : ''}
     <div class="body">${sanitize(p.body || '')}</div>
-    ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="${p.blogId ? '#/blog/' + esc(p.blogId) : '#/posts'}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
+    ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="${p.blogId ? '/blog/' + esc(p.blogId) : '/posts'}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
 }
 async function shareLink(url, title) {
   try { if (navigator.share) { await navigator.share({title, url}); return; } } catch { return; }
@@ -181,7 +184,7 @@ async function shareLink(url, title) {
 async function postView(slug) {
   const p = await store.getPostBySlug(slug);
   const u = user();
-  if (!p || (p.status !== 'published' && !(u && can(u, 'edit', p, S)))) { $app.innerHTML = `<p class="empty">That post is not available. <a href="#/">Back to the blog</a></p>`; return; }
+  if (!p || (p.status !== 'published' && !(u && can(u, 'edit', p, S)))) { $app.innerHTML = `<p class="empty">That post is not available. <a href="/">Back to the blog</a></p>`; return; }
   const [module, blog, mine] = await Promise.all([p.moduleId ? store.getModule(p.moduleId) : null, store.getBlog(p.blogId), u ? store.listMyModules() : []]);
   // Cohort rules (approval, open/closed) come from the module; the comments policy from the blog.
   const context = {...S, ...(module || {}), allowComments: blog ? blog.allowComments !== false : true};
@@ -190,15 +193,15 @@ async function postView(slug) {
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const [comments, likes] = await Promise.all([store.listComments(p.id), store.listLikes(p.id)]);
   const words = wordCount(p.body);
-  $app.innerHTML = `${blog ? `<p class="page-sub"><a href="#/blog/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<article class="post">
+  $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/blog/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<article class="post">
     ${u && can(u, 'edit', p, context) ? `<div class="post-actions"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span>
-      <a class="btn small" href="#/edit/${p.id}">Edit</a>
+      <a class="btn small" href="/edit/${p.id}">Edit</a>
       ${p.status === 'published' && can(u, 'unpublish', p, context) ? `<button class="btn small" data-act="unpublish">Unpublish</button>` : ''}
       ${p.status !== 'published' && can(u, 'publish', p, context) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
       ${can(u, 'feature', p, context) ? `<button class="btn small" data-act="feature">${p.featured ? 'Unfeature' : 'Feature'}</button>` : ''}
       ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : ''}
     ${articleHtml(p, {blog, words, likes, comments: comments.length, me: u})}
-    <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="#/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="#/blog/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
+    <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/blog/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
     <div class="prevnext"><span>${prev ? `<a href="${postPath(prev)}"><small>« Previous</small>${esc(prev.title)}</a>` : ''}</span><span style="text-align:right">${next ? `<a href="${postPath(next)}"><small>Next »</small>${esc(next.title)}</a>` : ''}</span></div>
     <section class="comments" id="comments"><h2>${comments.length ? `${comments.length} comment${comments.length === 1 ? '' : 's'}` : 'Leave a reply'}</h2>
       <div id="comment-list">${comments.map(c => commentHtml(c, u, p)).join('')}</div>
@@ -211,7 +214,7 @@ async function postView(slug) {
     try { await store.addComment({postId: p.id, body}, u); toast('Comment posted.'); render(); } catch (err) { toast(err.message, 'error'); }
   });
   enhance($app.querySelector('.post .body'), {post: p, user: u, store});
-  $app.querySelector('[data-share]').onclick = () => shareLink(location.origin + location.pathname + location.search + postPath(p), p.title);
+  $app.querySelector('[data-share]').onclick = () => shareLink(publicUrl(postPath(p)), p.title);
   $app.querySelector('[data-like]').onclick = async e => {
     const b = e.currentTarget;
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
@@ -223,7 +226,7 @@ async function postView(slug) {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
     try {
-      if (act === 'delete') { if (!confirm('Delete this post permanently?')) return; try { await store.deletePost(p.id); } catch (err) { return toast(err.message, 'error'); } toast('Post deleted.'); location.hash = '#/'; return; }
+      if (act === 'delete') { if (!confirm('Delete this post permanently?')) return; try { await store.deletePost(p.id); } catch (err) { return toast(err.message, 'error'); } toast('Post deleted.'); navigate('/'); return; }
       if (act === 'unpublish') await store.savePost({...p, status: 'draft'}, u);
       if (act === 'publish') await store.savePost({...p, status: 'published'}, u);
       if (act === 'feature') await store.savePost({...p, featured: !p.featured}, u);
@@ -251,7 +254,7 @@ async function editorView(id, moduleId) {
   if (!moduleId) {
     // No module named: a student with one module goes straight to it, otherwise choose.
     const mine = (await store.listMyModules()).filter(m => m.blogId);
-    if (mine.length === 1) { location.replace('#/write/' + mine[0].id); return; }
+    if (mine.length === 1) { navigate('/write/' + mine[0].id, {replace: true}); return; }
     await myModules(); return;
   }
   const module = await store.getModule(moduleId);
@@ -263,7 +266,7 @@ async function editorView(id, moduleId) {
   if (store.mode === 'firebase' && !u.emailVerified) { $app.innerHTML='<p class="empty">Verify your sign-in email before writing. Use the account menu to resend or refresh verification.</p>';return; }
   if (!p && rank(u.role) < 1) {
     const joined = (await store.listMyModules()).some(m=>m.id===moduleId);
-    if(!joined){$app.innerHTML=`<p class="empty">Join this module before writing. <a href="#/blog/${esc(module.blogId)}">Open the blog</a></p>`;return;}
+    if(!joined){$app.innerHTML=`<p class="empty">Join this module before writing. <a href="/blog/${esc(module.blogId)}">Open the blog</a></p>`;return;}
   }
   p = p || {moduleId, title: '', body: '', category: '', organisation: '', tags: [], featuredImage: '', status: 'draft', excerpt: ''};
   const draft = {...p, title: p.title === 'Untitled draft' ? '' : (p.title || ''), tags: [...(p.tags || [])]};   // the placeholder title is for the database only
@@ -279,7 +282,7 @@ async function editorView(id, moduleId) {
 
   $app.innerHTML = `<div class="writer">
     <div class="writer-bar">
-      <a class="icon-btn" href="#/blog/${esc(module.blogId)}" aria-label="Back to the blog" title="Back to the blog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></a>
+      <a class="icon-btn" href="/blog/${esc(module.blogId)}" aria-label="Back to the blog" title="Back to the blog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></a>
       <span class="save-chip" id="save-chip" data-state="${id ? (draft.status === 'published' ? 'published' : 'saved') : 'new'}"><i></i><span>${id ? (draft.status === 'published' ? 'Published' : draft.status === 'pending' ? 'Submitted' : 'Saved') : 'New draft'}</span></span>
       <span class="grow"></span>
       <button type="button" class="btn ghost" id="preview">Preview</button>
@@ -305,7 +308,7 @@ async function editorView(id, moduleId) {
       <div>
         ${blog.maxWords ? `<h3>Length</h3><div class="wc"><span><b id="wc">0</b> words</span><span class="muted">target ${targetText}</span></div><div class="meter" id="meter"><i style="width:0"></i></div><p class="hint" id="wc-hint"></p>` : ''}
         ${(blog.checklist || []).length ? `<h3>Before you publish</h3><ul class="checklist">${blog.checklist.map((t, i) => `<li><input type="checkbox" id="chk${i}"><label for="chk${i}">${esc(t)}</label></li>`).join('')}</ul>` : ''}
-        ${blog.brief ? `<p class="hint"><a href="#/blog/${esc(blog.id)}/brief" target="_blank">Read the brief</a></p>` : ''}
+        ${blog.brief ? `<p class="hint"><a href="/blog/${esc(blog.id)}/brief" target="_blank">Read the brief</a></p>` : ''}
       </div>
     </div>
     <div class="actions sheet-actions"><button type="button" class="btn accent" id="publish">${draft.status === 'published' ? 'Update post' : needsReview ? 'Submit for review' : 'Publish'}</button><button type="button" class="btn" id="save-draft">${draft.status === 'published' ? 'Unpublish to draft' : 'Save draft'}</button><button type="button" class="btn ghost" data-close>Back to editing</button></div>
@@ -339,7 +342,7 @@ async function editorView(id, moduleId) {
     if (hasCats && !draft.category) return problem(`Choose the ${catLabel.toLowerCase()} your post is about.`);
     if (blog.minWords && words < blog.minWords * 0.5 && draft.status !== 'published' && !confirm(`Your post has only ${words} words; the target is ${blog.minWords}–${blog.maxWords}. Publish anyway?`)) return;
     const wasLive = draft.status === 'published';
-    settle().then(() => save(needsReview ? 'pending' : 'published')).then(ok => { if (!ok) return; $('sheet').close(); if (draft.status === 'published') { toast(wasLive ? 'Updated.' : 'Published! Your post is live.'); location.hash = postPath(draft); } else { toast('Submitted for review.'); location.hash = '#/mine'; } });
+    settle().then(() => save(needsReview ? 'pending' : 'published')).then(ok => { if (!ok) return; $('sheet').close(); if (draft.status === 'published') { toast(wasLive ? 'Updated.' : 'Published! Your post is live.'); navigate(postPath(draft)); } else { toast('Submitted for review.'); navigate('/mine'); } });
   };
   $('preview').onclick = () => showPreview();
   // Post info (characters, words, sentences, reading and speaking time), as on Substack.
@@ -383,7 +386,7 @@ async function editorView(id, moduleId) {
       chip(status === 'published' ? 'published' : 'saved', status === 'published' ? 'Published' : status === 'pending' ? 'Submitted' : 'Saved');
       if (liveView !== 'editor') return ok;   // the save landed after the writer was left: nothing to repaint, and never rewrite another page's URL
       if ($('continue')) $('continue').textContent = status === 'published' ? 'Update' : 'Continue';
-      if (!id && !location.hash.startsWith('#/edit/')) { history.replaceState(null, '', '#/edit/' + saved.id); lastRouteHash = location.hash; }
+      if (!id && !route().startsWith('/edit/')) rewrite('/edit/' + saved.id);   // the new draft's own address, without re-rendering
       if ($('publish')) $('publish').textContent = draft.status === 'published' ? 'Update post' : needsReview ? 'Submit for review' : 'Publish';
       if ($('save-draft')) $('save-draft').textContent = draft.status === 'published' ? 'Unpublish to draft' : 'Save draft';
       if (revision !== rev) { chip('unsaved', 'Unsaved'); if (draft.status !== 'published') { clearTimeout(saveTimer); saveTimer = setTimeout(() => save(draft.status === 'pending' ? 'pending' : 'draft', true), 1500); } }
@@ -404,13 +407,12 @@ async function editorView(id, moduleId) {
     enhance(shell.querySelector('.post .body'), {preview: true, post: draft});
     shell.querySelectorAll('[data-dev]').forEach(b => b.onclick = () => { shell.querySelectorAll('[data-dev]').forEach(x => x.setAttribute('aria-selected', x === b)); shell.querySelector('.preview-stage').className = 'preview-stage ' + b.dataset.dev; });
     shell.querySelector('#pv-done').onclick = () => $app.replaceChildren(editorRoot, sheet);
-    shell.querySelector('#pv-share').onclick = () => draft.status === 'published' && draft.slug ? shareLink(location.origin + location.pathname + location.search + postPath(draft), draft.title) : toast('Publish first, then share the public link.');
+    shell.querySelector('#pv-share').onclick = () => draft.status === 'published' && draft.slug ? shareLink(publicUrl(postPath(draft)), draft.title) : toast('Publish first, then share the public link.');
   }
   const leave = e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
   addEventListener('beforeunload', leave);
-  const stop = e => { if (e?.type === 'hashchange' && location.hash && !location.hash.startsWith('#/')) return;   // an in-page anchor (#comments, #fn-3) keeps the editor
-    writingTimer?.stop();clearTimeout(saveTimer); removeEventListener('beforeunload', leave);removeEventListener('pagehide',stop); removeEventListener('hashchange', stop); liveView = null; };
-  addEventListener('hashchange', stop);
+  const stop = () => { writingTimer?.stop();clearTimeout(saveTimer); removeEventListener('beforeunload', leave);removeEventListener('pagehide',stop); removeEventListener('routechange', stop); liveView = null; };
+  addEventListener('routechange', stop);   // in-page anchors (#comments, #fn-3) change the hash, not the route, so they keep the editor
   addEventListener('pagehide',stop);
   if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor')});
 }
@@ -420,11 +422,11 @@ async function mine() {
   const u = user();
   if (!u) { $app.innerHTML = `<p class="empty">Log in to see your posts.</p>`; return; }
   const posts = (await store.listPosts({authorId: u.uid})).sort(by('updatedAt'));
-  $app.innerHTML = `<h1 class="page-title">My posts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="#/profile">Edit profile</a></p>
-    <p class="actions"><a class="btn primary" href="#/write">Write a new post</a><a class="btn" href="#/my-modules">My modules</a></p>
+  $app.innerHTML = `<h1 class="page-title">My posts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="/profile">Edit profile</a></p>
+    <p class="actions"><a class="btn primary" href="/write">Write a new post</a><a class="btn" href="/my-modules">My modules</a></p>
     ${posts.length ? `<table class="list"><thead><tr><th>Title</th><th>Blog</th><th>Status</th><th>Words</th><th>Category</th><th>Updated</th><th></th></tr></thead><tbody>
-      ${posts.map(p => `<tr><td><a href="#/edit/${p.id}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
-        <td class="actions"><a href="#/edit/${p.id}">Edit</a>${p.status === 'published' ? ` <a href="${postPath(p)}">View</a>` : ''}${can(u, 'delete', p, S) ? ` <button class="linkish danger" data-del="${p.id}">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">You have not written anything yet.</p>`}`;
+      ${posts.map(p => `<tr><td><a href="/edit/${p.id}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
+        <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status === 'published' ? ` <a href="${postPath(p)}">View</a>` : ''}${can(u, 'delete', p, S) ? ` <button class="linkish danger" data-del="${p.id}">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">You have not written anything yet.</p>`}`;
   $app.onclick = async e => { const b = e.target.closest('[data-del]'); if (b && confirm('Delete this post?')) { try { await store.deletePost(b.dataset.del); } catch (err) { return toast(err.message, 'error'); } toast('Deleted.'); mine(); } };
 }
 
@@ -466,16 +468,16 @@ async function lecturer(tab = 'posts', query = '') {
   const who = Object.fromEntries(users.map(x => [x.uid, x]));
   const real = uid => { const x = who[uid]; return x ? `${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || '—')}${x.studentId ? ` <span class="muted">${esc(x.studentId)}</span>` : ''}` : '<span class="muted">unknown</span>'; };
   const pending = posts.filter(p => p.status === 'pending');
-  const tabs = `<div class="tabs"><a href="#/review/posts${qs({})}" class="${tab === 'posts' ? 'active' : ''}">All posts (${posts.length})</a><a href="#/review/queue${qs({})}" class="${tab === 'queue' ? 'active' : ''}">Review queue (${pending.length})</a><a href="#/review/comments${qs({})}" class="${tab === 'comments' ? 'active' : ''}">Comments</a><a href="#/review/roster${qs({})}" class="${tab === 'roster' ? 'active' : ''}">Roster (${users.length})</a></div>`;
+  const tabs = `<div class="tabs"><a href="/review/posts${qs({})}" class="${tab === 'posts' ? 'active' : ''}">All posts (${posts.length})</a><a href="/review/queue${qs({})}" class="${tab === 'queue' ? 'active' : ''}">Review queue (${pending.length})</a><a href="/review/comments${qs({})}" class="${tab === 'comments' ? 'active' : ''}">Comments</a><a href="/review/roster${qs({})}" class="${tab === 'roster' ? 'active' : ''}">Roster (${users.length})</a></div>`;
   const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + (wordCount(p.body)), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
   // Posts per module and academic year, for the whole scope (before the year filter).
   const cells = groupBy(scope, p => (p.moduleId || '?') + '|' + (p.academicYear || '—'));
   const summaryYears = [...new Set(scope.map(p => p.academicYear || '—'))].sort().reverse();
   const summaryModules = [...new Set(scope.map(p => p.moduleId))];
-  const summary = summaryModules.length ? `<table class="list compact"><thead><tr><th>Posts by module and year</th>${summaryYears.map(y => `<th><a href="#/review/${tab}${qs({year: y === '—' ? '' : y})}">${esc(y)}</a></th>`).join('')}<th>Total</th></tr></thead><tbody>${summaryModules.map(mid => { const m = modOf(mid); return `<tr><td><a href="#/review/${tab}${qs({module: mid})}">${esc(m ? [m.code, m.title].filter(Boolean).join(' ') : mid)}</a></td>${summaryYears.map(y => `<td>${(cells[mid + '|' + y] || []).filter(p => p.status === 'published').length}<span class="muted small"> / ${(cells[mid + '|' + y] || []).length}</span></td>`).join('')}<td><b>${scope.filter(p => p.moduleId === mid && p.status === 'published').length}</b><span class="muted small"> / ${scope.filter(p => p.moduleId === mid).length}</span></td></tr>`; }).join('')}</tbody></table><p class="hint">published / all posts</p>` : '';
+  const summary = summaryModules.length ? `<table class="list compact"><thead><tr><th>Posts by module and year</th>${summaryYears.map(y => `<th><a href="/review/${tab}${qs({year: y === '—' ? '' : y})}">${esc(y)}</a></th>`).join('')}<th>Total</th></tr></thead><tbody>${summaryModules.map(mid => { const m = modOf(mid); return `<tr><td><a href="/review/${tab}${qs({module: mid})}">${esc(m ? [m.code, m.title].filter(Boolean).join(' ') : mid)}</a></td>${summaryYears.map(y => `<td>${(cells[mid + '|' + y] || []).filter(p => p.status === 'published').length}<span class="muted small"> / ${(cells[mid + '|' + y] || []).length}</span></td>`).join('')}<td><b>${scope.filter(p => p.moduleId === mid && p.status === 'published').length}</b><span class="muted small"> / ${scope.filter(p => p.moduleId === mid).length}</span></td></tr>`; }).join('')}</tbody></table><p class="hint">published / all posts</p>` : '';
   let body = '';
-  const row = p => { const m = modOf(p.moduleId); return `<tr><td>${p.featured ? '<span class="badge featured">★</span>' : ''}<a href="${p.status === 'published' ? postPath(p) : '#/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b><br><span class="small">${real(p.authorId)}</span></td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
-    <td class="actions"><a href="#/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ` <button class="linkish" data-act="unpublish" data-id="${p.id}">Unpublish</button>`} <button class="linkish" data-act="feature" data-id="${p.id}">${p.featured ? 'Unfeature' : 'Feature'}</button>${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`; };
+  const row = p => { const m = modOf(p.moduleId); return `<tr><td>${p.featured ? '<span class="badge featured">★</span>' : ''}<a href="${p.status === 'published' ? postPath(p) : '/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b><br><span class="small">${real(p.authorId)}</span></td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
+    <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ` <button class="linkish" data-act="unpublish" data-id="${p.id}">Unpublish</button>`} <button class="linkish" data-act="feature" data-id="${p.id}">${p.featured ? 'Unfeature' : 'Feature'}</button>${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`; };
   const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name / student</th><th>Module · year</th><th>Status</th><th>Words</th><th>Category</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
   if (tab === 'posts') body = summary + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
   if (tab === 'queue') body = '<p class="muted">Posts submitted for review. Approval is switched on per module in its settings.</p>' + table(pending);
@@ -487,13 +489,13 @@ async function lecturer(tab = 'posts', query = '') {
     <div class="review-filters">${sel('review-blog', 'Blog', myBlogs.map(b => [b.id, b.title]), blogId, 'All my blogs')}${sel('review-module', 'Module', teachingModules.filter(m => !blogId || m.blogId === blogId).map(m => [m.id, [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '')]), moduleId, 'All modules')}${sel('review-year', 'Academic year', years.map(y => [y, y]), year, 'All years')}</div>
     ${stats}${tabs}${body}`;
   if (tab === 'roster') makeTablesSortable($app);
-  const go = patch => { location.hash = '#/review/' + tab + qs(patch); };
+  const go = patch => { navigate('/review/' + tab + qs(patch)); };
   $app.querySelector('#review-blog').onchange = e => go({blog: e.target.value, module: ''});
   $app.querySelector('#review-module').onchange = e => go({module: e.target.value});
   $app.querySelector('#review-year').onchange = e => go({year: e.target.value});
   $app.querySelector('#export-csv')?.addEventListener('click', () => {
     const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, location.origin + location.pathname + postPath(p), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, wordCount(p.body), catName(p.category, p), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
+    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, publicUrl(postPath(p)), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, wordCount(p.body), catName(p.category, p), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
     const blob = new Blob([rows.map(r => r.map(esc2).join(',')).join('\n')], {type: 'text/csv'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ucd-blog-posts${moduleId ? '-' + moduleId : ''}${year ? '-' + year.replace('/', '-') : ''}.csv`; a.click();
   });
   $app.onclick = async e => {
@@ -515,7 +517,7 @@ async function admin(tab = 'users',moduleId='') {
   const u = user();
   if (!u || rank(u.role) < 2) { $app.innerHTML = `<p class="empty">Admin access required.</p>`; return; }
   tab = tab || 'users';
-  const tabs = `<div class="tabs"><a href="#/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="#/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="#/admin/grading" class="${tab==='grading'?'active':''}">AI grading</a><a href="#/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="#/admin/feedback" class="${tab === 'feedback' ? 'active' : ''}">Feedback</a><a href="#/invitations">Invite instructor</a><a href="#/my-modules">Manage modules</a><a href="#/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="#/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
+  const tabs = `<div class="tabs"><a href="/admin/guide" class="${tab==='guide'?'active':''}">Admin guide</a><a href="/admin/people" class="${tab==='people'?'active':''}">People & invitations</a><a href="/admin/grading" class="${tab==='grading'?'active':''}">AI grading</a><a href="/admin/users" class="${tab === 'users' ? 'active' : ''}">Users & roles</a><a href="/admin/feedback" class="${tab === 'feedback' ? 'active' : ''}">Feedback</a><a href="/invitations">Invite instructor</a><a href="/my-modules">Manage modules</a><a href="/admin/settings" class="${tab === 'settings' ? 'active' : ''}">Site settings</a><a href="/admin/data" class="${tab === 'data' ? 'active' : ''}">Data & backend</a></div>`;
   if(tab==='people'&&store.mode==='firebase'){await renderPeople($app,{moduleId,admin:true});return;}
   if(tab==='people'){$app.innerHTML='<h1 class="page-title">Admin area</h1><p class="muted">People and invitation records exist only on the live platform.</p>';return;}
   if(tab==='grading'){liveView='grading';await renderGrading($app,{moduleId});return;}   // like the editor: a store notification must not rebuild the page mid-batch
@@ -531,7 +533,7 @@ async function admin(tab = 'users',moduleId='') {
     body = `<form id="settings" class="two-col">
       <div><label class="field">Blog title (masthead)<input name="title" value="${esc(S.title)}" maxlength="120"></label>
       <label class="field">Tagline<input name="tagline" value="${esc(S.tagline)}" maxlength="160"></label></div>
-      <div><p class="muted">Everything about an exercise (the brief, categories such as megatrends, the word target, the outline, the checklist and whether comments are open) is set per blog in <b>Blog settings</b>. Deadlines, approval and open/closed submissions are set per module in <b>Module settings</b>. <a href="#/my-modules">Manage modules</a>.</p></div>
+      <div><p class="muted">Everything about an exercise (the brief, categories such as megatrends, the word target, the outline, the checklist and whether comments are open) is set per blog in <b>Blog settings</b>. Deadlines, approval and open/closed submissions are set per module in <b>Module settings</b>. <a href="/my-modules">Manage modules</a>.</p></div>
       <div class="actions"><button class="btn primary">Save settings</button></div></form>`;
   }
   if (tab === 'data') {
@@ -549,7 +551,7 @@ async function admin(tab = 'users',moduleId='') {
     try { S = await store.saveSettings(patch); toast('Settings saved.'); renderHeader(); } catch (err) { toast(err.message, 'error'); }
   });
   $app.querySelector('#export-json')?.addEventListener('click', async () => { const blob = new Blob([JSON.stringify(await store.exportAll(), null, 2)], {type: 'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ucd-blog-export.json'; a.click(); });
-  $app.querySelector('#reset-demo')?.addEventListener('click', async () => { if (confirm('Replace everything in this browser with the sample data?')) { await store.resetDemo(); S = store.settings(); toast('Sample data restored.'); location.hash = '#/'; render(); } });
+  $app.querySelector('#reset-demo')?.addEventListener('click', async () => { if (confirm('Replace everything in this browser with the sample data?')) { await store.resetDemo(); S = store.settings(); toast('Sample data restored.'); if (!navigate('/')) render(); } });
 }
 
 // ---------- boot ----------
@@ -557,7 +559,7 @@ async function admin(tab = 'users',moduleId='') {
   try { await initStore(); S = store.settings(); }
   catch (e) { $app.innerHTML = `<p class="empty">The blog could not start: ${esc(e.message)}</p>`; return; }
   store.onChange(() => { S = store.settings(); renderHeader(); if (!liveView) render(); });
-  addEventListener('hashchange', render);
+  startRouter(render);
   mountFeedbackButton();
   render();
 })();
