@@ -1,6 +1,6 @@
 // Router + every page. Clean URLs (router.js) that work from any static host (stouras.com/ucd-blog/).
 import {route, navigate, rewrite, publicUrl, startRouter} from './router.js';
-import {initStore, store} from './store.js';
+import {initStore, store, resetAccess} from './store.js';
 import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './auth.js';
 import {can, ROLES, rank} from './permissions.js';
 import {mountEditor, fillOutline} from './editor.js';
@@ -25,6 +25,8 @@ const allCategories = () => { const seen = new Map(); for (const b of BLOGS) for
 const catName = (slug, p) => ((blogOf(p)?.categories) || allCategories()).find(c => c.slug === slug)?.name || allCategories().find(c => c.slug === slug)?.name || slug || '';
 const user = () => currentUser();
 
+// Signed out there is only the front door and an invitation link; every other page needs an account.
+const PUBLIC = [/^\/?$/, /^\/blogs$/, /^\/modules$/, /^\/invite\//, /^\/join\//];
 const routes = [
   [/^\/?$/, home],
   [/^\/blogs$/, blogDirectory],
@@ -66,6 +68,8 @@ async function doRender() {
   const seq = ++renderSeq;
   const path = route();   // '/blog/x?trend=y': the app route, whatever the site is mounted at
   liveView = null; $app.onclick = null;
+  resetAccess();   // who may read what is decided afresh for this navigation
+  if (!user() && !PUBLIC.some(re => re.test(path.split('?')[0]))) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
   try { BLOGS = await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
   renderHeader(path);
   window.scrollTo(0, 0);
@@ -88,20 +92,24 @@ function renderHeader(path = route()) {
   // avatar menu, where everything personal lives). Under the rule: the site's public tabs on the
   // left and search on the right. On a phone the tabs fold into a drawer that slides in from the left.
   document.body.classList.remove('nav-locked');
+  // Signed out there is nothing to browse, so only the masthead and Log in are drawn. Signed in,
+  // the first tab is the person's own blog (or blogs); the admin explores them all.
+  const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : BLOGS.length === 1 ? {href: '/blog/' + BLOGS[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
   $header.innerHTML = `<div class="brand">
-    <button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>
+    ${u ? '<button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>' : ''}
     <div class="masthead"><h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p></div>
     <div class="account" id="account"></div></div>
   <hr class="rule">
-  <div class="sub">
+  ${u ? `<div class="sub">
     <nav id="site-nav" class="site-nav" aria-label="Site">
       <button type="button" class="nav-close" aria-label="Close menu">×</button>
-      <a href="/blogs" class="${active('/blogs')}">Explore blogs</a><a href="/posts" class="${active('/posts')}">All posts</a>
+      <a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>
     </nav>
-    <div class="nav-backdrop" hidden></div></div><hr class="thin">`;
+    <div class="nav-backdrop" hidden></div></div><hr class="thin">` : ''}`;
   renderAccountControl($header.querySelector('#account'));   // includes "View as Instructor X" / "View as Student" when they apply
   const toggle = $header.querySelector('.nav-toggle'), nav = $header.querySelector('#site-nav'), backdrop = $header.querySelector('.nav-backdrop');
+  if (!nav) return;
   const setNav = open => { $header.classList.toggle('nav-open', open); toggle.setAttribute('aria-expanded', String(open)); backdrop.hidden = !open; document.body.classList.toggle('nav-locked', open); };
   toggle.onclick = () => { const open = !$header.classList.contains('nav-open'); setNav(open); if (open) nav.querySelector('a')?.focus(); };
   backdrop.onclick = () => setNav(false);
@@ -113,6 +121,9 @@ function renderHeader(path = route()) {
 async function renderFooter(seq = renderSeq) {
   document.body.classList.toggle('writing', liveView === 'editor');   // lifts the Feedback button above the writer's sticky footer
   if (liveView === 'editor') { $footer.innerHTML = ''; return; }   // the writer page is full-bleed
+  const u = user(), mode = store.mode === 'firebase' ? 'live database' : 'local prototype (this browser only)';
+  if (!u) { $footer.innerHTML = `<div class="inner"><div><p class="colophon">${esc(S.title)}. Posts are visible to the members of their blog, who read and review them. Mode: ${mode}.</p></div><div></div>
+    <div><h3>About</h3><ul><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div></div>`; return; }
   let posts, comments;
   try { [posts, comments] = await Promise.all([store.listPosts({status: 'published'}), store.recentComments(5)]); } catch (e) { console.warn('footer', e); return; }
   if (seq !== renderSeq || liveView === 'editor') { if (liveView === 'editor') $footer.innerHTML = ''; return; }   // a later navigation won; do not paint over it
@@ -123,10 +134,10 @@ async function renderFooter(seq = renderSeq) {
   $footer.innerHTML = `<div class="inner">
     <div><form class="widget-search" role="search"><input name="q" placeholder="Search" aria-label="Search"><button>Search</button></form>
       <h3>Recent posts</h3><ul>${posts.slice(0, 5).map(p => `<li><a href="${postPath(p)}">${esc(p.title)}</a></li>`).join('') || '<li class="muted">Nothing published yet.</li>'}</ul>
-      <p class="colophon">${esc(S.title)}. Posts stay public so classmates can read and review them. Mode: ${store.mode === 'firebase' ? 'live database' : 'local prototype (this browser only)'}.</p></div>
+      <p class="colophon">${esc(S.title)}. Posts are visible to the members of their blog, who read and review them. Mode: ${mode}.</p></div>
     <div><h3>Recent comments</h3><ul>${comments.filter(c => byPost[c.postId]).map(c => `<li><b>${esc(c.authorName)}</b> on <a href="${postPath(byPost[c.postId])}">${esc(byPost[c.postId].title)}</a></li>`).join('') || '<li class="muted">No comments yet.</li>'}</ul>
       <h3>Archives</h3><ul>${months.map(m => `<li><a href="/archive/${m}">${monthName(m)}</a> <span class="muted">(${perMonth[m].length})</span></li>`).join('')}</ul></div>
-    <div><h3>About</h3><ul><li><a href="/blogs">Explore blogs</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
+    <div><h3>About</h3><ul><li><a href="/blogs">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
   </div>`;
   $footer.querySelector('.widget-search').onsubmit = e => { e.preventDefault(); navigate('/posts' + filterQuery({q: e.target.q.value.trim()})); };
 }
@@ -140,6 +151,7 @@ configurePlatform($app,canvas);
 // ---------- pages ----------
 async function home() {
   const u = user();
+  if (!u) { await blogDirectory(); return; }   // the front door
   // A student lands on the blog of their module(s); everyone else on the directory
   // (or, in the local prototype, on one canvas of every sample post).
   if (u && rank(u.role) < 1) {

@@ -118,13 +118,19 @@ test('named student invitations can only be read and redeemed by the intended un
  await assertSucceeds(setDoc(doc(db('new','new@university.ie'),'modules/one/members/new'),ownMember));
  await assertFails(setDoc(doc(db('outsider','outsider@university.ie'),'modules/one/members/outsider'),{...member('outsider'),email:'outsider@university.ie',contactEmail:'outsider@university.ie',inviteId:'named'}));
 });
-test('public readers see blogs, modules and published posts, not drafts, rosters, profiles or invites',async()=>{
+test('signed-out visitors see blog and module titles only: no posts, comments, drafts, rosters, profiles or invites',async()=>{
  const d=env.unauthenticatedContext().firestore();
  await assertSucceeds(getDocs(collection(d,'blogs')));
  await assertSucceeds(getDocs(collection(d,'modules')));
- await assertSucceeds(getDocs(query(collection(d,'posts'),where('status','==','published'))));
- await assertSucceeds(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));
+ await assertFails(getDocs(query(collection(d,'posts'),where('status','==','published'))));
+ await assertFails(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));
+ await assertFails(getDoc(doc(d,'posts/published')));
+ await assertFails(getDocs(collection(d,'comments')));
  await assertFails(getDoc(doc(d,'posts/draft')));
+ const member=db('peer','peer@ucd.ie');   // signed in, published posts and comments can be read
+ await assertSucceeds(getDocs(query(collection(member,'posts'),where('status','==','published'))));
+ await assertSucceeds(getDoc(doc(member,'posts/published')));
+ await assertSucceeds(getDocs(collection(member,'comments')));
  await assertFails(getDoc(doc(d,'profiles/student')));
  await assertFails(getDocs(collection(d,'modules/one/members')));
  await assertFails(getDocs(collection(d,'blogs/pm/members')));
@@ -214,16 +220,17 @@ test('joining a module writes the blog membership only alongside a valid module 
  await assertFails(setDoc(doc(db('intruder','intruder@ucd.ie'),'blogs/pm/members/intruder'),{uid:'intruder',moduleId:'one',joinedAt:time}));
  await assertFails(setDoc(doc(d,'blogs/ops/members/new-student'),{uid:'new-student',moduleId:'one',joinedAt:time}));
 });
-test('likes are one per verified account on published posts and publicly countable',async()=>{
+test('likes are one per verified account on published posts and countable by signed-in accounts',async()=>{
  const d=db('peer','peer@ucd.ie');
  await assertSucceeds(setDoc(doc(d,'posts/published/likes/peer'),{t:time}));
  await assertFails(setDoc(doc(d,'posts/published/likes/student'),{t:time}));
  await assertFails(setDoc(doc(d,'posts/draft/likes/peer'),{t:time}));
  await assertFails(setDoc(doc(db('peer','peer@ucd.ie',false),'posts/peer-published/likes/peer'),{t:time}));
- await assertSucceeds(getDocs(collection(env.unauthenticatedContext().firestore(),'posts/published/likes')));
+ await assertFails(getDocs(collection(env.unauthenticatedContext().firestore(),'posts/published/likes')));
+ await assertSucceeds(getDocs(collection(d,'posts/published/likes')));
  await assertSucceeds(deleteDoc(doc(d,'posts/published/likes/peer')));
 });
-test('poll votes are one per poll and account on published posts, changeable, publicly countable',async()=>{
+test('poll votes are one per poll and account on published posts, changeable, countable by signed-in accounts',async()=>{
  const d=db('peer','peer@ucd.ie'),vote={pollId:'poll-a',uid:'peer',option:0,t:time};
  await assertSucceeds(setDoc(doc(d,'posts/published/votes/poll-a_peer'),vote));
  await assertSucceeds(setDoc(doc(d,'posts/published/votes/poll-a_peer'),{...vote,option:1}));
@@ -231,7 +238,8 @@ test('poll votes are one per poll and account on published posts, changeable, pu
  await assertFails(setDoc(doc(d,'posts/published/votes/poll-b_peer'),vote));
  await assertFails(setDoc(doc(d,'posts/published/votes/poll-a_peer'),{...vote,option:42}));
  await assertFails(setDoc(doc(d,'posts/draft/votes/poll-a_peer'),vote));
- await assertSucceeds(getDocs(query(collection(env.unauthenticatedContext().firestore(),'posts/published/votes'),where('pollId','==','poll-a'))));
+ await assertFails(getDocs(query(collection(env.unauthenticatedContext().firestore(),'posts/published/votes'),where('pollId','==','poll-a'))));
+ await assertSucceeds(getDocs(query(collection(d,'posts/published/votes'),where('pollId','==','poll-a'))));
 });
 test('the writer may probe a fresh post id and save a first draft under it',async()=>{
  const d=db('student','student@ucdconnect.ie');

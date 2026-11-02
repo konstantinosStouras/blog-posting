@@ -225,7 +225,9 @@ service cloud.firestore {
     }
     match /posts/{id} {
       allow get: if signedIn() && resource == null;   // the writer checks a fresh id before its first save
-      allow read: if resource.data.status == 'published' || own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId);
+      // Posts, comments, votes and likes are read by signed-in accounts only; the app shows each
+      // person the blog(s) of their modules. Signed out, there is only the front door.
+      allow read: if signedIn() && (resource.data.status == 'published' || own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId));
       allow create: if verified() && postShape() && request.resource.data.authorId == request.auth.uid
         && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
           || (memberOf(request.resource.data.moduleId) && openSubmissions(request.resource.data.moduleId)
@@ -243,9 +245,9 @@ service cloud.firestore {
             && request.resource.data.get('featured',false) == resource.data.get('featured',false)
             && (request.resource.data.status != 'published' || !approvalRequired(resource.data.moduleId))));
       allow delete: if isAdmin() || (verified() && own(resource.data.authorId) && resource.data.status != 'published');
-      // Poll votes: one document per poll and account; counts are public, changeable.
+      // Poll votes: one document per poll and account; counts are changeable.
       match /votes/{voteId} {
-        allow read: if true;
+        allow read: if signedIn();
         allow create, update: if own(request.resource.data.uid) && verified()
           && request.resource.data.keys().hasOnly(['pollId','uid','option','t'])
           && request.resource.data.pollId is string && request.resource.data.pollId.size() <= 64
@@ -255,9 +257,9 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/posts/$(id)).data.status == 'published';
         allow delete: if own(resource.data.uid) || isAdmin();
       }
-      // Likes: one per verified account on a published post; counts are public.
+      // Likes: one per verified account on a published post.
       match /likes/{uid} {
-        allow read: if true;
+        allow read: if signedIn();
         allow create: if own(uid) && verified() && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t is number
           && get(/databases/$(database)/documents/posts/$(id)).data.status == 'published';
         allow update: if false;
@@ -265,7 +267,7 @@ service cloud.firestore {
       }
     }
     match /comments/{id} {
-      allow read: if true;
+      allow read: if signedIn();
       allow create: if verified()
         && request.resource.data.keys().hasOnly(['postId','moduleId','blogId','body','authorId','authorName','createdAt'])
         && request.resource.data.authorId == request.auth.uid

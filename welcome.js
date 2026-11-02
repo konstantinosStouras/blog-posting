@@ -84,7 +84,7 @@ export function renderWelcome() {
         <p class="muted small">Registration needs the invitation code from your instructor.</p></div>`;
   return `<section class="welcome" aria-label="Welcome"><div class="welcome-art">${SKETCH}
     <h2 class="welcome-title">Read, write and <span>review</span>.</h2>
-    <p class="welcome-sub">${esc(S.tagline)}: public posts on the megatrends shaping business and society. Anyone can read; your module's invitation lets you write and comment.</p></div>${card}</section>`;
+    <p class="welcome-sub">${esc(S.tagline)}: posts on the megatrends shaping business and society. Your module's invitation lets you read, write and comment on its blog.</p></div>${card}</section>`;
 }
 
 export function bindWelcome(root) {

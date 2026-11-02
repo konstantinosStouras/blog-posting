@@ -4,7 +4,7 @@
 //   A MODULE is a cohort: code, academic year, roster, invitations, deadline and
 //   moderation settings. Every module posts to exactly one blog, and several
 //   modules of the same instructor may share one blog canvas.
-import {store} from './store.js';
+import {store, canReadBlog} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
 import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
@@ -22,13 +22,13 @@ const isTeaching = m => m.teaching;
 // ---------- directory: every blog, with the modules writing on it ----------
 export async function blogDirectory() {
   const u = currentUser();
+  if (!u) { app.innerHTML = renderWelcome(); bindWelcome(app); return; }   // the front door: no blogs, posts or comments before signing in
   const [blogs, modules] = await Promise.all([store.listBlogs(), store.listModules()]);
   const card = b => { const ms = modules.filter(m => m.blogId === b.id); return `<article class="module-card"><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/blog/${esc(b.id)}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions"><a class="btn small" href="/blog/${esc(b.id)}">Open blog</a>${instructs(u, b) ? `<a class="btn small" href="/blogs/edit/${esc(b.id)}">Blog settings</a>` : ''}</div></article>`; };
-  // A visitor who is not signed in gets the front door first: a sketch of a blog and the ways in.
-  app.innerHTML = `${u ? '' : renderWelcome()}<h1 class="page-title">Explore blogs</h1><p class="page-sub">Each blog is a public canvas written by one or more modules. Read without signing in; sign in with your module's invitation to write and comment.</p>
-    ${u ? `<p class="actions"><a class="btn" href="/my-modules">My modules</a>${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>` : ''}
-    ${blogs.length ? `<div class="module-grid">${blogs.map(card).join('')}</div>` : '<p class="empty">No blogs have been created yet.</p>'}`;
-  if (!u) bindWelcome(app);
+  // Each person sees the blogs they belong to; the admin sees them all.
+  app.innerHTML = `<h1 class="page-title">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</h1><p class="page-sub">${u.role === 'admin' ? 'Every blog on the platform, with the modules writing on it.' : 'The blogs your modules write on. Each blog is visible to its members and instructors only.'}</p>
+    <p class="actions"><a class="btn" href="/my-modules">My modules</a>${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
+    ${blogs.length ? `<div class="module-grid">${blogs.map(card).join('')}</div>` : `<p class="empty">${u.role === 'admin' ? 'No blogs have been created yet.' : 'You are not a member of any blog yet. Enter your invitation code from <a href="/my-modules">My modules</a>.'}</p>`}`;
 }
 
 // ---------- my modules: a student's way in, an instructor's control room ----------
@@ -58,6 +58,7 @@ export async function myModules(target = app, embedded = false) {
 // ---------- the public blog canvas ----------
 export async function blogCanvas(id) {
   const u = currentUser();
+  if (!(await canReadBlog(id))) { app.innerHTML = `<p class="empty">This blog is for the members of its modules and their instructors. ${u ? '<button class="btn primary" id="join-module">Enter invitation code</button>' : ''}</p>`; app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register')); return; }
   const [blog, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found. <a href="/blogs">Explore blogs</a></p>'; return; }
   const onBlog = modules.filter(m => m.blogId === id);
@@ -66,12 +67,12 @@ export async function blogCanvas(id) {
   const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);
   app.innerHTML = `<p class="page-sub">${onBlog.length ? esc(onBlog.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h1 class="page-title">${esc(blog.title)}</h1><p>${esc(blog.description || '')}</p>
-    <p class="actions">${u ? writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>' : '<button class="btn primary" id="join-signin">Log in</button>'}${blog.brief ? `<a class="btn" href="/blog/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy public link</button></p>
+    <p class="actions">${u ? writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>' : '<button class="btn primary" id="join-signin">Log in</button>'}${blog.brief ? `<a class="btn" href="/blog/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy link</button></p>
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
-    <p class="muted small">This blog and all published posts are publicly readable.</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
+    <p class="muted small">Visible to the members of this blog's modules and their instructors.</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
   app.querySelector('#join-signin')?.addEventListener('click', () => openAuthModal());
   app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register'));
-  app.querySelector('#copy-blog-link').onclick = async () => { try { await navigator.clipboard.writeText(blogUrl(id)); toast('Public link copied.'); } catch { prompt('Public blog link', blogUrl(id)); } };
+  app.querySelector('#copy-blog-link').onclick = async () => { try { await navigator.clipboard.writeText(blogUrl(id)); toast('Link copied.'); } catch { prompt('Blog link', blogUrl(id)); } };
 }
 
 // Old `/module/<id>` links land on the module's blog.
@@ -85,6 +86,7 @@ export async function moduleRedirect(id) {
 // ---------- the brief: a blog's exercise, with the reader's own deadlines ----------
 export async function briefPage(id) {
   const u = currentUser();
+  if (!(await canReadBlog(id))) { app.innerHTML = '<p class="empty">This brief is for the members of its blog.</p>'; return; }
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
   const preview = u?.studentPreview, myHere = preview ? modules.filter(m => m.id === preview.moduleId && m.blogId === id) : mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;
