@@ -57,8 +57,9 @@ async function previewOptions(u){
  const p=u.preview||null;
  if(p?.kind==='student')return '';
  const out=[];
- const blogId=route().match(/^\/blog\/([a-z0-9-]+)/)?.[1];
  const modules=await store.listModules();
+ const seg=route().match(/^\/([a-z0-9-]+)(?:[\/?#]|$)/)?.[1];   // a blog lives at /<id> (and /<id>/brief)
+ const blogId=modules.some(m=>m.blogId===seg)?seg:null;
  if(blogId&&['lecturer','admin'].includes(u.role)){
   const m=modules.find(m=>m.blogId===blogId&&(m.teacherIds||[]).includes(u.uid))||(u.role==='admin'?modules.find(m=>m.blogId===blogId):null);
   if(m)out.push(`<button data-preview-student="${esc(m.id)}" data-blog="${esc(blogId)}" data-label="${esc([m.code,m.title].filter(Boolean).join(' '))}">View as Student</button>`);

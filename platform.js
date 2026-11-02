@@ -66,7 +66,7 @@ export async function blogCanvas(id) {
   const preview = u?.studentPreview;   // an instructor seeing the blog as a student of one module
   const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);
-  app.innerHTML = `<p class="page-sub">${onBlog.length ? esc(onBlog.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h1 class="page-title">${esc(blog.title)}</h1><p>${esc(blog.description || '')}</p>
+  app.innerHTML = `<p class="page-sub">${onBlog.length ? esc(onBlog.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p>
     <p class="actions">${u ? writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>' : '<button class="btn primary" id="join-signin">Log in</button>'}${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy link</button></p>
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
     <p class="muted small">Visible to the members of this blog's modules and their instructors.</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;

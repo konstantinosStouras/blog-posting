@@ -87,7 +87,9 @@ function landed(seq) {
 }
 
 // ---------- header & footer ----------
-function renderHeader(path = route()) {
+// The masthead names the blog the reader is on (its title and description); elsewhere, the site.
+const blogOnPath = path => BLOGS.find(b => b.id === (path.match(/^\/([a-z0-9-]+)(?:[\/?#]|$)/) || [])[1]) || null;
+function renderHeader(path = route(), blog = blogOnPath(path)) {
   const u = user();
   const active = h => (h === '/' ? path === '/' : path.startsWith(h)) ? 'active' : '';
   // Two rows. Top: the masthead with the account control on the right (a Write button and the
@@ -99,7 +101,7 @@ function renderHeader(path = route()) {
   const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : BLOGS.length === 1 ? {href: '/' + BLOGS[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
   $header.innerHTML = `<div class="brand">
     ${u ? '<button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>' : ''}
-    <div class="masthead"><h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p></div>
+    <div class="masthead">${blog ? `<h1><a href="/${esc(blog.id)}">${esc(blog.title)}</a></h1><p class="tagline">${esc(blog.description || S.tagline)}</p>` : `<h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p>`}</div>
     <div class="account" id="account"></div></div>
   <hr class="rule">
   ${u ? `<div class="sub">
@@ -229,6 +231,7 @@ async function postView(slug) {
   const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const [comments, likes] = await Promise.all([store.listComments(p.id), store.listLikes(p.id)]);
+  if (blog) renderHeader(route(), blog);   // a post's masthead is its blog's
   const words = wordCount(p.body);
   $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<article class="post">
     ${u && can(u, 'edit', p, context) ? `<div class="post-actions"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span>
