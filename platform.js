@@ -130,7 +130,9 @@ export async function manageModule(id) {
     </fieldset>
     <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(m?.deadline || '')}"><p class="hint">For information only: shown to students on their module card, in the brief and in your modules list. It does not lock anything. To stop students writing or publishing after it, untick <b>Students can write and publish</b> below.</p></label>
     <label class="check"><input type="checkbox" name="submissionsOpen" ${m?.submissionsOpen !== false ? 'checked' : ''}> Students can write and publish</label>
+    <p class="hint indent">Untick to close submissions: students can still read the blog, but not write, edit or publish.</p>
     <label class="check"><input type="checkbox" name="requireApproval" ${m?.requireApproval ? 'checked' : ''}> Review student posts before publication</label>
+    <p class="hint indent">Off by default. Leave it off and posts go live the moment a student publishes. Tick it only if you want every post to wait in your Review queue until you approve it.</p>
     <p class="actions"><button class="btn primary">${m ? 'Save module' : 'Create module'}</button><a class="btn" href="/my-modules">Cancel</a></p><p class="auth-msg" aria-live="polite"></p></form></div>`;
   const form = app.querySelector('form'), modeInputs = [...form.querySelectorAll('[name=blogMode]')];
   const sync = () => { const mode = form.querySelector('[name=blogMode]:checked')?.value || 'new'; form.querySelector('.new-blog').hidden = mode !== 'new'; const sel = form.querySelector('[name=blogId]'); if (sel) sel.closest('label').hidden = mode !== 'existing'; };
