@@ -127,8 +127,9 @@ service cloud.firestore {
         && request.resource.data.code.matches('^[a-z]{3,30}(-[0-9]{3})?$')
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt is number && request.resource.data.expiresAt is number
+        // Student codes are standing: valid until the instructor or the admin revokes them,
+        // so expiresAt has no cap here (instructor invitations above keep their week).
         && request.resource.data.expiresAt > request.time.toMillis()
-        && request.resource.data.expiresAt <= request.time.toMillis() + 31 * 86400000
         && request.resource.data.revoked == false;
       allow update: if staffOf(resource.data.moduleId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked'])

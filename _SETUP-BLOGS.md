@@ -70,13 +70,17 @@ canvas simply shows no megatrend chips.
 
 Per module: **My modules → Invite students → Generate student invitation code**.
 Share the registration link (it prefills the code and ties the student to
-that module only). Students register with name, university, university email
+that module only). The code is the module's for good: it does not expire, so
+next year's cohort uses the same code, and generating a second code leaves the
+first working until you revoke it. The modules sharing the Project Management
+blog each hand out their own code. Students register with name, university, university email
 and ID, verify their email, and land on the module's blog with a **Write your
 blog post** button. Members of any module on a blog can comment on all of its
 posts; the instructor area still lists posts by module and academic year.
 
 ## Next year
 
-Create new modules (same codes, academic year `2027/28`) and attach them to the
-same blogs. Posts stay on one canvas, filterable by academic year; the
-Instructor area and the CSV export filter by blog, module and year.
+Keep the same modules: their invitation codes still work, and each post is
+stamped with the academic year it is published in. Posts stay on one canvas,
+filterable by academic year; the Instructor area and the CSV export filter by
+blog, module and year.

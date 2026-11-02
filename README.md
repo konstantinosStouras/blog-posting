@@ -48,8 +48,11 @@ all of its posts.
 - Instructors create several modules from My modules → Create module.
 - Each public canvas has a stable `/module/<url-name>` address.
 - Module settings → Invite students generates an invitation code and registration link
-  for that module. Student invitations are reusable for a class, expire after
-  30 days, and can be revoked. Existing members remain enrolled after revocation.
+  for that module. Student codes are reusable for a class and standing: a code
+  stays valid every academic year until the instructor or the admin revokes it,
+  and generating another code never cancels the earlier ones. Two modules
+  writing on the same blog hand out different codes, so each student lands in
+  their own module. Existing members remain enrolled after revocation.
 - Students write and comment under an **alias** generated at random when their
   account is created (adjective-noun-number, `aliases.js`). It is shown on posts
   and comments with the publication date, cannot be edited by the student, and

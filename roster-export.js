@@ -1,3 +1,4 @@
+import {isStanding} from './invitation-codes.js';
 const date=value=>value?new Date(value).toISOString().replace('T',' ').slice(0,19):'';
 const role=value=>value==='lecturer'?'Instructor':value?value[0].toUpperCase()+value.slice(1):'Student';
 const userColumns=[['First name','firstName',20],['Last name','lastName',22],['Role','roleLabel',16],['Sign-in email','email',34],['University email','contactEmail',34],['University ID','studentId',22],['School / university','affiliation',32],['Pen name','penName',24],['Modules joined','joined',42],['Modules taught','taught',42],['Account status','status',26],['First seen (UTC)','first',24],['Last sign-in (UTC)','signIn',24],['Last activity (UTC)','seen',24],['User ID','uid',36]];
@@ -21,7 +22,7 @@ export function createRosterWorkbook(ExcelJS,report){
  for(const [name,kind] of [['Instructor invitations','instructor'],['Student invitations','student']]){
   const rows=report.invitations.filter(i=>i.kind===kind);
   if(kind==='instructor'&&!rows.length&&!report.includeInstructorSheet)continue;
-  sheet(name,invitationColumns,rows.map(i=>({...i,kindLabel:role(i.kind),created:date(i.createdAt),expires:date(i.expiresAt)})));
+  sheet(name,invitationColumns,rows.map(i=>({...i,kindLabel:role(i.kind),created:date(i.createdAt),expires:isStanding(i)?'Until revoked':date(i.expiresAt)})));
  }
  sheet('Post writing time',[['Post title','title',40],['Module','moduleTitle',32],['First name','firstName',20],['Last name','lastName',22],['Sign-in email','email',34],['University email','contactEmail',34],['University ID','studentId',22],['Status','status',18],['Writing / editing time (H:MM:SS)','writingTime',34],['Writing / editing seconds','seconds',24],['Post ID','postId',38]],report.writing||[]);
  sheet('Writing sessions',[['Post title','title',40],['Module','moduleTitle',32],['First name','firstName',20],['Last name','lastName',22],['University email','contactEmail',34],['University ID','studentId',22],['Session start (UTC)','start',24],['Last edit (UTC)','activity',24],['Session end (UTC)','end',24],['Last recorded (UTC)','recorded',24],['Active time (H:MM:SS)','writingTime',26],['Active seconds','seconds',18],['Session state / pause reason','reason',32],['Post ID','postId',38],['Session ID','sessionId',40]],(report.sessions||[]).map(s=>({...s,start:date(s.startedAt),activity:date(s.lastActivityAt),end:date(s.endedAt),recorded:date(s.lastRecordedAt),reason:s.endReason==='legacy'?'Legacy editor visit; detailed timestamps unavailable':s.endReason==='checkpoint'?'Last checkpoint; end not recorded':s.endReason})));

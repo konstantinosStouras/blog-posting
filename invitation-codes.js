@@ -4,3 +4,10 @@ export const normalizeCode = value => String(value || '').trim().toLowerCase();
 export function randomCity() { return CITIES[crypto.getRandomValues(new Uint32Array(1))[0] % CITIES.length]; }
 // A city plus three digits (Madrid-483): memorable, but not guessable from the city list.
 export function randomCode() { const n = crypto.getRandomValues(new Uint32Array(1))[0] % 900 + 100; return `${randomCity()}-${n}`; }
+// A student code is standing: it stays valid every academic year until an instructor or
+// the admin revokes it, so its expiresAt holds this far-future moment rather than a date.
+// Codes are unique across the platform, so two modules sharing a blog hand out different ones.
+export const STANDING_EXPIRY = Date.UTC(9999, 11, 31);
+export const isStanding = invite => (invite?.expiresAt || 0) >= STANDING_EXPIRY;
+export const expiryLabel = (invite, fmt) => isStanding(invite) ? 'Until revoked' : fmt(invite.expiresAt);
+

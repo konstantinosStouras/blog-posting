@@ -345,6 +345,8 @@ test('only assigned instructors can generate and revoke module city-code invitat
  b.set(doc(d,'moduleInvites/new-city'),data);
  b.set(doc(d,'registrationCodes/tokyo'),{kind:'student',inviteId:'new-city',moduleId:'one',code:'tokyo',expiresAt:time+86400000,revoked:false});
  await assertSucceeds(b.commit());
+ // Student codes are standing: a far-future expiry is accepted (instructor invitations stay capped).
+ const standing=writeBatch(d);standing.set(doc(d,'moduleInvites/standing'),{...data,code:'lima',expiresAt:Date.UTC(9999,11,31)});standing.set(doc(d,'registrationCodes/lima'),{kind:'student',inviteId:'standing',moduleId:'one',code:'lima',expiresAt:Date.UTC(9999,11,31),revoked:false});await assertSucceeds(standing.commit());
  await assertFails(updateDoc(doc(db('teacher-two'),'moduleInvites/new-city'),{revoked:true}));
  await assertFails(setDoc(doc(db('student'),'moduleInvites/forged'),{...data,createdBy:'student'}));
  const revoke=writeBatch(d);revoke.update(doc(d,'moduleInvites/new-city'),{revoked:true});revoke.update(doc(d,'registrationCodes/tokyo'),{revoked:true});await assertSucceeds(revoke.commit());

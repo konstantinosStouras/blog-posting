@@ -13,7 +13,7 @@ import {firebaseConfig, ADMIN_EMAIL} from './firebase-config.js';
 import {DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
 import {registrationProfile} from './registration.js';
-import {randomCode, normalizeCode} from './invitation-codes.js';
+import {randomCode, normalizeCode, STANDING_EXPIRY} from './invitation-codes.js';
 import {buildPeopleReport} from './people-model.js';
 import {writingReport,sessionHistoryReport,moduleWritingTotals} from './writing-time.js';
 import {randomAlias} from './aliases.js';
@@ -259,7 +259,8 @@ export const firebase = {
   async createModuleInvite(moduleId, recipientEmail='') {
     recipientEmail=recipientEmail.trim().toLowerCase();
     if(recipientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail))throw Error('Enter a valid student university email or leave it blank for a shared class link.');
-    return createCodedInvite('student',{moduleId,recipientEmail,createdBy:user.uid,createdAt:Date.now(),expiresAt:Date.now()+30*86400000,revoked:false});
+    // Standing: the code serves every year's cohort until revoked, and a newer code never cancels an older one.
+    return createCodedInvite('student',{moduleId,recipientEmail,createdBy:user.uid,createdAt:Date.now(),expiresAt:STANDING_EXPIRY,revoked:false});
   },
   async listModuleInvites(moduleId) {const s=await F.getDocs(F.query(F.collection(db,'moduleInvites'),F.where('moduleId','==',moduleId)));return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt);},
   async revokeModuleInvite(id) {const ref=F.doc(db,'moduleInvites',id),s=await F.getDoc(ref),batch=F.writeBatch(db);batch.update(ref,{revoked:true});if(s.data()?.code)batch.update(F.doc(db,'registrationCodes',s.data().code),{revoked:true});await batch.commit();},
