@@ -46,7 +46,7 @@ const routes = [
   [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+(?:-[0-9]{3})?)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
   [/^\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (y, m, slug) => postView(slug)],
   [/^\/post\/([^/?]+)$/, postView],
-  [/^\/category\/([^/?]+)$/, slug => navigate('/posts' + filterQuery({trend: slug}), {replace: true})],   // old links keep working
+  [/^\/category\/([^/?]+)$/, slug => navigate('/posts' + filterQuery({trends: [slug]}), {replace: true})],   // old links keep working
   [/^\/tag\/([^/?]+)$/, tag => navigate('/posts' + filterQuery({tags: [decodeURIComponent(tag)]}), {replace: true})],
   [/^\/author\/([^/?]+)$/, uid => browse({author: uid})],
   [/^\/archive\/(\d{4}-\d{2})$/, month => browse({month})],
