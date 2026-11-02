@@ -251,13 +251,17 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     m.onclick = e => { const b = e.target.closest('[data-lang]'); if (!b) return; m.remove(); if (b.dataset.lang === '__remove') { pre.remove(); changed(); return; } pre.dataset.lang = b.dataset.lang; enhance(surface, {editor: true}).then(changed); };
     setTimeout(() => document.addEventListener('click', function off(ev) { if (!m.contains(ev.target)) { m.remove(); document.removeEventListener('click', off); } }), 0);
   }
-  file.onchange = async () => {
-    const f = file.files[0]; file.value = ''; if (!f) return;
-    try { const src = await shrinkImage(f, 1200); const fig = document.createElement('figure'); fig.innerHTML = `<img src="${src}" alt="${esc(f.name.replace(/\.[^.]+$/, ''))}"><figcaption>Figure: describe what this shows and cite the source</figcaption>`; insertBlockAfterCurrent(fig); const cap = fig.querySelector('figcaption'); const r = document.createRange(); r.selectNodeContents(cap); const ss = sel(); ss.removeAllRanges(); ss.addRange(r); changed(); }
+  // One path for every way an image can arrive: the toolbar picker, Ctrl+V of a screenshot, or a file dragged onto the post.
+  async function insertImageFile(f) {
+    try { const src = await shrinkImage(f, 1200); const name = /^image\.(png|jpe?g|gif|webp)$/i.test(f.name) ? '' : f.name.replace(/\.[^.]+$/, ''); const fig = document.createElement('figure'); fig.innerHTML = `<img src="${src}" alt="${esc(name)}"><figcaption>Figure: describe what this shows and cite the source</figcaption>`; insertBlockAfterCurrent(fig); const cap = fig.querySelector('figcaption'); const r = document.createRange(); r.selectNodeContents(cap); const ss = sel(); ss.removeAllRanges(); ss.addRange(r); changed(); }
     catch (e) { toast(e.message, 'error'); }
-  };
+  }
+  const imageFiles = dt => [...(dt?.files || [])].filter(f => /^image\//.test(f.type));
+  file.onchange = () => { const f = file.files[0]; file.value = ''; if (f) insertImageFile(f); };
   surface.addEventListener('paste', e => {
     e.preventDefault();
+    // A screenshot on the clipboard (Ctrl+V after Win+Shift+S, Snipping Tool, a copied image) comes as a file, not text.
+    const imgs = imageFiles(e.clipboardData); if (imgs.length) { surface.focus(); (async () => { for (const f of imgs) await insertImageFile(f); })(); return; }
     const h = e.clipboardData.getData('text/html'), t = e.clipboardData.getData('text/plain');
     if (inside('pre')) { exec('insertText', t); return; }
     if (h) {
@@ -275,6 +279,13 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
       const clean = t.innerHTML.replace(/ style="[^"]*"/g, '').replace(/<(\/?)div[^>]*>/g, (m, s) => s ? '</p>' : '<p>'); insertHTML(clean);
     }
     else { const paras = t.split(/\r?\n\r?\n/).map(x => esc(x).replace(/\r?\n/g, '<br>')).filter(Boolean); insertHTML(paras.length > 1 ? '<p>' + paras.join('</p><p>') + '</p>' : paras[0] || ''); }
+  });
+  surface.addEventListener('dragover', e => { if (imageFiles(e.dataTransfer).length || [...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  surface.addEventListener('drop', e => {
+    const imgs = imageFiles(e.dataTransfer); if (!imgs.length) return;
+    e.preventDefault(); surface.focus();
+    try { const r = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null; if (r) { const ss = sel(); ss.removeAllRanges(); ss.addRange(r); } } catch {}
+    (async () => { for (const f of imgs) await insertImageFile(f); })();
   });
   surface.addEventListener('focus', ensureParagraph);
   surface.addEventListener('input', () => { if (!surface.firstElementChild && surface.textContent) { document.execCommand('formatBlock', false, 'P'); } renumberFootnotes(surface, true); changed(); });
