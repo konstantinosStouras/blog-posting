@@ -224,7 +224,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
     ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
 }
 
-async function postView(slug) {
+async function postView(slug, blogId = null) {
   const p = await store.getPostBySlug(slug);
   const u = user();
   if (p && p.blogId && blogId !== p.blogId) { navigate(postPath(p), {replace: true}); return; }   // an old or mistyped address: the post's one real address
@@ -411,10 +411,10 @@ async function editorView(id, moduleId) {
         <p class="hint">Shown on the blog canvas and at the top of your post.</p>
         ${hasCats ? `<label class="field">${esc(catLabel)}<select id="category"><option value="">Choose…</option>${blog.categories.map(c => `<option value="${c.slug}" ${draft.category === c.slug ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
         ${orgLabel ? `<label class="field">${esc(orgLabel)}<input id="organisation" maxlength="120" value="${esc(draft.organisation || '')}" placeholder="e.g. Ryanair, UNICEF, the HSE"></label>` : ''}
+        <div class="field industries-field"><label for="industry-pick">Industries</label><select id="industry-pick" aria-label="Add an industry"></select><div class="industry-chips" id="industry-chips" role="list" aria-label="Selected industries"></div><p class="hint">Pick up to ${MAX_INDUSTRIES} industries your post relates to. Readers can filter the blog by industry.</p></div>
         <label class="field">Tags<input id="tags" value="${esc(draft.tags.join(', '))}" placeholder="Climate Action, ESG, Supply Chain"><p class="hint">Comma-separated keywords readers browse by.</p></label>
       </div>
       <div>
-        <div class="field industries-field"><label for="industry-pick">Industries</label><select id="industry-pick" aria-label="Add an industry"></select><div class="industry-chips" id="industry-chips" role="list" aria-label="Selected industries"></div><p class="hint">Pick up to ${MAX_INDUSTRIES} industries your post relates to. Readers can filter the blog by industry.</p></div>
         ${blog.maxWords ? `<h3>Length</h3><div class="wc"><span><b id="wc">0</b> words</span><span class="muted">target ${targetText}</span></div><div class="meter" id="meter"><i style="width:0"></i></div><p class="hint" id="wc-hint"></p>` : ''}
         ${(blog.checklist || []).length ? `<h3>Before you publish</h3><ul class="checklist">${blog.checklist.map((t, i) => `<li><input type="checkbox" id="chk${i}"><label for="chk${i}">${esc(t)}</label></li>`).join('')}</ul>` : ''}
         ${blog.brief ? `<p class="hint"><a href="/${esc(blog.id)}/brief" target="_blank">Read the brief</a></p>` : ''}
@@ -438,9 +438,6 @@ async function editorView(id, moduleId) {
   $('excerpt').oninput = e => { draft.excerpt = e.target.value; touched(); };
   $('category') && ($('category').onchange = e => { draft.category = e.target.value; touched(); });
   $('organisation') && ($('organisation').oninput = e => { draft.organisation = e.target.value; touched(); });
-  $('tags').onchange = e => { const seen = new Set(); draft.tags = e.target.value.split(/[,;]/).map(t => t.trim()).filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 12); e.target.value = draft.tags.join(', '); touched(); };
-  $('pick-image').onclick = () => $('image-file').click();
-  $('image-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { draft.featuredImage = await shrinkImage(f, 1400); $('thumb').src = draft.featuredImage; $('thumb').hidden = false; $('remove-image').hidden = false; touched(); } catch (err) { toast(err.message, 'error'); } };
   // Industries: a drop-down adds one at a time; each picked industry is a chip with a × to remove it.
   const drawIndustries = () => {
     const full = draft.industries.length >= MAX_INDUSTRIES;
@@ -451,6 +448,9 @@ async function editorView(id, moduleId) {
   drawIndustries();
   $('industry-pick').onchange = e => { const s = e.target.value; if (s && !draft.industries.includes(s) && draft.industries.length < MAX_INDUSTRIES) { draft.industries = [...draft.industries, s]; touched(); } drawIndustries(); };
   $('industry-chips').onclick = e => { const b = e.target.closest('[data-drop-industry]'); if (!b) return; draft.industries = draft.industries.filter(s => s !== b.dataset.dropIndustry); touched(); drawIndustries(); };
+  $('tags').onchange = e => { const seen = new Set(); draft.tags = e.target.value.split(/[,;]/).map(t => t.trim()).filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 12); e.target.value = draft.tags.join(', '); touched(); };
+  $('pick-image').onclick = () => $('image-file').click();
+  $('image-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { draft.featuredImage = await shrinkImage(f, 1400); $('thumb').src = draft.featuredImage; $('thumb').hidden = false; $('remove-image').hidden = false; touched(); } catch (err) { toast(err.message, 'error'); } };
   $('remove-image').onclick = () => { draft.featuredImage = ''; $('thumb').hidden = true; $('remove-image').hidden = true; touched(); };
   $('continue').onclick = $('details').onclick = () => { updateMeter(); $('status-line').textContent = ''; $('sheet').showModal(); };
   const settle = async () => { clearTimeout(saveTimer); while (saving) await new Promise(r => setTimeout(r, 100)); };
