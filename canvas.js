@@ -61,7 +61,6 @@ function matches(p, f, skip = '') {
 }
 // The category facet is named by the blog (Megatrend on the PM blog, Category elsewhere).
 const catLabel = st => st.opts?.categoryLabel || 'Category';
-const allLabel = st => { const l = catLabel(st).toLowerCase(); return 'All ' + (l.endsWith('y') ? l.slice(0, -1) + 'ies' : l + 's'); };
 // Category names come from the post's own blog when several blogs share a page.
 const catName = (st, slug, p) => ((p && st.blogs?.get(p.blogId)?.categories) || st.cats).find(c => c.slug === slug)?.name || st.cats.find(c => c.slug === slug)?.name || slug || '';
 function sorted(posts, sort) {
@@ -92,7 +91,7 @@ function facets(st) {
   const modules = [...count('module', p => [p.moduleId]).entries()].map(([k, n]) => { const m = st.modules.get(k); return {key: k, label: m ? [m.code, m.title].filter(Boolean).join(' ') : k, n}; }).sort((a, b) => a.label.localeCompare(b.label));
   const blogs = [...count('blog', p => [p.blogId]).entries()].map(([k, n]) => ({key: k, label: st.blogs.get(k)?.title || k, n})).sort((a, b) => a.label.localeCompare(b.label));
   const allCats = st.cats.slice(); for (const slug of trends.keys()) if (slug && !allCats.some(c => c.slug === slug)) allCats.push({slug, name: slug});
-  return {trends, allCats, orgs, years, tags, modules, blogs, yearLabel: posts.some(p => p.academicYear) ? 'Academic year' : 'Year', totalForTrend: posts.filter(p => matches(p, f, 'trend')).length};
+  return {trends, allCats, orgs, years, tags, modules, blogs, yearLabel: posts.some(p => p.academicYear) ? 'Academic year' : 'Year'};
 }
 
 // ---------- markup ----------
@@ -114,13 +113,13 @@ function filtersHtml(st) {
   const active = f.tags.map(t => fx.tags.find(x => x.key === norm(t)) || {key: norm(t), label: t, n: 0});
   for (const t of active) if (!shownTags.some(x => x.key === t.key)) shownTags.unshift(t);
   const tagHtml = shownTags.map(t => { const on = f.tags.some(x => norm(x) === t.key); return `<a href="${link({tags: on ? f.tags.filter(x => norm(x) !== t.key) : [...f.tags, t.label]})}" data-tag="${esc(t.label)}" class="${on ? 'active' : ''}${t.n ? '' : ' zero'}" aria-pressed="${on}">${esc(t.label)}<span class="n">${t.n}</span></a>`; }).join('');
-  const pills = [];
-  if (f.q) pills.push(['q', '', `“${f.q}”`]); for (const t of f.trends) pills.push(['trend', t, catName(st, t)]); if (f.org) pills.push(['org', '', f.org]); if (f.year) pills.push(['year', '', f.year]);
-  if (f.module) pills.push(['module', '', st.modules.get(f.module)?.title || f.module]); if (f.blog) pills.push(['blog', '', st.blogs.get(f.blog)?.title || f.blog]); for (const t of f.tags) pills.push(['tag', t, '#' + t]);
-  return `${fx.allCats.length ? `<div class="chips" role="group" aria-label="${esc(catLabel(st))}">${chip('', allLabel(st), fx.totalForTrend, !f.trends.length)}${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trends.includes(c.slug))).join('')}</div>` : ''}
+  // The category chips are toggles: a click selects a megatrend, a second click on a lit chip
+  // deselects it, and nothing selected means every post. "Clear all" at the end of the row
+  // resets every filter (chips, search, selects and tags) and shows only while one is set.
+  const clearAll = activeFilterCount(f) ? `<button type="button" class="linkish clear-all" data-clear>Clear all</button>` : '';
+  return `${fx.allCats.length ? `<div class="chips" role="group" aria-label="${esc(catLabel(st))}">${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trends.includes(c.slug))).join('')}${clearAll}</div>` : clearAll ? `<div class="chips">${clearAll}</div>` : ''}
     <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${st.modules.size > 1 || fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
-    ${fx.tags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}
-    ${pills.length ? `<div class="active-filters"><span class="lbl">Showing</span>${pills.map(([k, v, label]) => `<span class="pill">${esc(label)}<button type="button" data-remove="${k}" data-v="${esc(v)}" aria-label="Remove filter ${esc(label)}">×</button></span>`).join('')}<button type="button" class="linkish clear-all" data-clear>Clear all</button></div>` : ''}`;
+    ${fx.tags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}`;
 }
 function gridHtml(st) {
   const shown = sorted(st.posts.filter(p => matches(p, st.f)), st.f.sort);

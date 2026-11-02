@@ -112,9 +112,11 @@ dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background
 .app { max-width: var(--wrap); margin: 0 auto; padding: 24px 20px 60px; }
 .page-title { font: 700 26px/1.25 var(--serif); color: var(--ink); margin: 6px 0 4px; }
 .page-sub { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 26px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0 26px; }
 .chips a { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 20px; color: var(--ink); }
-.chips a.active, .chips a:hover { background: var(--ink); color: #fff; border-color: var(--ink); text-decoration: none; }
+.chips a:hover { background: var(--soft); border-color: #bbb; text-decoration: none; }
+.chips a.active, .chips a.active:hover { background: var(--ink); color: #fff; border-color: var(--ink); }   /* a lit chip: click again to deselect */
+.chips .clear-all { font-size: 12px; margin-left: 4px; }
 
 /* ---- post canvas ---- */
 .canvas { columns: 3 280px; column-gap: 28px; }
@@ -319,7 +321,7 @@ table.list select { padding: 3px 6px; border: 1px solid var(--line); border-radi
 .canvas-facets label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; min-width: 200px; }
 .canvas-facets select { max-width: 340px; }
 .tagcloud { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 14px; font-size: 12px; align-items: center; }
-.tagcloud .lbl, .active-filters .lbl { color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 11px; margin-right: 2px; }
+.tagcloud .lbl { color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 11px; margin-right: 2px; }
 .tagcloud a { color: var(--orange); border-radius: 10px; padding: 1px 6px; margin: 0 -6px; }
 .tagcloud a::before { content: '#'; }
 .tagcloud a:hover { text-decoration: none; background: #fff1e8; }
@@ -328,10 +330,6 @@ table.list select { padding: 3px 6px; border: 1px solid var(--line); border-radi
 .tagcloud .n { color: var(--muted); font-size: 11px; margin-left: 3px; }
 .tagcloud a.active .n { color: #fde7dc; }
 .tagcloud .more { color: var(--muted); background: none; border: 0; cursor: pointer; font-size: 12px; text-decoration: underline; padding: 0; }
-.active-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 22px; font-size: 12px; }
-.active-filters .pill { display: inline-flex; align-items: center; gap: 6px; background: var(--ink); color: #fff; border-radius: 14px; padding: 3px 6px 3px 11px; }
-.active-filters .pill button { border: 0; background: none; color: #fff; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; }
-.active-filters .clear-all { font-size: 12px; }
 .card .kicker { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 7px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
 .card .kicker a { color: var(--ink); font-weight: 600; }
 .card .kicker a.trend { color: var(--blue); font-weight: 500; }
