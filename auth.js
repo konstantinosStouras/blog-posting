@@ -72,7 +72,7 @@ const writeButton=()=>`<a href="/write" class="btn primary small write-btn">Writ
 function accountMenu(u){
  const name=fullName(u),p=u.preview,as=p?(p.kind==='student'?'Student':p.name):'';
  return `<details class="account-menu ${p?'previewing':''}"><summary aria-label="Account menu">${avatarHtml(u,name)} <span class="who">${esc(name)}<small>${p?'as '+esc(as):esc(roleLabel(u.role))}</small></span><span class="caret" aria-hidden="true"></span></summary><div class="menu">
- <div class="menu-who"><b>${esc(name)}</b><small>${p?'as '+esc(as):esc(roleLabel(u.role))}${u.email?' · '+esc(u.email):''}</small></div>
+ <div class="menu-who"><b>${esc(name)}</b><small>${p?esc(u.email||''):esc(roleLabel(u.role))+(u.email?' · '+esc(u.email):'')}</small></div>
  ${p?`<div class="preview-head"><b>Viewing as ${esc(as)}</b>${p.kind==='student'?`<span class="small">${esc(p.label)}</span>`:''}<button type="button" class="close-preview" data-exit-preview aria-label="Close the preview and return to your own view" title="Return to your own view">×</button></div>`:''}<div data-preview-options></div>
  ${u.role==='student'&&u.penName&&!p?`<p class="small">Your posts and comments appear as <b>${esc(u.penName)}</b>.</p>`:''}<a href="/my-modules">My modules</a><a href="/mine">My posts</a><a href="/profile">Edit profile</a>
  ${store.mode==='firebase'&&!u.emailVerified?'<p class="small">Verify your sign-in email before participating.</p><button id="resend-verification">Resend verification email</button><button id="refresh-verification">I have verified my email</button>':''}
