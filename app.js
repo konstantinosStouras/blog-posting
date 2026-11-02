@@ -120,15 +120,13 @@ async function renderFooter(seq = renderSeq) {
   const byPost = Object.fromEntries(posts.map(p => [p.id, p]));
   const perMonth = groupBy(posts, p => monthKey(p.publishedAt));
   const months = Object.keys(perMonth).sort().reverse();
-  const perBlog = groupBy(posts, p => p.blogId);
   $footer.innerHTML = `<div class="inner">
     <div><form class="widget-search" role="search"><input name="q" placeholder="Search" aria-label="Search"><button>Search</button></form>
       <h3>Recent posts</h3><ul>${posts.slice(0, 5).map(p => `<li><a href="${postPath(p)}">${esc(p.title)}</a></li>`).join('') || '<li class="muted">Nothing published yet.</li>'}</ul>
       <p class="colophon">${esc(S.title)}. Posts stay public so classmates can read and review them. Mode: ${store.mode === 'firebase' ? 'live database' : 'local prototype (this browser only)'}.</p></div>
     <div><h3>Recent comments</h3><ul>${comments.filter(c => byPost[c.postId]).map(c => `<li><b>${esc(c.authorName)}</b> on <a href="${postPath(byPost[c.postId])}">${esc(byPost[c.postId].title)}</a></li>`).join('') || '<li class="muted">No comments yet.</li>'}</ul>
       <h3>Archives</h3><ul>${months.map(m => `<li><a href="/archive/${m}">${monthName(m)}</a> <span class="muted">(${perMonth[m].length})</span></li>`).join('')}</ul></div>
-    <div><h3>Blogs</h3><ul>${BLOGS.map(b => `<li><a href="/blog/${esc(b.id)}">${esc(b.title)}</a> <span class="muted">(${(perBlog[b.id] || []).length})</span></li>`).join('') || '<li class="muted">No blogs yet.</li>'}</ul>
-      <h3>About</h3><ul><li><a href="/blogs">Explore blogs</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
+    <div><h3>About</h3><ul><li><a href="/blogs">Explore blogs</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
   </div>`;
   $footer.querySelector('.widget-search').onsubmit = e => { e.preventDefault(); navigate('/posts' + filterQuery({q: e.target.q.value.trim()})); };
 }
