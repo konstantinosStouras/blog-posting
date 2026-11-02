@@ -649,3 +649,58 @@ body.writing .fb-fab { bottom: 64px; }
   .welcome-card { order: -1; }
   .welcome-title { font-size: 28px; }
 }
+
+/* ---------- sharing and the PDF ---------- */
+dialog.share-sheet { width: min(520px, 94vw); border: 0; border-radius: 12px; box-shadow: 0 20px 60px #0004; }
+.share-sheet .sheet-form { padding: 22px 24px 20px; }
+.share-sheet h2 { font: 600 20px var(--ui); margin: 0 0 16px; }
+.share-card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+.share-card .share-img { display: block; width: 100%; aspect-ratio: 1.91; object-fit: cover; }
+.share-comment { padding: 12px 14px; font-family: var(--ui); }
+.share-comment-who { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.share-comment-who .avatar { width: 26px; height: 26px; font-size: 11px; }
+.share-comment-who b { color: var(--ink); }
+.share-comment p { margin: 8px 0 0; font-size: 14px; line-height: 1.5; color: var(--body); }
+.share-card-foot { background: #6b5d55; color: #fff; padding: 10px 14px 12px; }
+.share-card-foot .share-site { display: flex; align-items: center; gap: 7px; font-size: 13px; opacity: .9; margin-bottom: 4px; }
+.share-card-foot .share-site img { border-radius: 4px; background: #fff; }
+.share-card-foot b { display: block; font-size: 16px; line-height: 1.3; }
+.share-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 18px; }
+.share-row button { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0; background: none; cursor: pointer; font: 500 12px var(--ui); color: var(--ink); padding: 0; }
+.share-row button svg, .share-row button img { width: 26px; height: 26px; }
+.share-row button > svg, .share-row button > img { box-sizing: content-box; padding: 18px; border-radius: 50%; background: #f1f1f1; transition: background .15s; }
+.share-row button:hover > svg, .share-row button:hover > img { background: #e4e4e4; }
+.share-row button[aria-expanded="true"] > svg { background: var(--ink); color: #fff; }
+.share-sheet .hint { margin-top: 14px; text-align: center; }
+.share-more { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.share-more button { display: flex; align-items: center; gap: 12px; border: 0; background: none; cursor: pointer; font: 400 14px var(--ui); color: var(--ink); padding: 9px 10px; border-radius: 8px; text-align: left; }
+.share-more button:hover { background: #f2f2f2; }
+.share-more button svg, .share-more button img { width: 20px; height: 20px; flex: none; }
+.share-qr { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 16px; }
+.share-qr img { border: 1px solid var(--line); border-radius: 8px; flex: none; }
+.share-qr p { margin: 0; font-size: 13px; color: var(--muted); }
+@media (max-width: 520px) { .share-row { grid-template-columns: repeat(3, 1fr); gap: 14px 8px; } .share-row button > svg, .share-row button > img { padding: 14px; } .share-more { grid-template-columns: 1fr; } .share-qr { flex-direction: column; text-align: center; } }
+
+/* Save as PDF: the article alone, sans-serif, on A4 (share.js writes the @page running head and foot). */
+@media print {
+  body.printing-post { background: #fff; color: #222; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  body.printing-post .site-header, body.printing-post .site-footer, body.printing-post .page-sub, body.printing-post .post-actions, body.printing-post .post-actions-row,
+  body.printing-post .late-note, body.printing-post .authorbox, body.printing-post .prevnext, body.printing-post .comments, body.printing-post .notice, body.printing-post #toast, body.printing-post dialog { display: none !important; }
+  body.printing-post .app, body.printing-post .post { max-width: none; margin: 0; padding: 0; }
+  body.printing-post .post .cat { font-size: 9pt; letter-spacing: .08em; text-transform: uppercase; color: #777; margin: 0 0 6pt; }
+  body.printing-post .post .cat a { color: inherit; text-decoration: none; }
+  body.printing-post .post h1 { font-weight: 700; font-size: 30pt; line-height: 1.15; color: #222; margin: 0 0 10pt; letter-spacing: -.01em; }
+  body.printing-post .post .subtitle { font-weight: 400; font-size: 15pt; line-height: 1.4; color: #6b6b6b; margin: 0 0 18pt; }
+  body.printing-post .post .byline { font-size: 10pt; margin: 0 0 22pt; }
+  body.printing-post .post .byline a, body.printing-post .post .byline b { color: #222; text-decoration: none; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  body.printing-post .post .byline .muted a { text-transform: none; letter-spacing: 0; font-weight: 400; color: #6b6b6b; }
+  body.printing-post .post .hero { max-height: none; margin: 0 0 22pt; break-inside: avoid; }
+  body.printing-post .post .body { font-family: inherit; font-size: 12.5pt; line-height: 1.55; color: #222; }
+  body.printing-post .post .body p { margin: 0 0 12pt; orphans: 3; widows: 3; }
+  body.printing-post .post .body h2 { font-weight: 700; font-size: 20pt; line-height: 1.25; color: #222; margin: 22pt 0 8pt; break-after: avoid; }
+  body.printing-post .post .body h3 { font-weight: 700; font-size: 15pt; line-height: 1.3; color: #222; margin: 18pt 0 6pt; break-after: avoid; }
+  body.printing-post .post .body a { color: #222; text-decoration: underline; }
+  body.printing-post .post .body img, body.printing-post .post .body figure, body.printing-post .post .body table, body.printing-post .post .body blockquote { break-inside: avoid; max-width: 100%; }
+  body.printing-post .post .tags { margin-top: 18pt; }
+  body.printing-post .post .tags a { color: #555; border-color: #ccc; text-decoration: none; }
+}

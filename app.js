@@ -13,6 +13,7 @@ import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl} from './util.js';
+import {openShare, printPost} from './share.js';
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
@@ -184,6 +185,9 @@ const ICON = {
   heart: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.6-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.4-7 10-7 10Z"/></svg>',
   comment: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/></svg>',
   share: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 9l5-5 5 5M5 15v4h14v-4"/></svg>',
+  arrowLeft: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
+  arrowRight: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  pdf: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 17v-4h1.6a1.4 1.4 0 0 1 0 2.8H8.5M12.6 13h1.2a2 2 0 0 1 0 4h-1.2zM16.4 17v-4h2.4M16.4 15h2"/></svg>',
 };
 // A friendly, author-only note when a post went live after the module deadline. Nobody else sees it;
 // the deadline is informational and the public byline shows only the title, pen name and date.
@@ -210,14 +214,11 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
       <a class="react" href="#comments" data-comments aria-label="Comments">${ICON.comment}<span>${comments || ''}</span></a>
       <span class="grow"></span>
       <button type="button" class="react wide" data-share ${preview ? 'disabled' : ''}>${ICON.share}<span>Share</span></button>
+      <button type="button" class="react" data-pdf ${preview ? 'disabled' : ''} aria-label="Save as PDF" title="Save as PDF">${ICON.pdf}</button>
     </div></header>
     ${p.featuredImage ? `<img class="hero" src="${esc(p.featuredImage)}" alt="">` : ''}
     <div class="body">${sanitize(p.body || '')}</div>
     ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
-}
-async function shareLink(url, title) {
-  try { if (navigator.share) { await navigator.share({title, url}); return; } } catch { return; }
-  try { await navigator.clipboard.writeText(url); toast('Link copied.'); } catch { try { prompt('Link to this post', url); } catch { toast(url); } }
 }
 
 async function postView(slug) {
@@ -265,7 +266,8 @@ async function postView(slug) {
     try { await quietly(() => store.addComment({postId: p.id, body}, u)); e.target.reset(); toast('Comment posted.'); await refreshComments(); } catch (err) { toast(err.message, 'error'); }
   });
   enhance($app.querySelector('.post .body'), {post: p, user: u, store});
-  $app.querySelector('[data-share]').onclick = () => shareLink(publicUrl(postPath(p)), p.title);
+  $app.querySelector('[data-share]').onclick = () => openShare(p, {blog, module});
+  $app.querySelector('[data-pdf]').onclick = () => printPost(p, blog);
   $app.querySelector('[data-like]').onclick = async e => {
     const b = e.currentTarget;
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
@@ -458,7 +460,7 @@ async function editorView(id, moduleId) {
     enhance(shell.querySelector('.post .body'), {preview: true, post: draft});
     shell.querySelectorAll('[data-dev]').forEach(b => b.onclick = () => { shell.querySelectorAll('[data-dev]').forEach(x => x.setAttribute('aria-selected', x === b)); shell.querySelector('.preview-stage').className = 'preview-stage ' + b.dataset.dev; });
     shell.querySelector('#pv-done').onclick = () => $app.replaceChildren(editorRoot, sheet);
-    shell.querySelector('#pv-share').onclick = () => draft.status === 'published' && draft.slug ? shareLink(publicUrl(postPath(draft)), draft.title) : toast('Publish first, then share the public link.');
+    shell.querySelector('#pv-share').onclick = async () => draft.status === 'published' && draft.slug ? openShare(draft, {blog: blogOf(draft.blogId), module: draft.moduleId ? await store.getModule(draft.moduleId) : null}) : toast('Publish first, then share the public link.');
   }
   const leave = e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
   addEventListener('beforeunload', leave);
