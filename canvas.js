@@ -139,7 +139,7 @@ function filtersHtml(st) {
   // resets every filter (chips, search, selects and tags) and shows only while one is set.
   const clearAll = activeFilterCount(f) ? `<button type="button" class="linkish clear-all" data-clear>Clear all</button>` : '';
   return `${fx.allCats.length ? `<div class="chips" role="group" aria-label="${esc(catLabel(st))}">${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trends.includes(c.slug))).join('')}${clearAll}</div>` : clearAll ? `<div class="chips">${clearAll}</div>` : ''}
-    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('industry', 'Industry', fx.industries, f.industry, 'All industries')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
+    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('industry', 'Industry', fx.industries, f.industry, 'All industries')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${st.modules.size && (fx.modules.length > 1 || f.module) ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
     ${fx.tags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}`;
 }
 const shownPosts = st => sorted(st.posts.filter(p => matches(p, st.f)), st.f.sort);
@@ -150,8 +150,10 @@ function gridHtml(st) {
 }
 export function card(p, st = current || {f: parseFilters(''), base: '/posts', cats: [], modules: new Map(), blogs: new Map(), opts: {}}) {
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));
-  const img = p.featuredImage ? `<a href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
   const words = p.wordCount ?? wordCount(p.body || ''), module = st.modules?.get(p.moduleId);
+  // The cover image sits in a clipped frame so it can zoom on hover, with a "Read the post"
+  // ribbon that slides up over it (styles.css, the card's hover).
+  const img = p.featuredImage ? `<a class="frame" href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"><span class="read">Read the post<span class="mins">${readingTime(words)}</span></span></a>` : '';
   const kicker = [...orgList(p.organisation).map(org => `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>`), p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : '', ...(p.industries || []).map(s => `<a href="${link({industry: s})}" data-set="industry" data-v="${esc(s)}" class="industry" title="All posts in ${esc(industryName(s))}">${esc(industryName(s))}</a>`)].filter(Boolean).join('');
   const pickable = st.selecting && st.bulk?.canDelete(p), on = pickable && st.selected.has(p.id);
   const pick = !st.selecting ? '' : pickable ? `<label class="pick"><input type="checkbox" data-pick="${esc(p.id)}" ${on ? 'checked' : ''} aria-label="Select ${esc(p.title)}">${on ? 'Selected' : 'Select'}</label>` : `<span class="pick locked" title="Not in a module or on a blog you teach">Not yours to moderate</span>`;

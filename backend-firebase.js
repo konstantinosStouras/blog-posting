@@ -25,9 +25,9 @@ let registration = null;
 // The account's reach: the modules it teaches, the blogs it owns and the modules it belongs to
 // as a student. Posts and comments are fetched one module (or owned blog) at a time, because the
 // rules let a reader list a module's published posts only when the query names that module.
-let managedModuleIds = [], managedBlogIds = [], memberModuleIds = [];
+let managedModuleIds = [], managedBlogIds = [], memberModuleIds = [], myBlogIds = [];   // myBlogIds: the blogs of every module this account belongs to or teaches, plus the blogs it owns
 async function refreshManaged(self) {
-  if (!user) { managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; return; }
+  if (!user) { managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = []; return; }
   const [modules, blogs] = await Promise.all([self.listModules(), self.listBlogs()]);
   managedModuleIds = modules.filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
   managedBlogIds = blogs.filter(b => b.teacherIds.includes(user.uid)).map(b => b.id);
@@ -282,6 +282,7 @@ export const firebase = {
       return member.exists() ? {...m, teaching: false} : null;
     }))).filter(Boolean);
     memberModuleIds = rows.filter(m => !m.teaching).map(m => m.id);
+    myBlogIds = [...new Set([...rows.map(m => m.blogId), ...managedBlogIds].filter(Boolean))];
     return rows;
   },
   async joinModule(id, inviteId = '') {
@@ -375,10 +376,14 @@ export const firebase = {
     let rows;
     if (f.authorId) rows = (await F.getDocs(F.query(col, F.where('authorId', '==', f.authorId)))).docs.map(norm);
     else if (role === 'admin') rows = (await F.getDocs(F.query(col, F.where('status', '==', f.status || 'published')))).docs.map(norm);
-    else if (!user) rows = f.blogId && (f.status || 'published') === 'published' ? (await F.getDocs(F.query(col, F.where('blogId', '==', f.blogId), F.where('status', '==', 'published')))).docs.map(norm) : [];   // a visitor: one blog's published posts, which the rules let anyone read
-    else {
-      // A student reads the published posts of their own module(s), an instructor those of the
-      // modules they teach and every post on the blogs they own: one query per module or blog.
+    else if ((f.status || 'published') === 'published') {
+      // Published posts are public, whole blogs at a time: the blog asked for, or (All posts, the
+      // footer) every blog of the reader's modules. A visitor must name the blog.
+      const blogs = f.blogId ? [f.blogId] : user ? myBlogIds : [];
+      rows = await gather(blogs.map(id => F.query(col, F.where('blogId', '==', id), F.where('status', '==', 'published'))));
+    } else {
+      // Drafts and pending posts: a student reads their own, an instructor those of the
+      // modules they teach and of the blogs they own: one query per module or blog.
       const status = f.status || 'published', {modules, blogs} = readScope(f);
       rows = await gather([...modules.map(id => F.query(col, F.where('moduleId', '==', id), F.where('status', '==', status))), ...blogs.map(id => F.query(col, F.where('blogId', '==', id), F.where('status', '==', status)))]);
     }
@@ -414,15 +419,9 @@ export const firebase = {
         const owned = await F.getDocs(F.query(col,bySlug,F.where('blogId','==',blogId),F.limit(1)));
         if (!owned.empty) return norm(owned.docs[0]);
       }
-      // A student: the published posts of their own module(s). A post from any other module is
-      // out of reach, whoever teaches it, and reads as missing.
-      for (const moduleId of memberModuleIds) {
-        const peers = await F.getDocs(F.query(col,bySlug,F.where('moduleId','==',moduleId),F.where('status','==','published'),F.limit(1)));
-        if (!peers.empty) return norm(peers.docs[0]);
-      }
-      return null;
     }
-    const s = await F.getDocs(user ? F.query(col, bySlug, F.limit(1)) : F.query(col, bySlug, F.where('status', '==', 'published'), F.limit(1)));   // signed out, a published post is readable; a draft reads as missing
+    // Everyone else, signed in or not: a published post is readable; a draft reads as missing.
+    const s = await F.getDocs(F.query(col, bySlug, F.where('status', '==', 'published'), F.limit(1)));
     return s.empty ? null : norm(s.docs[0]);
   },
   async savePost(post, u) {
@@ -534,6 +533,7 @@ export const firebase = {
       const {modules, blogs} = readScope({});
       if (modules.includes(post.moduleId)) q = F.query(col, byPost, F.where('moduleId', '==', post.moduleId));
       else if (blogs.includes(post.blogId)) q = F.query(col, byPost, F.where('blogId', '==', post.blogId));
+      else return [];   // a reader from outside the post's module: the post is public, its discussion is not
     }
     const s = await F.getDocs(q); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt);
   },

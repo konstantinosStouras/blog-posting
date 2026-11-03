@@ -83,9 +83,13 @@ button beside the avatar: the account menu holds everything personal.
   editable pen name and see the real name behind each alias in the roster.
 - Each blog's canvas (`/project-management`) and its published posts are
   public: a visitor with the link sees the masthead, a Home menu, Log in and
-  the canvas of the blog's published posts, and may open and read any of them.
-  The brief, the comments, drafts and everything else are for the module's
-  members and instructors once they log in. Elsewhere visitors see a
+  the canvas of the blog's published posts, and may open and read any of them;
+  a signed-in student sees the same whole canvas whatever module they belong
+  to. Which module a post was written in, and that several modules may share
+  one canvas, is shown to the module's instructors, the blog's owners and the
+  admin only (the module facet, the module on a card and on a post). The brief,
+  the comments, drafts and everything else are for the module's members and
+  instructors once they log in. Elsewhere visitors see a
   single **Log in** button; the dialog offers *Register with your
   invitation code* for first-time users, and a first Google sign-in without a
   profile is asked for the code as well. Registration requires an invitation code. Instructors enter name, school or

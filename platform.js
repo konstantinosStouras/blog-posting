@@ -4,7 +4,7 @@
 //   A MODULE is a cohort: code, academic year, roster, invitations, deadline and
 //   moderation settings. Every module posts to exactly one blog, and several
 //   modules of the same instructor may share one blog canvas.
-import {store, canReadBlog} from './store.js';
+import {store, memberOfBlog} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
 import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
@@ -72,26 +72,27 @@ export async function myModules(target = app, embedded = false) {
 // renderHeader leaves the slot and calls this to fill it; a visitor gets no row.
 export async function blogActions(id, el) {
   const u = currentUser();
-  if (!u || !(await canReadBlog(id))) return;
+  if (!u) return;
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), store.listMyModules()]);
   if (!blog || !el.isConnected) return;   // a later navigation has redrawn the header
   const onBlog = modules.filter(m => m.blogId === id), preview = u.studentPreview;   // an instructor seeing the blog as a student of one module
   const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);
-  el.innerHTML = `${writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>'}${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}`;
+  el.innerHTML = `${writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>'}${blog.brief && (owner || myHere.length || preview) ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}`;
   el.hidden = false;
   el.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register'));
 }
 
 // ---------- the public blog canvas ----------
-// Anyone with the link may open a blog's page: a visitor sees the masthead, the Home menu and the
-// canvas of every published post on the blog, each of which they may open and read (the modules
-// writing on the blog are not named: a shared canvas is the instructor's business; the brief and
-// the comments are for members, who log in from the masthead). A signed-in reader who belongs to
-// none of the blog's modules is asked for their invitation code instead.
+// Anyone with the link may open a blog's page, signed in or not, whatever module they belong to:
+// the masthead, the menu and the canvas of every published post on the blog, each of which they
+// may open and read. Which module a post was written in, and that several modules may write on
+// one canvas, is the business of the modules' instructors, the blog's owners and the admin: a
+// student (or a visitor) sees no module facet, no module on a card and none on a post. The brief
+// and the comments are for the module's members; a signed-in reader who belongs to no module on
+// the blog is offered the invitation code instead of the Write button.
 export async function blogCanvas(id) {
   const u = currentUser();
-  if (!(await canReadBlog(id))) { app.innerHTML = `<p class="empty">This blog is for the members of its modules and their instructors. ${u ? '<button class="btn primary" id="join-module">Enter invitation code</button>' : ''}</p>`; app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register')); return; }
   const [blog, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found. <a href="/blogs">Explore blogs</a></p>'; return; }
   const onBlog = modules.filter(m => m.blogId === id);
@@ -110,7 +111,7 @@ export async function blogCanvas(id) {
   // The action row (Write your blog post, The brief, …) is the header's, drawn by blogActions above.
   app.innerHTML = `<p class="page-sub">${esc((owner ? onBlog : writing ? [writing] : []).map(m => m.code || m.title).filter(Boolean).join(' · ') || 'Blog')}</p>
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
-    <p class="muted small">${owner ? 'Each module’s students see the posts of their own module; the instructors on this blog see them all.' : writing ? `You see the posts of your module, ${esc(moduleLabel(writing))}, and so do its instructors.` : 'Each post here is visible to the students of its module and to their instructors.'}</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
+    <p class="muted small">${owner ? 'Published posts are public and every module’s students see them all; each module’s discussion is its own, and the instructors on this blog see everything.' : 'Published posts are public. The discussion under each post is for its author’s classmates and their instructors.'}</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
 }
 
 // Old `/module/<id>` links land on the module's blog.
@@ -126,7 +127,7 @@ export async function moduleRedirect(id) {
 export async function briefPage(id) {
   const u = currentUser();
   if (!u) { app.innerHTML = '<p class="empty">This brief is for the members of its blog. <button class="btn primary" id="brief-signin">Log in</button></p>'; app.querySelector('#brief-signin').addEventListener('click', () => openAuthModal()); return; }
-  if (!(await canReadBlog(id))) { app.innerHTML = '<p class="empty">This brief is for the members of its blog.</p>'; return; }
+  if (!(await memberOfBlog(id))) { app.innerHTML = '<p class="empty">This brief is for the members of its blog.</p>'; return; }
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
   const preview = u?.studentPreview, myHere = preview ? modules.filter(m => m.id === preview.moduleId && m.blogId === id) : mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;

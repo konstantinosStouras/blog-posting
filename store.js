@@ -23,10 +23,10 @@ const WRITES = new Set(['register', 'completeRegistration', 'saveBlog', 'saveMod
 const scopeModules = (rows, p) => p.kind === 'student' ? rows.filter(m => m.id === p.moduleId).map(m => ({...m, teaching: false})) : rows.filter(m => (m.teacherIds || []).includes(p.uid)).map(m => ({...m, teaching: true}));
 // Who may read what. Signed out: every blog's canvas (its title, description and the modules
 // writing on it; the blogs and modules collections are public) and the published posts of any
-// blog whose link they have, but no draft, comment or brief. A
-// student: the published posts of the module(s) they belong to, and nothing from any other
-// module, whether it shares their blog or belongs to another instructor. An instructor: the
-// posts of the modules they teach and every post on the blogs they own. The admin: everything.
+// blog whose link they have, but no draft, comment or brief. Signed in, everyone reads the
+// published posts too; beyond them a student reaches the comments of the module(s) they belong
+// to, an instructor the drafts and comments of the modules they teach and of the blogs they own.
+// The admin: everything.
 // Reads that return content are narrowed here, so every page, the search, the footer and the
 // canvas see the same world; firestore.rules enforces the same scope on the database. Decided
 // afresh on every navigation.
@@ -43,12 +43,13 @@ async function allowed() {
   for (const m of preview ? scopeModules(mine, preview) : mine) { modules.add(m.id); if (m.blogId) blogs.add(m.blogId); }
   return access = {all: false, blogs, modules, ownedBlogs};
 }
-// A blog's canvas and its published posts are public: a visitor with the link reads them (never
-// a draft, a comment or the brief), and a signed-in reader opens the blogs they belong to or
-// teach, each seeing the posts within their reach.
-export const canReadBlog = async id => { const a = await allowed(); return a.all || a.visitor || a.blogs.has(id); };
+// A blog's canvas and its published posts are public: anyone with the link, signed in or not,
+// reads every published post on the blog (never a draft, a comment or the brief), whatever
+// module they belong to. The brief, the comments and the unpublished posts stay within reach of
+// the module: its members, its staff and the blog's owners.
+export const memberOfBlog = async id => { const a = await allowed(); return a.all || a.blogs.has(id); };
 const reads = (a, x) => !!x && (a.modules.has(x.moduleId) || a.ownedBlogs.has(x.blogId));   // a post, or a comment (which carries its post's module and blog)
-const readsPost = (a, p) => !!p && (a.visitor ? p.status === 'published' : reads(a, p));
+const readsPost = (a, p) => !!p && (p.status === 'published' || (!a.visitor && reads(a, p)));
 const SCOPED = {
   listBlogs: (rows, a) => a.visitor ? rows : rows.filter(b => a.blogs.has(b.id)),
   listPosts: (rows, a) => rows.filter(p => readsPost(a, p)),

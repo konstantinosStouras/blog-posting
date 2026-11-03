@@ -20,7 +20,8 @@ import {replyRulesOf, INDUSTRIES, MAX_INDUSTRIES, industryName} from './seed.js'
 
 const $app = document.getElementById('app'), $header = document.getElementById('site-header'), $footer = document.getElementById('site-footer');
 let S;                      // site settings (masthead only; exercises live on blogs)
-let BLOGS = [];             // every blog, refreshed on each navigation: category names, titles, comment policy
+let BLOGS = [];             // the reader's blogs (every blog for the admin and visitors), refreshed on each navigation: category names, titles, comment policy
+let VISITING = null;        // a blog the reader opened by its link without belonging to it (added to BLOGS for the navigation): its canvas and posts are public
 let liveView = null;        // the mounted view, when it must not be re-rendered on data changes (the editor)
 let renderSeq = 0;          // a stamp for async renders: a slow page must not paint over a later navigation
 const blogOf = p => BLOGS.find(b => b.id === (p?.blogId || p)) || null;
@@ -81,6 +82,11 @@ async function doRender() {
   liveView = null; $app.onclick = null; $app.onsubmit = null;
   resetAccess();   // who may read what is decided afresh for this navigation
   try { BLOGS = await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
+  // A blog's canvas, brief or post opened by a reader who belongs to none of its modules: the blog
+  // is fetched on its own (one memoised read; a page name such as /posts reads as no blog).
+  const first = (path.split('?')[0].match(/^\/([a-z0-9-]+)(?:\/brief|\/\d{4}\/\d{2}\/[^/?]+\/?)?$/) || [])[1];
+  VISITING = first && !BLOGS.some(b => b.id === first) ? await store.getBlog(first).catch(() => null) : null;
+  if (VISITING) BLOGS = [...BLOGS, VISITING];
   if (!user() && !isPublic(path.split('?')[0])) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
   renderHeader(path);
   scrollPending = true;   // to the top once the new page is drawn (pageDrawn below), not now
@@ -119,7 +125,8 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   // then All posts and search. A visitor on a blog (its canvas or one of its posts) gets the blog's
   // own menu, its home alone: All posts and search are for readers, and the brief for members.
   // On the front door (the welcome page) only the masthead and Log in are drawn.
-  const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : BLOGS.length === 1 ? {href: '/' + BLOGS[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
+  const own = BLOGS.filter(b => b !== VISITING);   // the menu names the reader's own blogs, not one they are visiting by its link
+  const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : own.length === 1 ? {href: '/' + own[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
   const tabs = u ? `<a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>`
     : blog ? `<a href="/${esc(blog.id)}" class="${path.split('?')[0] === '/' + blog.id ? 'active' : ''}">Home</a>` : '';
@@ -177,7 +184,10 @@ async function renderFooter(seq = renderSeq) {
 // Cards, facets and search live in canvas.js. Pages render the string it returns;
 // its own document-level listeners handle every filter interaction afterwards.
 // Staff get the canvas's select mode: filter the canvas down, tick posts, delete them together.
-const canvas = (posts, o = {}) => { const u = user(), labels = [...new Set(BLOGS.filter(b => (b.categories || []).length).map(b => b.categoryLabel || 'Category'))]; return renderCanvas(posts, {categories: allCategories(), categoryLabel: labels.length === 1 ? labels[0] : 'Category', blogs: BLOGS, bulk: u && rank(u.role) >= 1 ? {canDelete: p => can(u, 'delete', p), deletePosts: ids => store.deletePosts(ids)} : null, ...o}); };
+// Which module a post belongs to (the module facet, the module on a card) is shown to the
+// module's instructors, the blog's owners and the admin only: a student sees one canvas.
+const seesModule = (u, m) => !!u && !u.studentPreview && (u.role === 'admin' || (m.teacherIds || []).includes(u.uid) || (u.managedBlogIds || []).includes(m.blogId));
+const canvas = (posts, o = {}) => { const u = user(), labels = [...new Set(BLOGS.filter(b => (b.categories || []).length).map(b => b.categoryLabel || 'Category'))]; return renderCanvas(posts, {categories: allCategories(), categoryLabel: labels.length === 1 ? labels[0] : 'Category', blogs: BLOGS, bulk: u && rank(u.role) >= 1 ? {canDelete: p => can(u, 'delete', p), deletePosts: ids => store.deletePosts(ids)} : null, ...o, modules: (o.modules || []).filter(m => seesModule(u, m))}); };
 configurePlatform($app,canvas);
 
 // ---------- pages ----------
@@ -286,20 +296,21 @@ async function postView(slug, blogId = null) {
   const context = {...S, ...(module || {}), allowComments: blog ? blog.allowComments !== false : true};
   // Students take part in their own module's posts only (the rules say the same); staff in the modules they teach and on the blogs they own.
   const canParticipate = u && (store.mode !== 'firebase' || u.emailVerified) && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId));
+  const showModule = module && seesModule(u, module);   // the post's module: for its instructors, the blog's owners and the admin
   const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}), store.listLikes(p.id), store.listBookmarks(p.id)]);
   if (blog) renderHeader(route(), blog);   // a post's masthead is its blog's
   const words = wordCount(p.body);
-  $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<div class="post-layout"><article class="post">
+  $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${showModule ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<div class="post-layout"><article class="post">
     ${articleHtml(p, {blog, words, likes, bookmarks, comments: comments.length, me: u})}
     <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
     <div class="prevnext">${prev ? `<a class="btn nav-btn" href="${postPath(prev)}" title="${esc(prev.title)}">${ICON.arrowLeft}<span>Previous</span></a>` : '<span></span>'}${next ? `<a class="btn nav-btn" href="${postPath(next)}" title="${esc(next.title)}"><span>Next</span>${ICON.arrowRight}</a>` : '<span></span>'}</div>
     <section class="comments" id="comments"><h2>Discussion about this post</h2>
-      ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? commentFormHtml(u, blog) : u ? '<p class="muted">An invitation from this blog’s instructor is required to comment. <button class="linkish" id="invite-to-comment">Enter invitation code</button></p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
+      ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? commentFormHtml(u, blog) : u ? '<p class="muted">The discussion under this post is for its author’s classmates and their instructors.</p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
       <p class="comment-count" id="comment-count"></p>
       <div id="comment-list"></div>
-    </section></article>${postSideHtml(p, {u, module, blog, words, context, peer})}</div>`;
+    </section></article>${postSideHtml(p, {u, module: showModule ? module : null, blog, words, context, peer})}</div>`;
   peer?.bind($app);
   $app.querySelector('#login-to-comment')?.addEventListener('click', () => store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'));
   $app.querySelector('#invite-to-comment')?.addEventListener('click',()=>openAuthModal('register'));
@@ -403,7 +414,7 @@ function threadsHtml(cs, ctx) {
   const ids = new Set(cs.map(c => c.id));
   const tops = cs.filter(c => !c.parentId || !ids.has(c.parentId)).sort((a, b) => a.createdAt - b.createdAt);
   const replies = groupBy(cs.filter(c => c.parentId && ids.has(c.parentId)), c => c.parentId);
-  return tops.map(c => commentHtml(c, ctx, (replies[c.id] || []).sort((a, b) => a.createdAt - b.createdAt))).join('') || (ctx.canReply ? '' : ctx.u ? '<p class="muted">No comments yet.</p>' : '<p class="muted">The discussion is for the students of this module and their instructors. Log in to read it.</p>');
+  return tops.map(c => commentHtml(c, ctx, (replies[c.id] || []).sort((a, b) => a.createdAt - b.createdAt))).join('') || (ctx.canReply || ctx.u ? '' : '<p class="muted">The discussion is for the author’s classmates and their instructors. Log in to read it.</p>');
 }
 function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
   const likedBy = c.likedBy || [], liked = !!u && likedBy.includes(u.uid), saved = !!u && (u.bookmarkedComments || []).includes(c.id);
