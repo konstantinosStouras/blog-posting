@@ -38,20 +38,22 @@ test('writing report sums only the author and assigned module sessions',()=>{
 });
 test('sort compares numerical values, natural text and blanks',()=>{assert.ok(compareTableValues(2,10)<0);assert.ok(compareTableValues('Module 2','Module 10')<0);assert.ok(compareTableValues('',1)>0);});
 test('Excel includes per-post analytics with bold heading and normal body',async()=>{
- const book=createRosterWorkbook(ExcelJS,{users:[],invitations:[],writing:[{title:'Post',writingTime:'2:50:12',seconds:10212,studentId:'00123',open:true,idleTime:'1 day 0:00:00',utilisationLabel:'11%',sessionLines:['2:50:12 · 2026-11-01 09:00'],breakLines:[]}]});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());const sheet=loaded.getWorksheet('Blog posting analytics');
- assert.equal(sheet.getCell('K2').value,'2:50:12');assert.equal(sheet.getCell('J2').value,'in progress');assert.equal(sheet.getCell('M2').value,'1 day 0:00:00');assert.equal(sheet.getCell('O2').value,'11%');assert.equal(sheet.getCell('P2').value,'2:50:12 · 2026-11-01 09:00');assert.equal(sheet.getCell('K1').font.bold,true);assert.equal(Boolean(sheet.getCell('K2').font.bold),false);
+ const book=createRosterWorkbook(ExcelJS,{users:[],invitations:[],writing:[{title:'Post',writingTime:'2:50:12',seconds:10212,studentId:'00123',open:true,status:'pending',idleTime:'1 day 0:00:00',utilisationLabel:'11%',sessionLines:['2:50:12 · 2026-11-01 09:00'],breakLines:[]}]});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());const sheet=loaded.getWorksheet('Blog posting analytics');
+ assert.equal(sheet.getCell('K2').value,'2:50:12');assert.equal(sheet.getCell('J2').value,'awaiting review');assert.equal(sheet.getCell('M2').value,'1 day 0:00:00');assert.equal(sheet.getCell('O2').value,'11%');assert.equal(sheet.getCell('P2').value,'2:50:12 · 2026-11-01 09:00');assert.equal(sheet.getCell('K1').font.bold,true);assert.equal(Boolean(sheet.getCell('K2').font.bold),false);
 });
-test('post analytics measure the window from creation to submission, its idle share and the breaks between sessions',()=>{
+test('post analytics measure the window from creation to the last publication, its idle share and the breaks between sessions',()=>{
  const H=3600000,created=Date.UTC(2026,10,1,9,0);
  const sessions=[{seconds:1800,startedAt:created+3*H,endedAt:created+3.5*H},{seconds:3600,startedAt:created,endedAt:created+H},{seconds:5}];
  const a=postAnalytics({createdAt:created,status:'published',publishedAt:created+4*H},sessions);
- assert.equal(a.elapsedSeconds,14400);assert.equal(a.idleSeconds,14400-5405);assert.equal(a.idleTime,'2:29:55');assert.equal(a.utilisationLabel,'38%');assert.equal(a.open,false);
+ assert.equal(a.elapsedSeconds,14400);assert.equal(a.idleSeconds,14400-5405);assert.equal(a.idleTime,'2:29:55');assert.equal(a.utilisationLabel,'38%');assert.equal(a.open,false);assert.equal(a.lastPublishedAt,created+4*H);
+ const updated=postAnalytics({createdAt:created,status:'published',publishedAt:created+4*H,updatedAt:created+6*H},sessions);
+ assert.equal(updated.lastPublishedAt,created+6*H);assert.equal(updated.submittedAt,created+6*H);assert.equal(updated.elapsedSeconds,21600);assert.equal(updated.utilisationLabel,'25%');
  assert.deepEqual(a.sessionLines,['1:00:00 · 2026-11-01 09:00','0:30:00 · 2026-11-01 12:00']);assert.deepEqual(a.breakLines,['2:00:00 · 2026-11-01 10:00']);assert.equal(a.sessionCount,2);assert.equal(a.untimedSessions,1);
  const draft=postAnalytics({createdAt:created,status:'draft'},[],created+2*86400000+H);
  assert.equal(draft.open,true);assert.equal(draft.submittedAt,0);assert.equal(draft.idleTime,'2 days 1:00:00');assert.equal(draft.utilisationLabel,'0%');
  const early=postAnalytics({createdAt:created+H,status:'pending',updatedAt:created+2*H},[{seconds:7200,startedAt:created,endedAt:created+2*H}]);
- assert.equal(early.windowStart,created);assert.equal(early.utilisationLabel,'100%');assert.equal(early.idleSeconds,0);
+ assert.equal(early.windowStart,created);assert.equal(early.utilisationLabel,'100%');assert.equal(early.idleSeconds,0);assert.equal(early.lastPublishedAt,0);assert.equal(early.submittedAt,created+2*H);
  assert.equal(formatDuration(90061),'1 day 1:01:01');assert.equal(formatDuration(59),'0:00:59');assert.equal(postAnalytics({},[]).utilisationLabel,'');
- const row=writingReport([{id:'p',moduleId:'m',authorId:'a',title:'Post',createdAt:created,status:'draft'}],[{postId:'p',moduleId:'m',uid:'a',seconds:60,startedAt:created,endedAt:created+60000}],[{id:'m',title:'Module'}],[],created+120000)[0];
- assert.equal(row.writingTime,'0:01:00');assert.equal(row.idleSeconds,60);assert.equal(row.utilisationLabel,'50%');assert.equal(row.sessionLines.length,1);
+ const row=writingReport([{id:'p',moduleId:'m',authorId:'a',title:'Post',createdAt:created,status:'draft'}],[{postId:'p',moduleId:'m',uid:'a',seconds:60,startedAt:created,endedAt:created+60000}],[{id:'m',title:'Module',code:'BMGT1'}],[],created+120000)[0];
+ assert.equal(row.writingTime,'0:01:00');assert.equal(row.idleSeconds,60);assert.equal(row.utilisationLabel,'50%');assert.equal(row.sessionLines.length,1);assert.equal(row.moduleLabel,'BMGT1: Module');
 });

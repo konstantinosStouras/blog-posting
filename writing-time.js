@@ -7,7 +7,7 @@ export function formatDuration(seconds=0){
  return (days?`${days} day${days===1?'':'s'} `:'')+formatWritingTime(n-days*86400);
 }
 export const utcMinute=t=>t?new Date(t).toISOString().replace('T',' ').slice(0,16):'';
-const postRow=(p,m,u={})=>({postId:p.id,title:p.title,moduleId:m.id,moduleTitle:m.title,authorId:p.authorId,firstName:u.firstName||'',lastName:u.lastName||'',email:u.email||'',contactEmail:u.contactEmail||'',studentId:u.studentId||'',status:p.status});
+const postRow=(p,m,u={})=>({postId:p.id,title:p.title,slug:p.slug||'',blogId:p.blogId||'',publishedAt:p.publishedAt||0,moduleId:m.id,moduleTitle:m.title,code:m.code||'',moduleLabel:m.code?`${m.code}: ${m.title}`:m.title,authorId:p.authorId,firstName:u.firstName||'',lastName:u.lastName||'',email:u.email||'',contactEmail:u.contactEmail||'',studentId:u.studentId||'',status:p.status});
 
 // How a post's recorded work sits in calendar time. The window runs from the post's creation (or its first
 // recorded session, if earlier) to its submission — publication, or the last save of a post awaiting review —
@@ -20,7 +20,9 @@ export function postAnalytics(post={},sessions=[],now=Date.now()){
  const active=sessions.reduce((n,s)=>n+Math.max(0,Number(s.seconds)||0),0);
  const timed=sessions.filter(s=>s.startedAt>0).sort((a,b)=>a.startedAt-b.startedAt);
  const endOf=s=>Math.max(s.startedAt,s.endedAt||0,s.lastRecordedAt||0,s.lastActivityAt||0);
- const submittedAt=post.status==='published'?post.publishedAt||post.updatedAt||0:post.status==='pending'?post.updatedAt||0:0;
+ // A live post's last publication: its first publication, or the latest Update if it was edited since (only a save moves updatedAt).
+ const lastPublishedAt=post.status==='published'?Math.max(post.publishedAt||0,post.updatedAt||0):0;
+ const submittedAt=post.status==='published'?lastPublishedAt:post.status==='pending'?post.updatedAt||0:0;
  const startedAt=Math.min(...[post.createdAt,timed[0]?.startedAt].filter(t=>t>0));
  const placed=Number.isFinite(startedAt),open=!submittedAt;
  const endedAt=open?now:Math.max(submittedAt,timed.length?endOf(timed[timed.length-1]):0);
@@ -28,7 +30,7 @@ export function postAnalytics(post={},sessions=[],now=Date.now()){
  const idle=Math.max(0,elapsed-active),utilisation=elapsed>0?Math.min(1,active/elapsed):null;
  const breakLines=[];
  for(let i=1;i<timed.length;i++){const from=endOf(timed[i-1]),gap=Math.floor((timed[i].startedAt-from)/1000);if(gap>0)breakLines.push(`${formatDuration(gap)} · ${utcMinute(from)}`);}
- return {createdAt:post.createdAt||0,submittedAt,windowStart:placed?startedAt:0,windowEnd:placed?endedAt:0,open,elapsedSeconds:elapsed,idleSeconds:idle,idleTime:formatDuration(idle),utilisation,utilisationLabel:utilisation===null?'':utilisation>0&&utilisation<0.005?'<1%':`${Math.round(utilisation*100)}%`,sessionCount:timed.length,untimedSessions:sessions.length-timed.length,sessionLines:timed.map(s=>`${formatWritingTime(s.seconds)} · ${utcMinute(s.startedAt)}`),breakLines};
+ return {createdAt:post.createdAt||0,lastPublishedAt,submittedAt,windowStart:placed?startedAt:0,windowEnd:placed?endedAt:0,open,elapsedSeconds:elapsed,idleSeconds:idle,idleTime:formatDuration(idle),utilisation,utilisationLabel:utilisation===null?'':utilisation>0&&utilisation<0.005?'<1%':`${Math.round(utilisation*100)}%`,sessionCount:timed.length,untimedSessions:sessions.length-timed.length,sessionLines:timed.map(s=>`${formatWritingTime(s.seconds)} · ${utcMinute(s.startedAt)}`),breakLines};
 }
 
 export function writingReport(posts=[],sessions=[],modules=[],users=[],now=Date.now()){
