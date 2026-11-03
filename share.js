@@ -6,9 +6,11 @@
 import {esc, plainText, postPath, toast} from './util.js';
 import {publicUrl} from './router.js';
 
-// The platform's owner, credited (and tagged) in the LinkedIn text when the module does not
-// carry its instructor's own LinkedIn address.
+// The platform's owner, credited under the name on his LinkedIn profile when the module's
+// instructor is him or unnamed; his address goes into the e-mail credit. The school is named
+// in every credit.
 const OWNER = {name: 'Kostas Stouras', linkedin: 'https://www.linkedin.com/in/stouras/'};
+const SCHOOL = 'UCD Michael Smurfit Graduate Business School';
 
 const I = {
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1 0l2.8-2.8a5 5 0 0 0-7.1-7.1L11 4.9"/><path d="M14 11a5 5 0 0 0-7.1 0l-2.8 2.8a5 5 0 0 0 7.1 7.1L13 19.1"/></svg>',
@@ -25,8 +27,10 @@ const I = {
 // Brand marks that are not drawn above come from Simple Icons' CDN; a missing icon leaves the label.
 const brand = (slug, color) => `<img src="https://cdn.simpleicons.org/${slug}/${color}" alt="" width="20" height="20" loading="lazy" onerror="this.remove()">`;
 
+// #BMGT2017D, #ProjectManagement: the words run together, each capitalised, anything else dropped.
+export const hashtag = s => '#' + String(s).split(/[^A-Za-z0-9]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join('');
 // Letters and digits in Unicode's bold sans-serif range: the only way to bold a title in a LinkedIn post.
-const boldText = s => [...String(s)].map(c => { const o = c.codePointAt(0); return o >= 65 && o <= 90 ? String.fromCodePoint(0x1D5D4 + o - 65) : o >= 97 && o <= 122 ? String.fromCodePoint(0x1D5EE + o - 97) : o >= 48 && o <= 57 ? String.fromCodePoint(0x1D7EC + o - 48) : c; }).join('');
+export const boldText = s => [...String(s)].map(c => { const o = c.codePointAt(0); return o >= 65 && o <= 90 ? String.fromCodePoint(0x1D5D4 + o - 65) : o >= 97 && o <= 122 ? String.fromCodePoint(0x1D5EE + o - 97) : o >= 48 && o <= 57 ? String.fromCodePoint(0x1D7EC + o - 48) : c; }).join('');
 const firstParagraph = html => {
   const t = document.createElement('template'); t.innerHTML = String(html || '');
   for (const el of t.content.querySelectorAll('p, li, blockquote')) { const s = (el.textContent || '').trim().replace(/\s+/g, ' '); if (s.length > 40) return s.length > 320 ? s.slice(0, 320).replace(/\s+\S*$/, '') + '…' : s; }
@@ -35,16 +39,27 @@ const firstParagraph = html => {
 const open = url => window.open(url, '_blank', 'noopener');
 const enc = encodeURIComponent;
 
-// What each network receives. The LinkedIn text: title in bold, the first paragraph, then
-// "Read my blog as part of the <module> UCD module of Prof. <instructor>" with the instructor's
-// LinkedIn address (LinkedIn turns it into a link; typing @ before the name turns it into a tag).
+// The credit line, "Read my blog as part of the <module> <school> module of Prof. <instructor>".
+// For LinkedIn the module is two hashtags (#BMGT2017D #ProjectManagement: LinkedIn makes them
+// live from pre-filled text) and the school and the instructor are in bold, the way a mention
+// looks. LinkedIn cannot pre-fill a mention: the real @-tag is made in its composer by typing
+// @ before the name, as the sheet's hint says. The plain credit (for e-mail) names the module
+// in words and gives the instructor's LinkedIn address.
+export function credits(module = null) {
+  const owner = !module?.teacherName || module.teacherName.split(/\s+/).pop() === OWNER.name.split(/\s+/).pop();
+  const teacher = owner ? OWNER.name : module.teacherName, link = owner ? OWNER.linkedin : module.teacherLinkedin || '';
+  const parts = module ? [module.code, module.title].filter(Boolean) : [];
+  const plain = `Read my blog${parts.length ? ` as part of the ${parts.join(' ')} ${SCHOOL} module` : ''} of Prof. ${teacher}${link ? ` (${link})` : ''}`;
+  const linkedin = `Read my blog${parts.length ? ` as part of the ${parts.map(hashtag).join(' ')} ${boldText(SCHOOL)} module` : ''} of Prof. ${boldText(teacher)}`;
+  return {plain, linkedin};
+}
+
+// What each network receives. The LinkedIn text: title in bold, the first paragraph, the
+// LinkedIn credit, the address.
 export function shareTexts(p, {module = null} = {}) {
   const url = publicUrl(postPath(p)), title = p.title || 'Untitled', para = firstParagraph(p.body);
-  const moduleName = module ? [module.code, module.title].filter(Boolean).join(' ') : '';
-  const teacher = module?.teacherName || OWNER.name;
-  const teacherLink = module?.teacherLinkedin || (teacher.split(/\s+/).pop() === OWNER.name.split(/\s+/).pop() ? OWNER.linkedin : '');
-  const credit = `Read my blog${moduleName ? ` as part of the ${moduleName} UCD module` : ''} of Prof. ${teacher}${teacherLink ? ` (${teacherLink})` : ''}`;
-  return {url, title, para, credit, linkedin: `${boldText(title)}\n\n${para}\n\n${credit}\n${url}`, short: `${title}\n${url}`};
+  const credit = credits(module);
+  return {url, title, para, credit: credit.plain, linkedin: `${boldText(title)}\n\n${para}\n\n${credit.linkedin}\n${url}`, short: `${title}\n${url}`};
 }
 
 // A comment shares as a link straight to it (the post's address plus #c-<id>).
@@ -73,7 +88,7 @@ export function openShare(p, {blog = null, module = null, comment = null} = {}) 
       <button type="button" data-net="facebook">${I.facebook}<span>Facebook</span></button>
       <button type="button" data-net="more" aria-expanded="false">${I.more}<span>More</span></button>
     </div>
-    ${comment ? '<p class="hint">The link opens the post at this comment.</p>' : '<p class="hint">LinkedIn opens with the title, the first paragraph and the module credit filled in. To tag your instructor, type @ before their name in the post.</p>'}
+    ${comment ? '<p class="hint">The link opens the post at this comment.</p>' : '<p class="hint">LinkedIn opens with the title, the first paragraph and the module credit filled in, the module as hashtags. LinkedIn cannot pre-fill @-tags: to tag your instructor or the school, type @ before the name in the post.</p>'}
     <div class="share-more" hidden>
       ${navigator.share ? `<button type="button" data-net="device">${I.device}Share via this device…</button>` : ''}
       <button type="button" data-net="x">${I.x}X</button>
