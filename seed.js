@@ -54,15 +54,54 @@ export const PM_EXERCISE = {
   organisationLabel: 'Organisation(s) studied',
   minWords: 900,
   maxWords: 1100,
-  brief: `<p>The goal of the <strong>PM Challenge</strong> is to promote peer learning and discussion on the impact of a <em>megatrend</em> on business and society. Investigate how <strong>one organisation of your choice</strong> is facing a particular aspect of one of the six megatrends, and write a blog post (not an essay: use hyperlinks to your sources, and add figures, tables or statistics) of <strong>900 to 1,100 words</strong> that answers:</p>
+  brief: `<p>The goal of the <strong>PM Challenge</strong> is to promote peer learning and discussion on the impact of a <em>megatrend</em> on business and society. Megatrends are powerful, transformative forces that can change the trajectory of the global economy by shifting the priorities of societies, driving innovation and redefining business models. Progress depends on change-makers: people who see opportunity and solutions in the midst of crisis.</p>
+<p>Project professionals are, of course, born change-makers. Organisations have long turned to project managers and professionals with project skills to help them turn ideas into reality. What truly sets us apart is our focus on implementation: figuring out how to make something concrete out of an audacious goal. This skill set will be more indispensable in the years ahead than ever before, as the world grapples with megatrends.</p>
+<p>In this Challenge you will investigate how an organisation is addressing one of the following megatrends (in no particular order):</p>
 <ol>
-<li>Why is the megatrend you selected important to your organisation's management?</li>
-<li>How will the organisation's management be affected, positively or negatively, by the megatrend?</li>
-<li>What steps is management currently taking to mitigate these effects in the short term (next two years) and the medium term (two to ten years out)?</li>
-<li>What other steps do you recommend management take in the short and medium terms?</li>
-<li>What are one or two important open questions on this issue that merit comments from your classmates?</li>
+<li>Global power shifts and geopolitical realignments</li>
+<li>The future of work and workforce transformation</li>
+<li>Digital transformation</li>
+<li>Sustainability and climate change</li>
+<li>Demographic shifts and urbanization</li>
+<li>Health and well-being revolution</li>
 </ol>
-<p>Roughly a quarter of the post should go to each of the first four questions, with a few sentences for the last. Ground your analysis in top outlets such as FT50 journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em>, <em>California Management Review</em> or <em>The Economist</em>. Choose the <strong>category</strong> matching your megatrend, add a <strong>featured image</strong> and a few <strong>tags</strong>. Peer review stays anonymous: your post appears under the alias generated for your account.</p>`,
+<p>These megatrends are likely to have a meaningful impact not just on how we live and work, but also on government policies and corporate strategies in the coming years of your career.</p>
+<p>The Challenge requires you to conduct research and write a <strong>blog post</strong> that examines how <strong>one organisation of your choice</strong> is facing a particular aspect of one of these megatrends. I highly encourage you to think big about the company and the megatrend you choose to focus on. You may also use this blog post as an opportunity to research your dream employer.</p>
+<ul>
+<li><strong>A blog post, not an essay.</strong> In overall style a blog post is different from a traditional essay or assignment: it refers to its sources through hyperlinks in the text (as opposed to a list of references at the end) and it may contain figures or tables. Browse the posts already on this blog for examples.</li>
+<li><strong>An organisation that exists today.</strong> It cannot be a defunct business, or a project that you hope will eventually lead to a start-up, and it can be of any size, geography or sector: a start-up, a listed company, a government, a for-profit or an NGO, located in Ireland, India, Germany or anywhere in the world. I hope that this module and this exercise push you to study an important organisation in depth, and not merely a small local enterprise.</li>
+</ul>
+<h2>The five questions</h2>
+<p>Your blog post should address the following five questions in the context of the organisation you choose:</p>
+<ol>
+<li>Why do you think the megatrend you selected is important to your organisation's management?</li>
+<li>How will the organisation's management be affected, positively or negatively, by the megatrend you selected?</li>
+<li>What steps is the organisation's management currently taking to mitigate these effects in the short term (the next two years) and the medium term (two to ten years out)?</li>
+<li>What other steps do you recommend the organisation's management take to address this issue in the short and medium terms?</li>
+<li>In the context of this organisation, what are one or two important open questions related to this issue that you are unsure about and that merit comments from your classmates?</li>
+</ol>
+<p>Your post should convey facts, analysis and your recommendations. It should focus on a single organisation (a single company, non-profit organisation or government agency) and a concern related to one of the megatrends above. It is fine if the concern you chose also relates to other megatrends the organisation is facing, but that is not required. The formatting is entirely up to you. Roughly a quarter of the post should go to each of the first four questions, with just a few sentences for the last.</p>
+<h2>Length and sources</h2>
+<p>Your post should be <strong>at least 900 and no more than 1,100 words</strong>, excluding the text of tables, table captions, figure captions, appendices and links. Reference every source you mention with a hyperlink, as opposed to a list of references at the end. I highly encourage you to read and reference top outlets such as the <a href="https://www.ft.com/content/3405a512-5cbb-11e1-8f1f-00144feabdc0" target="_blank" rel="noopener">FT50</a> research journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em>, <em>California Management Review</em>, <em>The Economist</em>, <em>Bloomberg Businessweek</em>, <em>Forbes</em>, and major newspapers or trustworthy articles on the web.</p>
+<h2>Submitting your post</h2>
+<p>Write and publish your post on this blog, logged in through the invitation from your instructor (how it works is explained below). When you publish, select your megatrend as the post's <strong>category</strong>, choose an informative <strong>featured image</strong> (one that relates closely to or summarises your post; it is shown on the blog's canvas) and add appropriate <strong>tags</strong>. Once your post is published:</p>
+<ol>
+<li>Fill out <a href="https://docs.google.com/forms/d/e/1FAIpQLSdBXMZFyq1-Ie8864nVZz27cORIJ_fsWxhHnLnMMOOTQ0vL9w/viewform" target="_blank" rel="noopener">this Google form</a>, making sure all the required information is provided accurately.</li>
+<li>Download the designated template from Brightspace and complete it with the details it asks for. No additional information is necessary beyond what the template outlines.</li>
+<li>Convert the completed Word template to PDF.</li>
+<li>Upload the PDF to the relevant Assignment on Brightspace. Multiple submissions are allowed; I will normally grade the most recent one unless you say otherwise in the comments.</li>
+</ol>
+<p>Your classmates will read and assess your post in the next phase of the assignment (the assessment of others' blogs), so make sure it is published and not left as a draft.</p>
+<h2>Evaluation criteria</h2>
+<p>Your blog post will be evaluated according to the following criteria:</p>
+<ul>
+<li>Does the post demonstrate depth and provide meaningful, informative content, or does it feel superficial, as if generated by AI in a matter of minutes?</li>
+<li>What aspects of the post were interesting or insightful?</li>
+<li>What did we learn from the post?</li>
+<li>Are there any concerns about the content, such as inaccuracies, unrealistic recommendations or the presence of fake information?</li>
+<li>Is the analysis grounded in rigorous, high-quality research from top outlets such as FT50 journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em> or <em>The Economist</em>, and does the post clearly reflect and build on those insights rather than merely citing them in passing?</li>
+</ul>
+<p>Overall, this exercise lets you synthesise the knowledge gained from our module and combine it with your own experience and research. Peer review stays anonymous: your post appears under the alias generated for your account.</p>`,
   // {organisation} and {category} are filled in from the post's side panel.
   outline: `<p><em>Introduce {organisation} in a few sentences: what it does, where, and why it is worth studying in the context of {category}.</em></p>
 <h2>Why {category} matters to {organisation}'s management</h2><p></p>
