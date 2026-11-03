@@ -39,7 +39,8 @@ const ALIGNS = [['justifyLeft', 'Left', 'alignLeft'], ['justifyCenter', 'Center'
 const DURATIONS = [[1, '1 day'], [3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '1 month'], [0, 'No time limit']];
 const BLOCK_SEL = 'p,h1,h2,h3,h4,h5,h6,blockquote,pre,li,aside,div.math,div.tv-chart,div.poll,figure,table';
 
-document.addEventListener('click', e => { for (const c of document.querySelectorAll('.editor')) if (!c.contains(e.target)) c.closeMenus?.(); });
+document.addEventListener('click', e => { const wrap = e.target.closest('.menu-wrap'); for (const c of document.querySelectorAll('.editor')) if (!wrap || !c.contains(wrap)) c.closeMenus?.(); });
+document.addEventListener('selectionchange', () => { for (const c of document.querySelectorAll('.editor')) c.refreshMenus?.(); });
 
 export function mountEditor(container, {html = '', onChange = () => {}, placeholder = 'Start writing…', extras = []} = {}) {
   container.classList.add('editor');
@@ -96,7 +97,8 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
     closeMenus();
     run(b.dataset.cmd);
   });
-  container.closeMenus = closeMenus;   // the module-level listener below closes menus on outside clicks
+  container.closeMenus = closeMenus;   // the module-level listeners above close menus on clicks outside them and re-mark an open one when the caret moves
+  container.refreshMenus = () => { const m = toolbar.querySelector('[data-menu=quote] + .menu'); if (m && !m.hidden) markCurrent(m, 'quote'); };
   // The quote menu shows where the caret is: a tick on the environment it sits in, the other two dimmed. Picking
   // the ticked one switches it off (quote() toggles), picking another switches to it.
   const currentQuote = () => inside('aside.callout') ? 'callout' : inside('blockquote.pull') ? 'pullquote' : inside('blockquote') ? 'blockquote' : '';
