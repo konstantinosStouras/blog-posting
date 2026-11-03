@@ -36,7 +36,7 @@ On **Blog settings**:
    seeded from `PM_EXERCISE` in `seed.js`, shows the wording).
 2. Add a **Description** (shown above the canvas), for example *How
    organisations face the megatrends shaping business and society: blog posts
-   by students of the project management modules.*
+   by UCD project management students.*
 3. Leave **Allow comments** ticked. **Save blog**.
 
 Check the public page: `https://www.stouras.com/ucd-blog/project-management`.

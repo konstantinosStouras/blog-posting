@@ -119,7 +119,7 @@ export const replyRulesOf = blog => (blog && typeof blog.replyRules === 'string'
 
 const T0 = new Date('2026-09-01T09:00:00').getTime();
 export const SEED_BLOGS = [
-  {id: 'project-management', title: 'Project Management', description: 'How organisations face the megatrends shaping business and society: blog posts by students of the project management modules.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...PM_EXERCISE},
+  {id: 'project-management', title: 'Project Management', description: 'How organisations face the megatrends shaping business and society: blog posts by UCD project management students.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...PM_EXERCISE},
   {id: 'operations', title: 'Operations', description: 'Blog posts by students of BMGT41040 Operations, Innovation and Management.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...EMPTY_EXERCISE, brief: '<p>The brief for this blog has not been written yet.</p>'},
 ];
 const M = (o) => ({description: '', teacherIds: ['u-admin'], teacherName: 'Konstantinos Stouras', createdBy: 'u-admin', createdAt: T0, updatedAt: T0, submissionsOpen: true, requireApproval: false, deadline: '2026-11-28', ...o});

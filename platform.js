@@ -25,10 +25,10 @@ const isTeaching = m => m.teaching;
 export async function blogDirectory() {
   const u = currentUser();
   if (!u) { app.innerHTML = renderWelcome(); bindWelcome(app); return; }   // the front door: no blogs, posts or comments before signing in
-  const [blogs, modules] = await Promise.all([store.listBlogs(), store.listModules()]);
-  const card = b => { const ms = modules.filter(m => m.blogId === b.id); return `<article class="module-card"><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/${esc(b.id)}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions"><a class="btn small" href="/${esc(b.id)}">Open blog</a>${instructs(u, b) ? `<a class="btn small" href="/blogs/edit/${esc(b.id)}">Blog settings</a>` : ''}</div></article>`; };
+  const [blogs, modules, mine] = await Promise.all([store.listBlogs(), store.listModules(), store.listMyModules()]);
+  const card = b => { const here = m => m.blogId === b.id, ms = instructs(u, b) || mine.some(m => here(m) && isTeaching(m)) ? modules.filter(here) : mine.filter(here); return `<article class="module-card"><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/${esc(b.id)}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions"><a class="btn small" href="/${esc(b.id)}">Open blog</a>${instructs(u, b) ? `<a class="btn small" href="/blogs/edit/${esc(b.id)}">Blog settings</a>` : ''}</div></article>`; };
   // Each person sees the blogs they belong to; the admin sees them all.
-  app.innerHTML = `<h1 class="page-title">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</h1><p class="page-sub">${u.role === 'admin' ? 'Every blog on the platform, with the modules writing on it.' : 'The blogs your modules write on. On each, you see the posts of your own module; instructors see every module on their blog.'}</p>
+  app.innerHTML = `<h1 class="page-title">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</h1><p class="page-sub">${u.role === 'admin' ? 'Every blog on the platform, with the modules writing on it.' : 'The blogs your modules write on, with the posts of your own module.'}</p>
     <p class="actions"><a class="btn" href="/my-modules">My modules</a>${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
     ${blogs.length ? `<div class="module-grid">${blogs.map(card).join('')}</div>` : `<p class="empty">${u.role === 'admin' ? 'No blogs have been created yet.' : 'You are not a member of any blog yet. Enter your invitation code from <a href="/my-modules">My modules</a>.'}</p>`}`;
 }
@@ -69,7 +69,7 @@ export async function blogCanvas(id) {
   const preview = u?.studentPreview;   // an instructor seeing the blog as a student of one module
   const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);
-  app.innerHTML = `<p class="page-sub">${onBlog.length ? esc(onBlog.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p>
+  app.innerHTML = `<p class="page-sub">${esc((owner ? onBlog : writing ? [writing] : []).map(m => m.code || m.title).filter(Boolean).join(' · ') || 'Blog')}</p>
     <p class="actions">${u ? writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>' : '<button class="btn primary" id="join-signin">Log in</button>'}${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy link</button></p>
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
     <p class="muted small">${owner ? 'Each module’s students see the posts of their own module; the instructors on this blog see them all.' : writing ? `You see the posts of your module, ${esc(moduleLabel(writing))}, and so do its instructors.` : 'Each post here is visible to the students of its module and to their instructors.'}</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
@@ -106,7 +106,7 @@ export async function briefPage(id) {
     </ol>
     ${myHere.filter(m => m.deadline || m.brightspaceUrl).map(m => `<div class="notice">${esc(moduleLabel(m))}${m.deadline ? `: deadline <b>${fmtDate(m.deadline)}</b>` : ''}${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}${m.brightspaceUrl ? ` · <a href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Module page on Brightspace</a>` : ''}</div>`).join('')}
     ${cohort ? `<p><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : u ? '' : '<p><button class="btn primary" id="brief-signin">Log in</button></p>'}
-    <p class="muted small">Modules writing on this blog: ${esc(modules.filter(m => m.blogId === id).map(moduleLabel).join(' · ') || 'none yet')}.</p></div>`;
+    ${instructs(u, blog) || mine.some(m => m.blogId === id && isTeaching(m)) ? `<p class="muted small">Modules writing on this blog: ${esc(modules.filter(m => m.blogId === id).map(moduleLabel).join(' · ') || 'none yet')}.</p>` : ''}</div>`;
   app.querySelector('#brief-signin')?.addEventListener('click', () => openAuthModal());
 }
 
