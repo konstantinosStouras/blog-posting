@@ -37,7 +37,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .site-nav a { padding: 10px 10px 9px; color: var(--ink); font-size: 13px; font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 .site-nav a:hover { text-decoration: none; color: var(--blue); }
 .site-nav a.active { color: var(--blue); border-color: var(--blue); }
-.site-nav .searchbox { margin-left: auto; }
+.site-nav .searchbox { margin: 6px 0 6px auto; }
 .site-nav .nav-close, .nav-toggle { display: none; }
 .site-header .thin { border: 0; border-top: 1px solid var(--rule); margin: 0; }
 .account { display: flex; align-items: center; gap: 10px; font-size: 13px; flex: none; }
