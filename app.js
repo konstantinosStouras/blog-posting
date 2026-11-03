@@ -12,7 +12,7 @@ import {startWritingTimer} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
-import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl} from './util.js';
+import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl, orgList, orgPhrase} from './util.js';
 import {openShare, printPost} from './share.js';
 import {replyRulesOf, INDUSTRIES, MAX_INDUSTRIES, industryName} from './seed.js';
 
@@ -400,8 +400,9 @@ function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
 document.addEventListener('click', e => { const pop = document.getElementById('info-pop'); if (pop && !pop.hidden && !e.target.closest('.info-wrap')) { pop.hidden = true; document.getElementById('post-info')?.setAttribute('aria-expanded', 'false'); } });
 // Top bar: ‹ back · Saved chip … Preview · Continue. Toolbar. A centred column with
 // Title, subtitle, byline and the text. Drafts autosave two seconds after a change.
-// Continue opens the details step (featured image, category, organisation, tags,
-// word target, checklist) whose button is Publish; Preview shows the post as readers
+// Continue opens the details step (featured image, category, organisation(s), industries,
+// tags, word target, checklist) whose button is Publish: every one of those is needed
+// before a post goes live; Preview shows the post as readers
 // see it on a phone or a desktop, with Share and Done.
 async function editorView(id, moduleId) {
   const u = user();
@@ -436,6 +437,7 @@ async function editorView(id, moduleId) {
   const hasCats = (blog.categories || []).length > 0, catLabel = blog.categoryLabel || 'Category', orgLabel = blog.organisationLabel || '';
   let dirty = false, saving = false, ed, saveTimer = null, revision = 0, pendingStatus = null;
   const targetText = blog.minWords && blog.maxWords ? `${blog.minWords}–${blog.maxWords}` : `up to ${blog.maxWords}`;
+  const req = '<abbr class="req" title="Needed before you publish">*</abbr>';   // marks the details a post must have to be published
   liveView = 'editor';
 
   $app.innerHTML = `<div class="writer">
@@ -454,15 +456,16 @@ async function editorView(id, moduleId) {
     <p class="muted small">${esc(blog.title)} · ${esc(module.code || module.title)}${module.deadline ? ' · deadline ' + fmtDate(module.deadline) : ''}</p>
     <div class="sheet-grid">
       <div>
-        <h3>Featured image</h3>
+        <h3>Featured image${req}</h3>
         <img class="thumb-preview" id="thumb" src="${esc(draft.featuredImage || '')}" alt="" ${draft.featuredImage ? '' : 'hidden'}>
         <div class="actions"><button type="button" class="btn small" id="pick-image">Upload image</button><button type="button" class="btn small" id="remove-image" ${draft.featuredImage ? '' : 'hidden'}>Remove</button></div>
         <input type="file" id="image-file" accept="image/*" hidden>
         <p class="hint">Shown on the blog canvas card only; it is not added to the post itself.</p>
-        ${hasCats ? `<label class="field">${esc(catLabel)}<select id="category"><option value="">Choose…</option>${blog.categories.map(c => `<option value="${c.slug}" ${draft.category === c.slug ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
-        ${orgLabel ? `<label class="field">${esc(orgLabel)}<input id="organisation" maxlength="120" value="${esc(draft.organisation || '')}" placeholder="e.g. Ryanair, UNICEF, the HSE"></label>` : ''}
-        <div class="field industries-field"><label for="industry-pick">Industries</label><select id="industry-pick" aria-label="Add an industry"></select><div class="industry-chips" id="industry-chips" role="list" aria-label="Selected industries"></div><p class="hint">Pick up to ${MAX_INDUSTRIES} industries your post relates to. Readers can filter the blog by industry.</p></div>
-        <label class="field">Tags<input id="tags" value="${esc(draft.tags.join(', '))}" placeholder="Climate Action, ESG, Supply Chain"><p class="hint">Comma-separated keywords readers browse by.</p></label>
+        ${hasCats ? `<label class="field">${esc(catLabel)}${req}<select id="category"><option value="">Choose…</option>${blog.categories.map(c => `<option value="${c.slug}" ${draft.category === c.slug ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
+        ${orgLabel ? `<label class="field">${esc(orgLabel)}${req}<input id="organisation" maxlength="160" value="${esc(draft.organisation || '')}" placeholder="e.g. Ryanair, or Ryanair, Aer Lingus"><p class="hint">Separate several organisations with commas.</p></label>` : ''}
+        <div class="field industries-field"><label for="industry-pick">Industries${req}</label><select id="industry-pick" aria-label="Add an industry"></select><div class="industry-chips" id="industry-chips" role="list" aria-label="Selected industries"></div><p class="hint">Pick up to ${MAX_INDUSTRIES} industries your post relates to. Readers can filter the blog by industry.</p></div>
+        <label class="field">Tags${req}<input id="tags" value="${esc(draft.tags.join(', '))}" placeholder="Climate Action, ESG, Supply Chain"><p class="hint">Comma-separated keywords readers browse by.</p></label>
+        <p class="hint"><abbr class="req" title="Needed before you publish">*</abbr> needed before you publish. A draft saves without them.</p>
       </div>
       <div>
         ${blog.maxWords ? `<h3>Length</h3><div class="wc"><span><b id="wc">0</b> words</span><span class="muted">target ${targetText}</span></div><div class="meter" id="meter"><i style="width:0"></i></div><p class="hint" id="wc-hint"></p>` : ''}
@@ -474,7 +477,7 @@ async function editorView(id, moduleId) {
     <p class="status-line" id="status-line"></p></form></dialog>`;
 
   const $ = sel => document.getElementById(sel);
-  const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.appendHTML(fillOutline(blog.outline, draft.organisation || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : 'the ' + (catLabel || 'topic').toLowerCase())); }}] : [];
+  const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.appendHTML(fillOutline(blog.outline, orgPhrase(draft.organisation) || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : 'the ' + (catLabel || 'topic').toLowerCase())); }}] : [];
   ed = mountEditor($('editor'), {html: draft.body, placeholder: 'Start writing…', extras, onChange: html => { draft.body = html; touched(); }});
   // Title, subtitle and byline sit between the toolbar and the text, as on Substack.
   const head = document.createElement('div'); head.className = 'writer-head';
@@ -488,6 +491,7 @@ async function editorView(id, moduleId) {
   $('excerpt').oninput = e => { draft.excerpt = e.target.value; touched(); };
   $('category') && ($('category').onchange = e => { draft.category = e.target.value; touched(); });
   $('organisation') && ($('organisation').oninput = e => { draft.organisation = e.target.value; touched(); });
+  $('organisation') && ($('organisation').onchange = e => { const v = orgList(e.target.value).join(', '); e.target.value = v; if (v !== draft.organisation) { draft.organisation = v; touched(); } });
   // Industries: a drop-down adds one at a time; each picked industry is a chip with a × to remove it.
   const drawIndustries = () => {
     const full = draft.industries.length >= MAX_INDUSTRIES;
@@ -508,7 +512,11 @@ async function editorView(id, moduleId) {
   $('publish').onclick = () => {
     const words = wordCount(draft.body);
     if (!draft.title.trim()) return problem('Give your post a title first.', 'title');
-    if (hasCats && !draft.category) return problem(`Choose the ${catLabel.toLowerCase()} your post is about.`);
+    if (!draft.featuredImage) return problem('Upload a featured image for your post\'s card on the blog.', 'pick-image');
+    if (hasCats && !draft.category) return problem(`Choose the ${catLabel.toLowerCase()} your post is about.`, 'category');
+    if (orgLabel && !orgList(draft.organisation).length) return problem(`Name at least one organisation under “${orgLabel}”.`, 'organisation');
+    if (!draft.industries.length) return problem('Pick at least one industry your post relates to.', 'industry-pick');
+    if (!draft.tags.length) return problem('Add at least one tag so readers can find your post.', 'tags');
     if (blog.minWords && words < blog.minWords * 0.5 && draft.status !== 'published' && !confirm(`Your post has only ${words} words; the target is ${blog.minWords}–${blog.maxWords}. Publish anyway?`)) return;
     const wasLive = draft.status === 'published';
     settle().then(() => save(needsReview ? 'pending' : 'published')).then(ok => { if (!ok) return; $('sheet').close(); if (draft.status === 'published') { toast(wasLive ? 'Updated.' : 'Published! Your post is live.'); navigate(postPath(draft)); } else { toast('Submitted for review.'); navigate('/mine'); } });
@@ -525,7 +533,7 @@ async function editorView(id, moduleId) {
     pop.hidden = false; $('post-info').setAttribute('aria-expanded', 'true');
   };
   $('sheet').querySelectorAll('[data-close]').forEach(b => b.onclick = () => $('sheet').close());
-  function problem(msg, focusId) { $('status-line').textContent = msg; if (focusId) { $('sheet').close(); $(focusId).focus(); } toast(msg, 'error'); }
+  function problem(msg, focusId) { $('status-line').textContent = msg; const el = focusId && $(focusId); if (el) { if (!$('sheet').contains(el)) $('sheet').close(); el.focus(); } toast(msg, 'error'); }
 
   function chip(state, text) { const c = $('save-chip'); if (!c) return; c.dataset.state = state; c.querySelector('span').textContent = text; if (state === 'saved') { c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash'); } }
   function touched() {

@@ -51,7 +51,7 @@ export const DEFAULT_SETTINGS = {
 export const PM_EXERCISE = {
   categoryLabel: 'Megatrend',
   categories: MEGATRENDS,
-  organisationLabel: 'Organisation studied',
+  organisationLabel: 'Organisation(s) studied',
   minWords: 900,
   maxWords: 1100,
   brief: `<p>The goal of the <strong>PM Challenge</strong> is to promote peer learning and discussion on the impact of a <em>megatrend</em> on business and society. Investigate how <strong>one organisation of your choice</strong> is facing a particular aspect of one of the six megatrends, and write a blog post (not an essay: use hyperlinks to your sources, and add figures, tables or statistics) of <strong>900 to 1,100 words</strong> that answers:</p>

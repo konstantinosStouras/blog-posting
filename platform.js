@@ -166,7 +166,7 @@ export async function manageBlog(id) {
     <div class="two-col">
       <div><label class="field">Category label<input name="categoryLabel" maxlength="40" placeholder="e.g. Megatrend" value="${esc(b.categoryLabel || '')}"></label>
       <label class="field">Categories (one per line: <code>slug | Name</code>; leave empty for none)<textarea name="categories" rows="7">${esc((b.categories || []).map(c => c.slug + ' | ' + c.name).join('\n'))}</textarea></label>
-      <label class="field">Organisation field label (empty hides the field)<input name="organisationLabel" maxlength="60" placeholder="e.g. Organisation studied" value="${esc(b.organisationLabel || '')}"></label></div>
+      <label class="field">Organisation field label (empty hides the field)<input name="organisationLabel" maxlength="60" placeholder="e.g. Organisation(s) studied" value="${esc(b.organisationLabel || '')}"></label></div>
       <div><label class="field">Word target (min and max; 0 for none)<span style="display:flex;gap:8px"><input name="minWords" type="number" min="0" value="${b.minWords || 0}"><input name="maxWords" type="number" min="0" value="${b.maxWords || 0}"></span></label>
       <label class="field">Checklist shown beside the editor (one item per line)<textarea name="checklist" rows="7">${esc(lines(b.checklist))}</textarea></label>
       <label class="check"><input type="checkbox" name="allowComments" ${b.allowComments !== false ? 'checked' : ''}> Allow comments on published posts</label></div>

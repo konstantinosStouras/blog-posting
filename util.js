@@ -1,6 +1,11 @@
 // Small shared helpers. No framework: every view is a template string rendered into #app.
 export const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const slugify = s => String(s).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'post';
+// A post's organisation field holds one or more names separated by commas or
+// semicolons ("Ryanair, Aer Lingus"): the names, trimmed, in order, without repeats.
+export const orgList = s => { const seen = new Set(); return String(s || '').split(/[,;]/).map(o => o.trim()).filter(o => o && !seen.has(o.toLowerCase()) && seen.add(o.toLowerCase())); };
+// The same names as a phrase for prose: "Ryanair", "Ryanair and Aer Lingus", "A, B and C".
+export const orgPhrase = s => { const l = orgList(s); return l.length < 2 ? l.join('') : l.slice(0, -1).join(', ') + ' and ' + l[l.length - 1]; };
 export const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
 export const fmtDate = t => t ? new Date(t).toLocaleDateString('en-IE', {day: 'numeric', month: 'long', year: 'numeric'}) : '';
 export const fmtDateTime = t => t ? new Date(t).toLocaleString('en-IE', {day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';

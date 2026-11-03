@@ -12,7 +12,7 @@
 // down to the posts in question (a megatrend, an academic year, a module…), tick them, delete
 // them in one go. Changing a filter drops the ticks on posts that leave the view, so what is
 // deleted is always what is on screen.
-import {esc, fmtDate, postPath, excerptOf, readingTime, wordCount, plainText, toast} from './util.js';
+import {esc, fmtDate, postPath, excerptOf, readingTime, wordCount, plainText, toast, orgList} from './util.js';
 import {route, rewrite} from './router.js';
 import {INDUSTRIES, industryName} from './seed.js';
 
@@ -59,7 +59,7 @@ function textOf(p) {
 }
 function matches(p, f, skip = '') {
   if (skip !== 'trend' && f.trends.length && !f.trends.includes(p.category)) return false;
-  if (skip !== 'org' && f.org && norm(p.organisation) !== norm(f.org)) return false;
+  if (skip !== 'org' && f.org && !orgList(p.organisation).some(o => norm(o) === norm(f.org))) return false;
   if (skip !== 'industry' && f.industry && !(p.industries || []).includes(f.industry)) return false;
   if (skip !== 'year' && f.year && yearKey(p) !== f.year) return false;
   if (skip !== 'module' && f.module && p.moduleId !== f.module) return false;
@@ -77,7 +77,7 @@ function sorted(posts, sort) {
   const newest = (a, b) => (b.publishedAt || b.updatedAt || 0) - (a.publishedAt || a.updatedAt || 0);
   if (sort === 'old') s.sort((a, b) => -newest(a, b));
   else if (sort === 'title') s.sort((a, b) => a.title.localeCompare(b.title));
-  else if (sort === 'org') s.sort((a, b) => (a.organisation || '￿').localeCompare(b.organisation || '￿') || newest(a, b));
+  else if (sort === 'org') s.sort((a, b) => (orgList(a.organisation)[0] || '￿').localeCompare(orgList(b.organisation)[0] || '￿') || newest(a, b));
   else s.sort(newest);
   return s;
 }
@@ -89,12 +89,12 @@ function facets(st) {
   const count = (skip, keys) => { const m = new Map(); for (const p of posts) if (matches(p, f, skip)) for (const k of keys(p)) if (k) m.set(k, (m.get(k) || 0) + 1); return m; };
   const orgNames = new Map(), tagNames = new Map();
   for (const p of posts) {
-    const o = String(p.organisation || '').trim(); if (o && !orgNames.has(norm(o))) orgNames.set(norm(o), o);
+    for (const o of orgList(p.organisation)) if (!orgNames.has(norm(o))) orgNames.set(norm(o), o);
     for (const t of p.tags || []) { const k = norm(t); if (!k) continue; const seen = tagNames.get(k) || new Map(); seen.set(t.trim(), (seen.get(t.trim()) || 0) + 1); tagNames.set(k, seen); }
   }
   const tagLabel = k => [...tagNames.get(k).entries()].sort((a, b) => b[1] - a[1])[0][0];
   const trends = count('trend', p => [p.category]);
-  const orgs = [...count('org', p => [norm(p.organisation)]).entries()].map(([k, n]) => ({key: orgNames.get(k) || k, label: orgNames.get(k) || k, n})).sort((a, b) => a.label.localeCompare(b.label));
+  const orgs = [...count('org', p => orgList(p.organisation).map(norm)).entries()].map(([k, n]) => ({key: orgNames.get(k) || k, label: orgNames.get(k) || k, n})).sort((a, b) => a.label.localeCompare(b.label));
   const industries = [...count('industry', p => p.industries || []).entries()].map(([k, n]) => ({key: k, label: industryName(k), n})).sort((a, b) => a.label.localeCompare(b.label));
   const years = [...count('year', p => [yearKey(p)]).entries()].map(([k, n]) => ({key: k, label: k, n})).sort((a, b) => b.key.localeCompare(a.key));
   const tags = [...count('tags', p => [...new Set((p.tags || []).map(norm))]).entries()].map(([k, n]) => ({key: k, label: tagLabel(k), n})).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
@@ -151,8 +151,8 @@ function gridHtml(st) {
 export function card(p, st = current || {f: parseFilters(''), base: '/posts', cats: [], modules: new Map(), blogs: new Map(), opts: {}}) {
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));
   const img = p.featuredImage ? `<a href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
-  const org = String(p.organisation || '').trim(), words = p.wordCount ?? wordCount(p.body), module = st.modules?.get(p.moduleId);
-  const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : '', ...(p.industries || []).map(s => `<a href="${link({industry: s})}" data-set="industry" data-v="${esc(s)}" class="industry" title="All posts in ${esc(industryName(s))}">${esc(industryName(s))}</a>`)].filter(Boolean).join('');
+  const words = p.wordCount ?? wordCount(p.body), module = st.modules?.get(p.moduleId);
+  const kicker = [...orgList(p.organisation).map(org => `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>`), p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : '', ...(p.industries || []).map(s => `<a href="${link({industry: s})}" data-set="industry" data-v="${esc(s)}" class="industry" title="All posts in ${esc(industryName(s))}">${esc(industryName(s))}</a>`)].filter(Boolean).join('');
   const pickable = st.selecting && st.bulk?.canDelete(p), on = pickable && st.selected.has(p.id);
   const pick = !st.selecting ? '' : pickable ? `<label class="pick"><input type="checkbox" data-pick="${esc(p.id)}" ${on ? 'checked' : ''} aria-label="Select ${esc(p.title)}">${on ? 'Selected' : 'Select'}</label>` : `<span class="pick locked" title="Not in a module or on a blog you teach">Not yours to moderate</span>`;
   return `<article class="card ${img ? '' : 'noimage'}${st.selecting ? (pickable ? ' selectable' : ' locked') : ''}${on ? ' selected' : ''}" ${pickable ? `data-card="${esc(p.id)}"` : ''}>${pick}${img}

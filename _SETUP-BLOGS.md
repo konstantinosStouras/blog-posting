@@ -31,7 +31,7 @@ has no canvas yet.
 On **Blog settings**:
 
 1. Click **Fill in the PM Challenge exercise**. It fills the brief, the category
-   label *Megatrend* with the six megatrends, the *Organisation studied* field,
+   label *Megatrend* with the six megatrends, the *Organisation(s) studied* field,
    the 900–1,100 word target, the outline students can insert and the six-item
    checklist. Edit anything you like.
 2. Add a **Description** (shown above the canvas), for example *How
