@@ -204,6 +204,20 @@ export function peerReviewerSheet(rows, postUrl = () => '') {
 // The prompts the grading spreadsheet's script used, as defaults the admin may edit. The
 // synthesis merges the peer reviews with the AI review ("4+1 aggregated feedback"); the
 // reviewer assessment scores a student's reviewing ("reviewTheReviewer").
+// The assignments, in the layout of the old assignment sheet: one row per reviewer, then the
+// author's name and the link of each post assigned to them, in order.
+export const ASSIGNMENT_COLUMNS = [['Student ID', 'studentId', 16], ['Student Name', 'name', 26], ['UCD Email', 'email', 32],
+  ['Name 1', 'n1', 24], ['Blog URL 1', 'u1', 60], ['Name 2', 'n2', 24], ['Blog URL 2', 'u2', 60], ['Name 3', 'n3', 24], ['Blog URL 3', 'u3', 60], ['Name 4', 'n4', 24], ['Blog URL 4', 'u4', 60]];
+export function assignmentSheet(rows, {users = [], postUrl = () => ''} = {}) {
+  const who = new Map(users.map(u => [u.uid, u]));
+  const authorName = p => { const u = who.get(p?.authorId); return [u?.firstName, u?.lastName].filter(Boolean).join(' ') || p?.authorName || ''; };
+  return rows.map(r => {
+    const o = {studentId: r.studentId, name: [r.firstName, r.lastName].filter(Boolean).join(' ') || r.penName, email: r.email};
+    r.items.forEach((x, i) => { o['n' + (i + 1)] = authorName(x.post); o['u' + (i + 1)] = postUrl(x.post); });
+    return o;
+  });
+}
+
 // ---------- the notice to each reviewer ----------
 // The admin's email after the draw: the old Word mail-merge letter with its merge fields kept, so
 // the sheet below still feeds Word, and sent from the admin's own mail program (the site has no

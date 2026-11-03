@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededShuffle, validateReview, roundOpen, peerPostRows, peerReviewerRows, summaryFor, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, PER_STUDENT, reviewId, peerCohort, buildNotice, mailtoLink, noticeSheet} from '../peer-review-model.js';
+import {assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededShuffle, validateReview, roundOpen, peerPostRows, peerReviewerRows, summaryFor, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, PER_STUDENT, reviewId, peerCohort, buildNotice, mailtoLink, noticeSheet, ASSIGNMENT_COLUMNS, assignmentSheet} from '../peer-review-model.js';
 
 const posts = n => Array.from({length: n}, (_, i) => ({id: 'p' + i, authorId: 'u' + i, authorName: 'pen-' + i, title: 'Post ' + i, status: 'published', publishedAt: 1000 + i, body: '<p>' + 'Analysis of the organisation. '.repeat(30) + '</p>'}));
 
@@ -180,4 +180,12 @@ test('the notice to a reviewer fills the merge fields with their posts in order,
   assert.deepEqual([own.subject, own.body], ['Hi Rae One', 'p1 by shown on your module card («Unknown»)']);
   const sheet = noticeSheet(rows, {module: {code: 'M'}, postUrl: p => p.id});
   assert.equal(sheet.length, rows.length); assert.equal(sheet[rows.indexOf(r1)].Blog_URL_2, 'p2'); assert.equal(sheet[0].Module_Code, 'M'); assert.ok(sheet[0].Body.includes('1. '));
+});
+
+test('the assignments sheet has one row per reviewer with the author and the link of each post, in order', () => {
+  const rows = peerReviewerRows({reviews, posts: twoPosts, users});
+  const sheet = assignmentSheet(rows, {users, postUrl: p => 'https://x/' + p.id});
+  const r1 = sheet[rows.findIndex(r => r.reviewerUid === 'r1')];
+  assert.deepEqual(r1, {studentId: '', name: 'Rae One', email: '', n1: 'Ann Author', u1: 'https://x/p1', n2: 'pen-b', u2: 'https://x/p2'});   // the author's name from the roster, else their pen name
+  assert.deepEqual(ASSIGNMENT_COLUMNS.map(c => c[0]), ['Student ID', 'Student Name', 'UCD Email', 'Name 1', 'Blog URL 1', 'Name 2', 'Blog URL 2', 'Name 3', 'Blog URL 3', 'Name 4', 'Blog URL 4']);
 });
