@@ -8,7 +8,7 @@ Private per-post session history appears in People & invitations and module rost
 
 Writing activity starts only after an editing action, pauses after 30 seconds without editing or immediately on leaving/hiding the editor, and resumes on a new editing action. No student-facing timer is displayed; accumulated times remain in private staff reports and Excel exports.
 
-Student post writing time is recorded in private `writingSessions` documents and summed per post in People & invitations / module rosters and the Excel “Post writing time” sheet. The timer counts visible, focused editor time, pauses in preview, uses a browser lock to avoid simultaneous editor tabs, checkpoints every 15 seconds and retries locally pending checkpoints on reopening that post. This is approximate browser telemetry, not proof of typing. Time before this feature cannot be reconstructed. Column headings cycle ascending, descending and original order. Post typography is fixed; semantic styles remain available and pasted font families/sizes are stripped.
+Student post writing time is recorded in private `writingSessions` documents and summed per post in People & invitations / module rosters (the Blog posting analytics table: each post’s window from creation to submission, active and idle time, utilisation, and its sessions and the breaks between them) and the Excel “Blog posting analytics” sheet. The timer counts visible, focused editor time, pauses in preview, uses a browser lock to avoid simultaneous editor tabs, checkpoints every 15 seconds and retries locally pending checkpoints on reopening that post. This is approximate browser telemetry, not proof of typing. Time before this feature cannot be reconstructed. Column headings cycle ascending, descending and original order. Post typography is fixed; semantic styles remain available and pasted font families/sizes are stripped.
 
 Admins have a private walkthrough at `/admin/guide` and searchable user and invitation records at `/admin/people`. Instructors use `/review/roster` for their assigned modules only. Both records views export `.xlsx` files with bold column headings, normal body text, frozen headings and text-formatted university IDs. Filters apply to downloads. Named student invitations track pending email recipients; shared class links track enrolments without inventing recipient identities. The guide content is stored in the admin-only Firestore document `adminContent/guide`. Every admin page (`/admin/guide`, `/admin/people`, `/admin/grading`, `/admin/feedback`, `/admin/modules`, `/admin/settings`, `/admin/data`) is drawn under one head with the admin tab strip, and the instructor area does the same for `/review/posts`, `/review/queue`, `/review/comments` and `/review/roster`. `/admin/people` is the one place for people: everyone who has signed in with a role selector, the Invite an instructor form, every invitation with who sent it, and the writing-time records; `/admin/users`, `/admin/invite` and the old `/invitations` lead there. Instructors never see another instructor's invitations: `peopleReport` and the Firestore rules scope module invitations to the modules they teach. Staff previews (View as Instructor X, View as Student) are described under Implementation.
 
@@ -33,11 +33,17 @@ UCD blog hosts public **blogs**, each written on by one or more **modules**.
   the instructor area lists posts by blog, module and year, and the canvas
   offers the same facets to readers.
 
-Published posts are readable without signing in. Writing, commenting and
-liking require a verified account and an invitation-based membership in a
-module. A student who signs in lands on the blog of their module, with a
-**Write your blog post** button; members of any module on a blog may comment on
-all of its posts.
+Nothing is readable without signing in. A published post is visible to the
+students of its own module, to that module's instructors and to the owners of
+its blog, and to nobody else: a student never sees the posts of another
+module, whether it shares their blog (two cohorts of the same instructor on one
+canvas) or belongs to another instructor. The Firestore rules enforce this, so a
+post query must name the module (or owned blog) it asks for; `store.js` narrows
+every read in the browser to the same world, and the pages say so. Writing,
+commenting and liking require a verified account and an invitation-based
+membership in a module. A student who signs in lands on the blog of their
+module, with a **Write your blog post** button, and reads and comments on their
+own module's posts.
 
 ## Accounts and invitations
 

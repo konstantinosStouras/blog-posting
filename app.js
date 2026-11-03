@@ -13,6 +13,7 @@ import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
 import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl, orgList, orgPhrase, fmtBytes} from './util.js';
+const postWords = p => p.wordCount ?? wordCount(p.body || '');   // the text lives in its own record; the post record carries the count
 import {openShare, printPost} from './share.js';
 import {replyRulesOf, INDUSTRIES, MAX_INDUSTRIES, industryName} from './seed.js';
 
@@ -129,7 +130,7 @@ async function renderFooter(seq = renderSeq) {
   document.body.classList.toggle('writing', liveView === 'editor');   // lifts the Feedback button above the writer's sticky footer
   if (liveView === 'editor') { $footer.innerHTML = ''; return; }   // the writer page is full-bleed
   const u = user(), mode = store.mode === 'firebase' ? 'live database' : 'local prototype (this browser only)';
-  if (!u) { $footer.innerHTML = `<div class="inner"><div><p class="colophon">${esc(S.title)}. Posts are visible to the members of their blog, who read and review them. Mode: ${mode}.</p></div><div></div>
+  if (!u) { $footer.innerHTML = `<div class="inner"><div><p class="colophon">${esc(S.title)}. Each post is visible to the students of its module and to their instructors. Mode: ${mode}.</p></div><div></div>
     <div><h3>About</h3><ul><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div></div>`; return; }
   let posts, comments;
   try { [posts, comments] = await Promise.all([store.listPosts({status: 'published'}), store.recentComments(5)]); } catch (e) { console.warn('footer', e); return; }
@@ -141,7 +142,7 @@ async function renderFooter(seq = renderSeq) {
   $footer.innerHTML = `<div class="inner">
     <div><form class="widget-search" role="search"><input name="q" placeholder="Search" aria-label="Search"><button>Search</button></form>
       <h3>Recent posts</h3><ul>${posts.slice(0, 5).map(p => `<li><a href="${postPath(p)}">${esc(p.title)}</a></li>`).join('') || '<li class="muted">Nothing published yet.</li>'}</ul>
-      <p class="colophon">${esc(S.title)}. Posts are visible to the members of their blog, who read and review them. Mode: ${mode}.</p></div>
+      <p class="colophon">${esc(S.title)}. Each post is visible to the students of its module and to their instructors. Mode: ${mode}.</p></div>
     <div><h3>Recent comments</h3><ul>${comments.filter(c => byPost[c.postId]).map(c => `<li><b>${esc(c.authorName)}</b> on <a href="${postPath(byPost[c.postId])}">${esc(byPost[c.postId].title)}</a></li>`).join('') || '<li class="muted">No comments yet.</li>'}</ul>
       <h3>Archives</h3><ul>${months.map(m => `<li><a href="/archive/${m}">${monthName(m)}</a> <span class="muted">(${perMonth[m].length})</span></li>`).join('')}</ul></div>
     <div><h3>About</h3><ul><li><a href="/blogs">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
@@ -176,8 +177,10 @@ async function browse(f) {
   // One canvas across every blog. Category, organisation, year, tag, blog and module
   // filters are facets inside the canvas (read from the ?query); author and month
   // arrive as route parameters and narrow the set before it is drawn.
-  const [all, modules] = await Promise.all([store.listPosts({status: 'published'}), store.listModules()]);
-  let posts = all.sort(by('publishedAt')), title = 'All posts', sub = BLOGS.length > 1 ? 'Across every blog' : 'Published posts';
+  const u = user(), [all, modules, mine] = await Promise.all([store.listPosts({status: 'published'}), store.listModules(), u && rank(u.role) < 1 ? store.listMyModules() : []]);
+  // A student's "all" is the published posts of their own module(s); staff see the modules they teach and the blogs they own.
+  const cohort = mine.map(m => m.code || m.title).filter(Boolean);
+  let posts = all.sort(by('publishedAt')), title = 'All posts', sub = cohort.length ? `Published posts in ${cohort.join(' and ')}` : BLOGS.length > 1 ? 'Across every blog' : 'Published posts';
   if (f.author) { posts = posts.filter(p => p.authorId === f.author); title = posts[0]?.authorName || 'Author'; sub = 'Posts by'; }
   if (f.month) { posts = posts.filter(p => monthKey(p.publishedAt) === f.month); title = monthName(f.month); sub = 'Archive'; }
   $app.innerHTML = `<p class="page-sub" style="margin:0">${esc(sub)}</p><h1 class="page-title">${esc(title)}</h1>${canvas(posts, {modules, emptyText: f.author || f.month ? 'No published posts here.' : 'No posts have been published yet.'})}`;
@@ -230,7 +233,7 @@ function postSideHtml(p, {u, module, blog, words, context}) {
     </dl></aside>`;
 }
 function articleHtml(p, {blog = null, words = null, likes = [], bookmarks = [], comments = 0, me = null, preview = false} = {}) {
-  const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
+  const w = words ?? postWords(p);
   const liked = !!me && likes.includes(me.uid), saved = !!me && (me.bookmarkedPosts || []).includes(p.id);
   return `<header class="post-head">
     ${p.category || (p.industries || []).length ? `<div class="cat">${p.category ? `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a>` : ''}${(p.industries || []).map(s => `<a class="industry" href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?industry=${esc(s)}">${esc(industryName(s))}</a>`).join('')}</div>` : ''}
@@ -257,10 +260,11 @@ async function postView(slug, blogId = null) {
   const [module, blog, mine] = await Promise.all([p.moduleId ? store.getModule(p.moduleId) : null, store.getBlog(p.blogId), u ? store.listMyModules() : []]);
   // Cohort rules (approval, open/closed) come from the module; the comments policy from the blog.
   const context = {...S, ...(module || {}), allowComments: blog ? blog.allowComments !== false : true};
-  const canParticipate = u && (store.mode !== 'firebase' || u.emailVerified) && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId || (p.blogId && m.blogId === p.blogId)));
+  // Students take part in their own module's posts only (the rules say the same); staff in the modules they teach and on the blogs they own.
+  const canParticipate = u && (store.mode !== 'firebase' || u.emailVerified) && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId));
   const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
-  const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id), store.listLikes(p.id), store.listBookmarks(p.id)]);
+  const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}), store.listLikes(p.id), store.listBookmarks(p.id)]);
   if (blog) renderHeader(route(), blog);   // a post's masthead is its blog's
   const words = wordCount(p.body);
   $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<div class="post-layout"><article class="post">
@@ -285,7 +289,7 @@ async function postView(slug, blogId = null) {
     $app.querySelector('#comment-list').innerHTML = threadsHtml(cs, {u, p, blog, canReply, canLike: !!canParticipate});
     const badge = $app.querySelector('[data-comments] span'); if (badge) badge.textContent = n || '';
   };
-  const refreshComments = async () => drawComments(await store.listComments(p.id));
+  const refreshComments = async () => drawComments(await store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}));
   drawComments(comments);
   // One handler for the comment box and every inline reply box (they are drawn and redrawn).
   $app.onsubmit = async e => {
@@ -331,7 +335,7 @@ async function postView(slug, blogId = null) {
       return;
     }
     const sh = e.target.closest('[data-share-comment]');
-    if (sh) { const c = (await store.listComments(p.id)).find(x => x.id === sh.dataset.shareComment); if (c) openShare(p, {blog, module, comment: c}); return; }
+    if (sh) { const c = (await store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId})).find(x => x.id === sh.dataset.shareComment); if (c) openShare(p, {blog, module, comment: c}); return; }
     const rp = e.target.closest('[data-reply-to]');
     if (rp) {   // the reply box opens under the thread's first comment; one box at a time
       $app.querySelectorAll('.reply-slot').forEach(s => { s.innerHTML = ''; });
@@ -344,7 +348,7 @@ async function postView(slug, blogId = null) {
     const ed = e.target.closest('[data-edit-comment]');
     if (ed) {   // the comment's text becomes a box in place; Save writes it back, Cancel redraws the list
       const box = ed.closest('.comment'), body = box.querySelector(':scope > .c-body'); if (!body || box.querySelector(':scope > form.edit')) return;
-      const text = (await store.listComments(p.id)).find(x => x.id === ed.dataset.editComment)?.body ?? '';
+      const text = (await store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId})).find(x => x.id === ed.dataset.editComment)?.body ?? '';
       body.hidden = true; box.querySelector(':scope > .c-actions').hidden = true;
       body.insertAdjacentHTML('afterend', `<form class="edit" data-edit="${esc(ed.dataset.editComment)}"><div class="reply-box"><textarea name="body" required maxlength="4000"></textarea><p class="reply-actions"><button type="submit" class="btn primary small">Save</button><button type="button" class="btn small" data-cancel-edit>Cancel</button></p></div></form>`);
       const ta = box.querySelector(':scope > form.edit textarea'); ta.value = text; ta.focus(); ta.setSelectionRange(text.length, text.length);
@@ -604,8 +608,8 @@ async function mine() {
   const posts = (await store.listPosts({authorId: u.uid})).sort(by('updatedAt'));
   $app.innerHTML = `<h1 class="page-title">My posts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="/profile">Edit profile</a></p>
     <p class="actions"><a class="btn primary" href="/write">Write a new post</a><a class="btn" href="/my-modules">My modules</a></p>
-    ${posts.length ? `<table class="list"><thead><tr><th>Title</th><th>Blog</th><th>Status</th><th>Words</th><th>Category</th><th>Updated</th><th></th></tr></thead><tbody>
-      ${posts.map(p => `<tr><td><a href="/edit/${p.id}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
+    ${posts.length ? `<table class="list"><thead><tr><th>Title</th><th>Blog</th><th>Status</th><th>Words</th><th>Megatrend</th><th>Updated</th><th></th></tr></thead><tbody>
+      ${posts.map(p => `<tr><td><a href="/edit/${p.id}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${postWords(p)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
         <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status === 'published' ? ` <a href="${postPath(p)}">View</a>` : ''}${can(u, 'delete', p, S) ? ` <button class="linkish danger" data-del="${p.id}">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">You have not written anything yet.</p>`}`;
   $app.onclick = async e => { const b = e.target.closest('[data-del]'); if (b && confirm('Delete this post?')) { try { await store.deletePost(b.dataset.del); } catch (err) { return toast(err.message, 'error'); } toast('Deleted.'); mine(); } };
 }
@@ -699,19 +703,19 @@ async function lecturer(tab = 'posts', query = '') {
   posts = scope.filter(p => !year || p.academicYear === year);
   const qs = patch => { const o = {blog: blogId, module: moduleId, year, ...patch}; const s = new URLSearchParams(Object.entries(o).filter(([, v]) => v)).toString(); return s ? '?' + s : ''; };
   const who = Object.fromEntries(users.map(x => [x.uid, x]));
-  const real = uid => { const x = who[uid]; return x ? `${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || '—')}${x.studentId ? ` <span class="muted">${esc(x.studentId)}</span>` : ''}` : '<span class="muted">unknown</span>'; };
+  const real = uid => { const x = who[uid]; return x ? `${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || '—')}${x.studentId ? ` <span class="muted">${esc(x.studentId)}</span>` : ''}` : ''; };
   const pending = posts.filter(p => p.status === 'pending');
   const tabs = `<nav class="tabs" aria-label="Instructor area"><a href="/review/posts${qs({})}" class="${tab === 'posts' ? 'active' : ''}">All posts (${posts.length})</a><a href="/review/queue${qs({})}" class="${tab === 'queue' ? 'active' : ''}">Review queue (${pending.length})</a><a href="/review/comments${qs({})}" class="${tab === 'comments' ? 'active' : ''}">Comments</a><a href="/review/roster${qs({})}" class="${tab === 'roster' ? 'active' : ''}">Roster${liveRoster ? '' : ` (${users.length})`}</a></nav>`;
-  const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + (p.wordCount ?? wordCount(p.body || '')), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
+  const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + postWords(p), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
   // Posts per module and academic year, for the whole scope (before the year filter).
   const cells = groupBy(scope, p => (p.moduleId || '?') + '|' + (p.academicYear || '—'));
   const summaryYears = [...new Set(scope.map(p => p.academicYear || '—'))].sort().reverse();
   const summaryModules = [...new Set(scope.map(p => p.moduleId))];
   const summary = summaryModules.length ? `<table class="list compact"><thead><tr><th>Posts by module and year</th>${summaryYears.map(y => `<th><a href="/review/${tab}${qs({year: y === '—' ? '' : y})}">${esc(y)}</a></th>`).join('')}<th>Total</th></tr></thead><tbody>${summaryModules.map(mid => { const m = modOf(mid); return `<tr><td><a href="/review/${tab}${qs({module: mid})}">${esc(m ? [m.code, m.title].filter(Boolean).join(' ') : mid)}</a></td>${summaryYears.map(y => `<td>${(cells[mid + '|' + y] || []).filter(p => p.status === 'published').length}<span class="muted small"> / ${(cells[mid + '|' + y] || []).length}</span></td>`).join('')}<td><b>${scope.filter(p => p.moduleId === mid && p.status === 'published').length}</b><span class="muted small"> / ${scope.filter(p => p.moduleId === mid).length}</span></td></tr>`; }).join('')}</tbody></table><p class="hint">published / all posts</p>` : '';
   let body = '';
-  const row = p => { const m = modOf(p.moduleId); return `<tr><td><a href="${p.status === 'published' ? postPath(p) : '/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b><br><span class="small">${real(p.authorId)}</span></td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
+  const row = p => { const m = modOf(p.moduleId); return `<tr><td><a href="${p.status === 'published' ? postPath(p) : '/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b>${real(p.authorId) ? `<br><span class="small">${real(p.authorId)}</span>` : ''}</td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${postWords(p)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
     <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ''}${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`; };
-  const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name / student</th><th>Module · year</th><th>Status</th><th>Words</th><th>Category</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
+  const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name</th><th>Module · year</th><th>Status</th><th>Words</th><th>Megatrend</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
   if (tab === 'posts') body = summary + (u.role === 'admin' ? '<div id="storage" class="storage muted">Measuring what the blog stores…</div>' : '') + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
   if (tab === 'queue') body = '<p class="muted">Posts submitted for review. Approval is switched on per module in its settings.</p>' + table(pending);
   if (tab === 'comments') { const cs = (await store.recentComments(500)).filter(c=>posts.some(p=>p.id===c.postId)); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
@@ -734,7 +738,7 @@ async function lecturer(tab = 'posts', query = '') {
   if (u.role === 'admin' && tab === 'posts') showStorage($app.querySelector('#storage'));
   $app.querySelector('#export-csv')?.addEventListener('click', () => {
     const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Industries', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, publicUrl(postPath(p)), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, wordCount(p.body), catName(p.category, p), (p.industries || []).map(industryName).join('; '), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
+    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Megatrend', 'Industries', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, publicUrl(postPath(p)), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, postWords(p), catName(p.category, p), (p.industries || []).map(industryName).join('; '), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
     const blob = new Blob([rows.map(r => r.map(esc2).join(',')).join('\n')], {type: 'text/csv'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ucd-blog-posts${moduleId ? '-' + moduleId : ''}${year ? '-' + year.replace('/', '-') : ''}.csv`; a.click();
   });
   $app.onclick = async e => {

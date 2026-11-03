@@ -327,6 +327,12 @@ table.list select { padding: 3px 6px; border: 1px solid var(--line); border-radi
 .people-filters { display:grid; grid-template-columns:1fr 2fr 1fr; gap:16px; }
 .table-scroll { overflow-x:auto; margin:12px 0 30px; }
 .table-scroll table { min-width:1100px; }
+.table-scroll table.analytics { min-width:1900px; }
+table.analytics td:nth-child(n+8) { white-space:nowrap; }
+.session-lines { max-height:7.5em; overflow:auto; line-height:1.5; }
+/* A row's action cell is a table cell, not a flex box: a flex cell draws its own, shorter bottom border. */
+table.list td.actions { display:table-cell; white-space:nowrap; }
+table.list td.actions > * + * { margin-left:6px; }
 @media(max-width:700px) { .people-filters { grid-template-columns:1fr; gap:0; } }
 
 /* ---- canvas filters (canvas.js) ---- */

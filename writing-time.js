@@ -2,17 +2,47 @@ export function formatWritingTime(seconds=0){
  const n=Math.max(0,Math.floor(Number(seconds)||0));
  return `${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;
 }
-export function writingReport(posts=[],sessions=[],modules=[],users=[]){
+export function formatDuration(seconds=0){
+ const n=Math.max(0,Math.floor(Number(seconds)||0)),days=Math.floor(n/86400);
+ return (days?`${days} day${days===1?'':'s'} `:'')+formatWritingTime(n-days*86400);
+}
+export const utcMinute=t=>t?new Date(t).toISOString().replace('T',' ').slice(0,16):'';
+const postRow=(p,m,u={})=>({postId:p.id,title:p.title,moduleId:m.id,moduleTitle:m.title,authorId:p.authorId,firstName:u.firstName||'',lastName:u.lastName||'',email:u.email||'',contactEmail:u.contactEmail||'',studentId:u.studentId||'',status:p.status});
+
+// How a post's recorded work sits in calendar time. The window runs from the post's creation (or its first
+// recorded session, if earlier) to its submission — publication, or the last save of a post awaiting review —
+// extended by any session recorded after that; a draft's window is still open and is measured up to `now`.
+// Active time is the sum of the sessions, idle time the rest of the window (so the gaps before the first and
+// after the last session count too) and utilisation their ratio. Sessions, and the breaks between consecutive
+// sessions, are listed oldest first in UTC. Legacy visits without timestamps count towards active time but
+// cannot be placed, so they appear in neither list.
+export function postAnalytics(post={},sessions=[],now=Date.now()){
+ const active=sessions.reduce((n,s)=>n+Math.max(0,Number(s.seconds)||0),0);
+ const timed=sessions.filter(s=>s.startedAt>0).sort((a,b)=>a.startedAt-b.startedAt);
+ const endOf=s=>Math.max(s.startedAt,s.endedAt||0,s.lastRecordedAt||0,s.lastActivityAt||0);
+ const submittedAt=post.status==='published'?post.publishedAt||post.updatedAt||0:post.status==='pending'?post.updatedAt||0:0;
+ const startedAt=Math.min(...[post.createdAt,timed[0]?.startedAt].filter(t=>t>0));
+ const placed=Number.isFinite(startedAt),open=!submittedAt;
+ const endedAt=open?now:Math.max(submittedAt,timed.length?endOf(timed[timed.length-1]):0);
+ const elapsed=placed?Math.max(0,Math.floor((endedAt-startedAt)/1000)):0;
+ const idle=Math.max(0,elapsed-active),utilisation=elapsed>0?Math.min(1,active/elapsed):null;
+ const breakLines=[];
+ for(let i=1;i<timed.length;i++){const from=endOf(timed[i-1]),gap=Math.floor((timed[i].startedAt-from)/1000);if(gap>0)breakLines.push(`${formatDuration(gap)} · ${utcMinute(from)}`);}
+ return {createdAt:post.createdAt||0,submittedAt,windowStart:placed?startedAt:0,windowEnd:placed?endedAt:0,open,elapsedSeconds:elapsed,idleSeconds:idle,idleTime:formatDuration(idle),utilisation,utilisationLabel:utilisation===null?'':utilisation>0&&utilisation<0.005?'<1%':`${Math.round(utilisation*100)}%`,sessionCount:timed.length,untimedSessions:sessions.length-timed.length,sessionLines:timed.map(s=>`${formatWritingTime(s.seconds)} · ${utcMinute(s.startedAt)}`),breakLines};
+}
+
+export function writingReport(posts=[],sessions=[],modules=[],users=[],now=Date.now()){
  const allowed=new Map(modules.map(m=>[m.id,m])),people=new Map(users.map(u=>[u.uid,u]));
  return posts.filter(p=>allowed.has(p.moduleId)).map(p=>{
-  const u=people.get(p.authorId)||{},m=allowed.get(p.moduleId);
-  const seconds=sessions.filter(s=>s.postId===p.id&&s.uid===p.authorId&&s.moduleId===p.moduleId).reduce((n,s)=>n+Math.max(0,Number(s.seconds)||0),0);
-  return {postId:p.id,title:p.title,moduleId:m.id,moduleTitle:m.title,authorId:p.authorId,firstName:u.firstName||'',lastName:u.lastName||'',email:u.email||'',contactEmail:u.contactEmail||'',studentId:u.studentId||'',seconds,writingTime:formatWritingTime(seconds),status:p.status};
+  const own=sessions.filter(s=>s.postId===p.id&&s.uid===p.authorId&&s.moduleId===p.moduleId);
+  const seconds=own.reduce((n,s)=>n+Math.max(0,Number(s.seconds)||0),0);
+  return {...postRow(p,allowed.get(p.moduleId),people.get(p.authorId)),seconds,writingTime:formatWritingTime(seconds),...postAnalytics(p,own,now)};
  });
 }
 
 export function sessionHistoryReport(posts=[],sessions=[],modules=[],users=[]){
- const postsById=new Map(writingReport(posts,[],modules,users).map(p=>[p.postId,p]));
+ const allowed=new Map(modules.map(m=>[m.id,m])),people=new Map(users.map(u=>[u.uid,u]));
+ const postsById=new Map(posts.filter(p=>allowed.has(p.moduleId)).map(p=>[p.id,postRow(p,allowed.get(p.moduleId),people.get(p.authorId))]));
  return sessions.flatMap(s=>{const p=postsById.get(s.postId);if(!p||p.authorId!==s.uid||p.moduleId!==s.moduleId||(!s.lastActivityAt&&!s.seconds))return [];
   return [{...p,sessionId:s.id,startedAt:s.startedAt||0,lastActivityAt:s.lastActivityAt||0,lastRecordedAt:s.lastRecordedAt||0,endedAt:s.endedAt||0,endReason:s.lastActivityAt?(s.endReason||'checkpoint'):'legacy',seconds:s.seconds||0,writingTime:formatWritingTime(s.seconds)}];
  }).sort((a,b)=>b.startedAt-a.startedAt||a.sessionId.localeCompare(b.sessionId));
