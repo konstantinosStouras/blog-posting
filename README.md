@@ -256,6 +256,14 @@ the server's answer differs the page is redrawn in place, `notify('refresh')`); 
 the first page every read goes to the server, as the cache is not narrowed by the
 rules. A first visit, with nothing on disk, waits for the server as before.
 
+Even a cached read waits for Firebase to start (a third to half a second: the SDK opens
+its store and confirms the sign-in with Google's servers), so `store.js` also keeps the
+raw answers of the last visit's reads, the account and the settings in localStorage
+under the build's cache stamp, and draws the first page from them the moment the code
+runs. Once Firebase is ready, every answer that page used is asked again and compared
+(the account too), and the page is redrawn in place if anything differs; a read the
+snapshot cannot answer, and every write, waits for Firebase. Another account on the
+same browser starts its own snapshot.
 ## First-time blog setup
 
 The one-off walkthrough for creating the Project Management and Operations

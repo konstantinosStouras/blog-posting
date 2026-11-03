@@ -3,12 +3,79 @@ import {firebaseEnabled} from './firebase-config.js';
 import {local} from './backend-local.js';
 
 let backend = local;
+// Who hears of changes (app.js redraws): the store's own list, so that it outlives the
+// switch from the snapshot to the real backend below. The backend's notify feeds it.
+const listeners = new Set(), emit = why => listeners.forEach(fn => fn(why));
+const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn); };
+
+// ---------- the snapshot: the first page before Firebase has started ----------
+// Firebase takes a third to half a second to start (the SDK opens its store on disk and
+// confirms the sign-in with Google's servers) before even a cached read can be answered,
+// and "Loading…" stood in the main area for all of it. So the raw answers the backend gave
+// on the last visit (each read's rows, the account and the site settings) are kept in
+// localStorage under the build's cache stamp, and on the next visit the first page is
+// drawn from them the moment the code runs. Firebase starts behind it; once it is ready,
+// every answer that page used is asked again (from the cache on disk and then the server,
+// backend-firebase.js) and compared, the account included, and the page is redrawn in
+// place if anything differs ('refresh'). A read the snapshot cannot answer, and every
+// write, waits for Firebase as before; a first visit has no snapshot. Another account on
+// the same browser starts a snapshot of its own (record), and sign-out leaves a visitor's.
+const STAMP = new URL(import.meta.url).searchParams.get('v') || 'dev';
+const SNAP = 'ucd-blog:snapshot', SNAP_MAX = 2000000;   // characters; localStorage holds about five million
+const RECORDED = new Set(['listModules', 'getModule', 'listBlogs', 'getBlog', 'listMyModules', 'listMyBlogs', 'listPosts', 'listAllPosts', 'getPost', 'getPostBySlug', 'listComments', 'recentComments', 'listLikes', 'listBookmarks', 'listMyPeerReviews', 'getPeerSummary', 'getPeerReview', 'getPeerRound']);
+const shape = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(k => [k, x[k]])) : x);
+const callKey = (k, a) => k + '|' + JSON.stringify(a);
+let answers = new Map(), recordedUid = null, recording = false, saveTimer = 0;   // answers: callKey -> {t, out}
+const loadSnapshot = () => { try { const s = JSON.parse(localStorage.getItem(SNAP)); return s && s.v === STAMP && s.answers ? s : null; } catch { return null; } };
+function record(k, a, out) {
+  const uid = backend.currentUser()?.uid || '';
+  if (uid !== recordedUid) { answers.clear(); recordedUid = uid; }   // another account: nothing of the last one's is kept
+  answers.set(callKey(k, a), {t: Date.now(), out});
+  clearTimeout(saveTimer); saveTimer = setTimeout(saveSnapshot, 500);
+}
+addEventListener('pagehide', () => { if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; saveSnapshot(); } });   // a visit shorter than the wait above still leaves its snapshot
+function saveSnapshot() {
+  const body = {v: STAMP, uid: recordedUid, user: backend.currentUser(), settings: backend.settings(), answers: Object.fromEntries(answers)};
+  let text = JSON.stringify(body);
+  const oldest = [...answers].sort((a, b) => a[1].t - b[1].t);   // over the cap, the answers least recently given go first
+  while (text.length > SNAP_MAX && oldest.length) { const [k] = oldest.shift(); delete body.answers[k]; answers.delete(k); text = JSON.stringify(body); }
+  try { localStorage.setItem(SNAP, text); } catch {}
+}
+// The backend the first page is drawn from: the snapshot's answers for the reads it holds,
+// Firebase (once started) for everything else.
+let ready = null;   // resolves to the real backend
+const replay = (s, used) => new Proxy({}, {get: (_, k) => {
+  if (typeof k !== 'string' || k === 'then' || k === 'toJSON') return undefined;   // a promise resolving to this backend must not take it for a thenable
+  if (k === 'mode') return 'firebase';
+  if (k === 'currentUser') return () => s.user;
+  if (k === 'settings') return () => s.settings;
+  if (k === 'painted') return () => {};   // the real backend hears it once it has caught up
+  return (...a) => {
+    const id = callKey(k, a);
+    if (RECORDED.has(k) && id in s.answers) { used.set(id, [k, a]); return Promise.resolve(s.answers[id].out); }
+    return ready.then(b => b[k](...a));
+  };
+}});
+
 export async function initStore() {
-  if (firebaseEnabled()) {
-    try { const m = await import('./backend-firebase.js'); backend = m.firebase; }
-    catch (e) { console.error('Firebase failed to load; falling back to local mode.', e); backend = local; }
+  if (!firebaseEnabled()) { await local.init(); backend = local; backend.onChange(emit); return backend; }
+  const start = (async () => { const m = await import('./backend-firebase.js'); await m.firebase.init(); return m.firebase; })();
+  const snapshot = loadSnapshot();
+  if (snapshot) { answers = new Map(Object.entries(snapshot.answers)); recordedUid = snapshot.uid; }
+  if (!snapshot) {
+    try { backend = await start; }
+    catch (e) { console.error('Firebase failed to load; falling back to local mode.', e); await local.init(); backend = local; }
+    backend.onChange(emit); recording = backend.mode === 'firebase'; return backend;
   }
-  await backend.init();
+  const used = new Map();
+  ready = start; backend = replay(snapshot, used);
+  start.then(async real => {
+    let changed = shape(real.currentUser()) !== shape(snapshot.user) || shape(real.settings()) !== shape(snapshot.settings);
+    for (const [id, [k, a]] of used) { try { if (shape(await real[k](...a)) !== shape(snapshot.answers[id].out)) changed = true; } catch { changed = true; } }
+    backend = real; recording = true; real.onChange(emit);
+    if (changed) emit('refresh');
+    real.painted();   // the first page is up: reads go to the server from here on, and what the server changed redraws it
+  }).catch(e => { console.error('Firebase failed to start behind the snapshot page.', e); });
   return backend;
 }
 
@@ -60,10 +127,13 @@ const SCOPED = {
   getPostBySlug: (p, a) => readsPost(a, p) ? p : null,
 };
 export const store = new Proxy({}, {get: (_, k) => {
+  if (k === 'onChange') return subscribe;
   const v = backend[k];
   if (typeof v !== 'function') return v;
-  if (SCOPED[k]) return async (...a) => { const [out, acc] = await Promise.all([v.apply(backend, a), allowed()]); return acc.all ? out : SCOPED[k](out, acc); };
+  // A read's raw answer is kept for the next visit's first page (the snapshot above).
+  const call = (...a) => { const p = v.apply(backend, a); return recording && RECORDED.has(k) ? p.then(out => { record(k, a, out); return out; }) : p; };
+  if (SCOPED[k]) return async (...a) => { const [out, acc] = await Promise.all([call(...a), allowed()]); return acc.all ? out : SCOPED[k](out, acc); };
   if (preview && WRITES.has(k)) return async () => { throw Error('You are viewing the site as someone else. Close the preview (× in the account menu) to make changes.'); };
-  if (preview && k === 'listMyModules') return async (...a) => scopeModules(await v.apply(backend, a), preview);
-  return v.bind(backend);
+  if (preview && k === 'listMyModules') return async (...a) => scopeModules(await call(...a), preview);
+  return RECORDED.has(k) ? call : v.bind(backend);
 }});
