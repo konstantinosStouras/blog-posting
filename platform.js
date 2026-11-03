@@ -65,6 +65,24 @@ export async function myModules(target = app, embedded = false) {
   });
 }
 
+// ---------- the blog's action row ----------
+// Under the masthead of every page of a blog (its canvas, its brief and each of its posts), for a
+// signed-in reader: Write your blog post (or Enter invitation code for a reader who belongs to no
+// module on it), The brief, and for the blog's instructors Blog settings and Review posts. app.js
+// renderHeader leaves the slot and calls this to fill it; a visitor gets no row.
+export async function blogActions(id, el) {
+  const u = currentUser();
+  if (!u || !(await canReadBlog(id))) return;
+  const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), store.listMyModules()]);
+  if (!blog || !el.isConnected) return;   // a later navigation has redrawn the header
+  const onBlog = modules.filter(m => m.blogId === id), preview = u.studentPreview;   // an instructor seeing the blog as a student of one module
+  const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
+  const owner = instructs(u, blog) || myHere.some(isTeaching);
+  el.innerHTML = `${writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>'}${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}`;
+  el.hidden = false;
+  el.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register'));
+}
+
 // ---------- the public blog canvas ----------
 // Anyone with the link may open a blog's page: a visitor sees the masthead, the Home menu and the
 // canvas of every published post on the blog, each of which they may open and read (the modules
@@ -89,12 +107,10 @@ export async function blogCanvas(id) {
   const preview = u?.studentPreview;   // an instructor seeing the blog as a student of one module
   const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);
+  // The action row (Write your blog post, The brief, …) is the header's, drawn by blogActions above.
   app.innerHTML = `<p class="page-sub">${esc((owner ? onBlog : writing ? [writing] : []).map(m => m.code || m.title).filter(Boolean).join(' · ') || 'Blog')}</p>
-    <p class="actions">${writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>'}${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy link</button></p>
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
     <p class="muted small">${owner ? 'Each module’s students see the posts of their own module; the instructors on this blog see them all.' : writing ? `You see the posts of your module, ${esc(moduleLabel(writing))}, and so do its instructors.` : 'Each post here is visible to the students of its module and to their instructors.'}</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
-  app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register'));
-  app.querySelector('#copy-blog-link').onclick = async () => { try { await navigator.clipboard.writeText(blogUrl(id)); toast('Link copied.'); } catch { prompt('Blog link', blogUrl(id)); } };
 }
 
 // Old `/module/<id>` links land on the module's blog.

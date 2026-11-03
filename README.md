@@ -43,8 +43,11 @@ post query must name the module (or owned blog) it asks for; `store.js` narrows
 every read in the browser to the same world, and the pages say so. Writing,
 commenting and liking require a verified account and an invitation-based
 membership in a module. A student who signs in lands on the blog of their
-module, with a **Write your blog post** button, and reads and comments on their
-own module's posts.
+module and reads and comments on their own module's posts. Every page of a
+blog (its canvas, its brief and each of its posts) draws the blog's action row
+under its masthead: **Write your blog post** and **The brief**, plus **Blog
+settings** and **Review posts** for the blog's instructors. There is no Write
+button beside the avatar: the account menu holds everything personal.
 
 ## Accounts and invitations
 
@@ -171,9 +174,11 @@ links shared before this change, are rewritten to the clean path on load.
 ### Previews: View as Instructor X, View as Student
 
 As in a learning platform, the account menu lets staff see the site as someone
-else. The admin gets **View as Instructor X** for every instructor; on a blog
-canvas, an instructor of one of its modules (or the admin) gets **View as
-Student**. The header then shows the person's own name with *as Student* or
+else. The admin gets **View as Instructor X** for every instructor; on a blog's
+pages, an instructor gets **View as Student** for each of their modules writing
+on it, the admin for every module on the blog (named when there are several,
+*View as Student of BMGT45540*, since each module's students see their own
+module's posts alone). The header then shows the person's own name with *as Student* or
 *as X* under it, the menu opens with "Viewing as …" and a × that returns to
 their own view. A preview is a view of that browser tab only: the backend still
 acts as the real account, so every write is refused until the preview is closed

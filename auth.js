@@ -45,17 +45,19 @@ async function routeInvitation(){
 export function renderAccountControl(el){
  const u=currentUser();
  if(store.mode==='local'){
-  el.innerHTML=`<label class="viewas">Sample account<select id="viewas"><option value="">Visitor (signed out)</option>${store.users().map(x=>`<option value="${x.uid}" ${store.currentUser()?.uid===x.uid?'selected':''}>${esc(fullName(x))} · ${esc(roleLabel(x.role))}</option>`).join('')}</select></label>${u?writeButton()+accountMenu(u):''}`;
+  el.innerHTML=`<label class="viewas">Sample account<select id="viewas"><option value="">Visitor (signed out)</option>${store.users().map(x=>`<option value="${x.uid}" ${store.currentUser()?.uid===x.uid?'selected':''}>${esc(fullName(x))} · ${esc(roleLabel(x.role))}</option>`).join('')}</select></label>${u?accountMenu(u):''}`;
   el.querySelector('#viewas').onchange=e=>{setPreview(null);store.viewAs(e.target.value);};
  } else {
-  el.innerHTML=u?writeButton()+accountMenu(u):'<button class="btn small" id="signin-btn">Log in</button>';
+  el.innerHTML=u?accountMenu(u):'<button class="btn small" id="signin-btn">Log in</button>';
   el.querySelector('#signin-btn')?.addEventListener('click',()=>openAuthModal('signin'));
  }
  if(u)previewOptions(u).then(html=>{const slot=el.querySelector('[data-preview-options]');if(slot&&html)slot.innerHTML=html;}).catch(()=>{});
  if(u&&store.mode==='firebase'&&!u.preview)rememberAccount(u);
 }
-// What the menu offers: the admin may view the site as any instructor; on a blog
-// canvas, an instructor of one of its modules (or the admin) may view it as a student.
+// What the menu offers: the admin may view the site as any instructor; on a blog's pages,
+// an instructor may view it as a student of each of their modules writing on it (the admin:
+// of every module on the blog), one entry per module because each module's students see
+// their own module's posts alone, so a preview of the wrong module shows an empty canvas.
 async function previewOptions(u){
  const p=u.preview||null;
  if(p?.kind==='student')return '';
@@ -64,8 +66,8 @@ async function previewOptions(u){
  const seg=route().match(/^\/([a-z0-9-]+)(?:[\/?#]|$)/)?.[1];   // a blog lives at /<id> (and /<id>/brief)
  const blogId=modules.some(m=>m.blogId===seg)?seg:null;
  if(blogId&&['lecturer','admin'].includes(u.role)){
-  const m=modules.find(m=>m.blogId===blogId&&(m.teacherIds||[]).includes(u.uid))||(u.role==='admin'?modules.find(m=>m.blogId===blogId):null);
-  if(m)out.push(`<button data-preview-student="${esc(m.id)}" data-blog="${esc(blogId)}" data-label="${esc([m.code,m.title].filter(Boolean).join(' '))}">View as Student</button>`);
+  const ms=modules.filter(m=>m.blogId===blogId&&(u.role==='admin'||(m.teacherIds||[]).includes(u.uid)));
+  for(const m of ms)out.push(`<button data-preview-student="${esc(m.id)}" data-blog="${esc(blogId)}" data-label="${esc([m.code,m.title].filter(Boolean).join(' '))}">View as Student${ms.length>1?' of '+esc(m.code||m.title):''}</button>`);
  }
  if(u.role==='admin'&&!p){
   const [users,blogs]=await Promise.all([store.listUsers(),store.listBlogs()]);
@@ -79,10 +81,10 @@ async function previewOptions(u){
 // A student's alias is for the byline of their posts and comments, not for this control.
 export const fullName=u=>[u?.firstName,u?.lastName].filter(Boolean).join(' ')||u?.displayName||u?.penName||u?.email||'Account';
 export function avatarHtml(u,name=fullName(u)){return u?.photoURL?`<img class="avatar" src="${esc(u.photoURL)}" alt="" referrerpolicy="no-referrer">`:`<span class="avatar">${esc((name||'?')[0].toUpperCase())}</span>`;}
-// "Write" is the one action that stays visible beside the avatar; everything else personal
-// (modules, posts, profile, the instructor and admin areas, sign out) lives in the menu, so the
-// site tabs under the rule can stay public: Explore blogs, All posts, search.
-const writeButton=()=>`<a href="/write" class="btn primary small write-btn">Write</a>`;
+// Beside the avatar there is nothing but the menu, where everything personal (modules, posts,
+// profile, the instructor and admin areas, sign out) lives, so the site tabs under the rule can
+// stay public: Explore blogs, All posts, search. The way to write is the action row that every
+// page of a blog draws under its masthead (platform.js blogActions).
 function accountMenu(u){
  const name=fullName(u),p=u.preview,as=p?(p.kind==='student'?'Student':p.name):'';
  return `<details class="account-menu ${p?'previewing':''}"><summary aria-label="Account menu">${avatarHtml(u,name)} <span class="who">${esc(name)}<small>${p?'as '+esc(as):esc(roleLabel(u.role))}</small></span><span class="caret" aria-hidden="true"></span></summary><div class="menu">

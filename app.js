@@ -4,7 +4,7 @@ import {initStore, store, resetAccess} from './store.js';
 import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './auth.js';
 import {can, ROLES, rank, pastDeadline} from './permissions.js';
 import {mountEditor, fillOutline} from './editor.js';
-import {configurePlatform, blogDirectory, myModules, blogCanvas, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
+import {configurePlatform, blogDirectory, myModules, blogCanvas, blogActions, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {renderPeople} from './people.js';
 import {renderGrading} from './ai-grading.js';
 import {renderPeerAdmin, myPeerReviews, peerSidePanel} from './peer-review.js';
@@ -108,9 +108,12 @@ const blogOnPath = path => BLOGS.find(b => b.id === (path.match(/^\/([a-z0-9-]+)
 function renderHeader(path = route(), blog = blogOnPath(path)) {
   const u = user();
   const active = h => (h === '/' ? path === '/' : path.startsWith(h)) ? 'active' : '';
-  // Two rows. Top: the masthead with the account control on the right (a Write button and the
-  // avatar menu, where everything personal lives). Under the rule: the site's public tabs on the
-  // left and search on the right. On a phone the tabs fold into a drawer that slides in from the left.
+  // Two rows. Top: the masthead with the account control on the right (the avatar menu, where
+  // everything personal lives). Under the rule: the site's public tabs on the left and search on
+  // the right. On a phone the tabs fold into a drawer that slides in from the left. On a blog's
+  // pages (its canvas, its brief, each of its posts) a signed-in reader gets a third row, the
+  // blog's actions (Write your blog post, The brief, and for its instructors Blog settings and
+  // Review posts), filled by platform.js blogActions once it knows the reader's modules.
   document.body.classList.remove('nav-locked');
   // Signed in, the first tab is the person's own blog (or blogs; the admin explores them all),
   // then All posts and search. A visitor on a blog (its canvas or one of its posts) gets the blog's
@@ -130,8 +133,11 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
       <button type="button" class="nav-close" aria-label="Close menu">×</button>
       ${tabs}
     </nav>
-    <div class="nav-backdrop" hidden></div></div><hr class="thin">` : ''}`;
+    <div class="nav-backdrop" hidden></div></div><hr class="thin">` : ''}
+  ${u && blog ? '<div class="blog-actions actions" id="blog-actions" hidden></div>' : ''}`;
   renderAccountControl($header.querySelector('#account'));   // includes "View as Instructor X" / "View as Student" when they apply
+  const slot = $header.querySelector('#blog-actions');
+  if (slot) blogActions(blog.id, slot).catch(e => console.warn('blog actions', e));
   const toggle = $header.querySelector('.nav-toggle'), nav = $header.querySelector('#site-nav'), backdrop = $header.querySelector('.nav-backdrop');
   if (!nav) return;
   const setNav = open => { $header.classList.toggle('nav-open', open); toggle.setAttribute('aria-expanded', String(open)); backdrop.hidden = !open; document.body.classList.toggle('nav-locked', open); };

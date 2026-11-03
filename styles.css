@@ -44,7 +44,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .site-nav .nav-close, .nav-toggle { display: none; }
 .site-header .thin { border: 0; border-top: 1px solid var(--rule); margin: 0; }
 .account { display: flex; align-items: center; gap: 10px; font-size: 13px; flex: none; }
-.write-btn { white-space: nowrap; }
+.site-header .blog-actions { margin: 16px 0 0; }
 .viewas { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .viewas select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 12px; }
 .account-menu { position: relative; }
