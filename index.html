@@ -28,12 +28,13 @@
 <meta name="twitter:image:alt" content="UCD blog — Posts by curious UCD students">
 <meta itemprop="image" content="https://www.stouras.com/ucd-blog/icon-512.png">
 <link rel="image_src" href="https://www.stouras.com/ucd-blog/icon-512.png">
-<!-- Icons are relative: index.html is always served from the app root (deep links arrive via the site's 404 hand-over). -->
-<link rel="icon" href="favicon.ico" sizes="any">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<!-- Icons are relative: index.html is always served from the app root (deep links arrive via the site's 404 hand-over).
+     Browsers keep a favicon by its address long after the file changes, so the icons carry ?v=N: bump N when an icon is redrawn. -->
+<link rel="icon" href="favicon.ico?v=2" sizes="any">
+<link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=2">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=2">
 <link rel="manifest" href="site.webmanifest">
 <meta name="theme-color" content="#1f5fd1">
 <!-- Speed. The app is thirty small modules that import one another five levels deep; told
