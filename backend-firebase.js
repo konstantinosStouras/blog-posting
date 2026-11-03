@@ -396,7 +396,17 @@ export const firebase = {
     const likes = await this.listLikes(postId); return {liked: !had, count: likes.length};
   },
 
+  // ---- bookmarks: two id lists (posts, comments) on the reader's own profile; the rules let only its owner write them ----
+  async toggleBookmark(kind, id) {
+    if (!user) throw Error('Sign in to bookmark.');
+    const key = kind === 'comment' ? 'bookmarkedComments' : 'bookmarkedPosts', had = (profile?.[key] || []).includes(id);
+    await F.setDoc(F.doc(db, 'profiles', user.uid), {[key]: had ? F.arrayRemove(id) : F.arrayUnion(id)}, {merge: true});
+    profile = {...profile, [key]: had ? (profile?.[key] || []).filter(x => x !== id) : [...(profile?.[key] || []), id]};
+    return {on: !had, count: profile[key].length};
+  },
+
   // ---- comments ----
+  async getComment(id) { try { const s = await F.getDoc(F.doc(db, 'comments', id)); return s.exists() ? norm(s) : null; } catch { return null; } },
   async listComments(postId) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', postId))); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt); },
   async recentComments(n = 5) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.orderBy('createdAt', 'desc'), F.limit(n))); return s.docs.map(norm); },
   // A reply names its parent (one level: a reply to a reply joins the same thread).
@@ -411,17 +421,7 @@ export const firebase = {
   },
   async editComment(id, body, u) {
     if (!user?.emailVerified) throw Error('Verify your sign-in email before editing comments.');
-  // ---- bookmarks: two id lists (posts, comments) on the reader's own profile; the rules let only its owner write them ----
-  async toggleBookmark(kind, id) {
-    if (!user) throw Error('Sign in to bookmark.');
-    const key = kind === 'comment' ? 'bookmarkedComments' : 'bookmarkedPosts', had = (profile?.[key] || []).includes(id);
-    await F.setDoc(F.doc(db, 'profiles', user.uid), {[key]: had ? F.arrayRemove(id) : F.arrayUnion(id)}, {merge: true});
-    profile = {...profile, [key]: had ? (profile?.[key] || []).filter(x => x !== id) : [...(profile?.[key] || []), id]};
-    return {on: !had, count: profile[key].length};
-  },
-
     const ref = F.doc(db, 'comments', id), editedAt = Date.now();
-  async getComment(id) { try { const s = await F.getDoc(F.doc(db, 'comments', id)); return s.exists() ? norm(s) : null; } catch { return null; } },
     await F.updateDoc(ref, {body, editedAt}); notify(); return {id, ...(await F.getDoc(ref)).data()};
   },
   // Likes on a comment live on the comment (likedBy): the rules let an account add or remove only itself.

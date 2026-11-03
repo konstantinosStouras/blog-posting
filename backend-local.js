@@ -146,7 +146,6 @@ export const local = {
     save(); return {liked: i < 0, count: state.likes.filter(l => l.postId === postId).length};
   },
 
-  // ---- comments ----
   // ---- bookmarks: two id lists on the reader's own profile ----
   async toggleBookmark(kind, id) {
     const u = me(); if (!u) throw Error('Sign in to bookmark.');
@@ -156,8 +155,9 @@ export const local = {
     save(); return {on: i < 0, count: row[key].length};
   },
 
-  async listComments(postId) { return delay(structuredClone(state.comments.filter(c => c.postId === postId).sort((a, b) => a.createdAt - b.createdAt))); },
+  // ---- comments ----
   async getComment(id) { return delay(structuredClone(state.comments.find(c => c.id === id) || null)); },
+  async listComments(postId) { return delay(structuredClone(state.comments.filter(c => c.postId === postId).sort((a, b) => a.createdAt - b.createdAt))); },
   async recentComments(n = 5) { return delay(structuredClone([...state.comments].sort((a, b) => b.createdAt - a.createdAt).slice(0, n))); },
   // A reply names its parent (one level: a reply to a reply joins the same thread).
   async addComment({postId, body, parentId = ''}, user) {
