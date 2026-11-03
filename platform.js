@@ -9,7 +9,7 @@ import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
 import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
 import {JOIN_CITIES, cityLabel, isRetiredStudentCode} from './invitation-codes.js';
-import {PM_EXERCISE, DEFAULT_REPLY_RULES} from './seed.js';
+import {DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
 import {peerCardLine} from './peer-review.js';
 
@@ -180,16 +180,9 @@ export async function manageBlog(id) {
     </div>
     <label class="field">Reply rules (shown under the comment box on every post of this blog; empty restores the default)<textarea name="replyRules" maxlength="1000" rows="3" placeholder="${esc(DEFAULT_REPLY_RULES)}">${esc(b.replyRules || '')}</textarea></label>
     <label class="field">Outline the student can insert (HTML; <code>{organisation}</code> and <code>{category}</code> are filled in)<textarea name="outline" rows="8">${esc(b.outline || '')}</textarea></label>
-    <p class="actions"><button class="btn primary">Save blog</button><a class="btn" href="/${esc(id)}">Back to the blog</a><button type="button" class="btn" id="fill-pm" title="Fills the form with the PM Challenge brief, the six megatrends, the 900–1,100 word target, the outline and the checklist. Nothing is saved until you press Save blog.">Fill in the PM Challenge exercise</button></p><p class="auth-msg" aria-live="polite"></p></form>
+    <p class="actions"><button class="btn primary">Save blog</button><a class="btn" href="/${esc(id)}">Back to the blog</a></p><p class="auth-msg" aria-live="polite"></p></form>
     <h2 class="page-title" style="font-size:20px;margin-top:30px">Modules writing on this blog</h2>
     ${modules.filter(m => m.blogId === id).map(m => `<p>${esc(moduleLabel(m))}${instructs(u, m) ? ` · <a href="/modules/edit/${esc(m.id)}">Settings</a> · <a href="/modules/invite/${esc(m.id)}">Invite students</a>` : ''}</p>`).join('') || '<p class="muted">None yet. <a href="/modules/new">Create a module</a> and choose this blog.</p>'}</div>`;
-  // One click fills the maintainer's exercise (seed.js PM_EXERCISE); the form is still reviewed and saved by hand.
-  app.querySelector('#fill-pm').onclick = () => {
-    const f = app.querySelector('#blog-form'), set = (n, v) => { f.elements.namedItem(n).value = v; };
-    set('brief', PM_EXERCISE.brief); set('categoryLabel', PM_EXERCISE.categoryLabel); set('categories', PM_EXERCISE.categories.map(c => c.slug + ' | ' + c.name).join('\n'));
-    set('organisationLabel', PM_EXERCISE.organisationLabel); set('minWords', PM_EXERCISE.minWords); set('maxWords', PM_EXERCISE.maxWords); set('outline', PM_EXERCISE.outline); set('checklist', PM_EXERCISE.checklist.join('\n'));
-    toast('PM Challenge exercise filled in. Review, then Save blog.');
-  };
   app.querySelector('#blog-form').onsubmit = async e => {
     e.preventDefault(); const f = e.target, d = Object.fromEntries(new FormData(f)), button = f.querySelector('button'); button.disabled = true;
     try {

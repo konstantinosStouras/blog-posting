@@ -30,10 +30,10 @@ has no canvas yet.
 
 On **Blog settings**:
 
-1. Click **Fill in the PM Challenge exercise**. It fills the brief, the category
-   label *Megatrend* with the six megatrends, the *Organisation(s) studied* field,
-   the 900–1,100 word target, the outline students can insert and the six-item
-   checklist. Edit anything you like.
+1. Fill in the brief, the category label *Megatrend* with the six megatrends,
+   the *Organisation(s) studied* field, the 900–1,100 word target, the outline
+   students can insert and the checklist (the local prototype's sample blog,
+   seeded from `PM_EXERCISE` in `seed.js`, shows the wording).
 2. Add a **Description** (shown above the canvas), for example *How
    organisations face the megatrends shaping business and society: blog posts
    by students of the project management modules.*
