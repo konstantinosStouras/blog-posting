@@ -189,8 +189,8 @@ const ICON = {
   share: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 9l5-5 5 5M5 15v4h14v-4"/></svg>',
   arrowLeft: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
   arrowRight: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
-  pdf: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 17v-4h1.6a1.4 1.4 0 0 1 0 2.8H8.5M12.6 13h1.2a2 2 0 0 1 0 4h-1.2zM16.4 17v-4h2.4M16.4 15h2"/></svg>',
   star: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8Z"/></svg>',
+  pdf: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 17v-4h1.6a1.4 1.4 0 0 1 0 2.8H8.5M12.6 13h1.2a2 2 0 0 1 0 4h-1.2zM16.4 17v-4h2.4M16.4 15h2"/></svg>',
 };
 // A friendly, author-only note when a post went live after the module deadline. Nobody else sees it;
 // the deadline is informational and the public byline shows only the title, pen name and date.
@@ -239,8 +239,8 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
     <div class="post-actions-row" role="group" aria-label="Post actions">
       <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes.length || ''}</span></button>
       <a class="react" href="#comments" data-comments aria-label="Comments">${ICON.comment}<span>${comments || ''}</span></a>
-      <span class="grow"></span>
       <button type="button" class="react ${saved ? 'on' : ''}" data-bookmark ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${saved}" aria-label="Bookmark" title="${saved ? 'Bookmarked: find it on your profile' : 'Bookmark this post'}">${ICON.star}</button>
+      <span class="grow"></span>
       <button type="button" class="react wide" data-share ${preview ? 'disabled' : ''}>${ICON.share}<span>Share</span></button>
       <button type="button" class="react" data-pdf ${preview ? 'disabled' : ''} aria-label="Save as PDF" title="Save as PDF">${ICON.pdf}</button>
     </div></header>
@@ -305,13 +305,13 @@ async function postView(slug, blogId = null) {
   enhance($app.querySelector('.post .body'), {post: p, user: u, store});
   $app.querySelector('[data-share]').onclick = () => openShare(p, {blog, module});
   $app.querySelector('[data-pdf]').onclick = () => printPost(p, blog);
-  $app.querySelector('[data-like]').onclick = async e => {
   // A bookmark is the reader's own: it lives on their profile (bookmarkedPosts), and the profile page lists it.
   $app.querySelector('[data-bookmark]').onclick = async e => {
     const b = e.currentTarget;
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
     try { const n = await store.toggleBookmark('post', p.id); b.classList.toggle('on', n.on); b.setAttribute('aria-pressed', n.on); b.title = n.on ? 'Bookmarked: find it on your profile' : 'Bookmark this post'; toast(n.on ? 'Bookmarked. Find it on your profile.' : 'Bookmark removed.'); } catch (err) { toast(err.message, 'error'); }
   };
+  $app.querySelector('[data-like]').onclick = async e => {
     const b = e.currentTarget;
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
     try { const n = await store.toggleLike(p.id, u); b.classList.toggle('on', n.liked); b.setAttribute('aria-pressed', n.liked); b.querySelector('span').textContent = n.count || ''; } catch (err) { toast(err.message, 'error'); }
@@ -319,12 +319,12 @@ async function postView(slug, blogId = null) {
   $app.onclick = async e => {
     const del = e.target.closest('[data-del-comment]');
     if (del) { if (confirm('Delete this comment?')) { try { await quietly(() => store.deleteComment(del.dataset.delComment)); await refreshComments(); } catch (err) { return toast(err.message, 'error'); } } return; }
-    const like = e.target.closest('[data-like-comment]');
     const star = e.target.closest('[data-bookmark-comment]');
     if (star) {
       try { const n = await store.toggleBookmark('comment', star.dataset.bookmarkComment); star.classList.toggle('on', n.on); star.setAttribute('aria-pressed', n.on); star.title = n.on ? 'Bookmarked: find it on your profile' : 'Bookmark this comment'; star.querySelector('span').textContent = n.on ? 'Saved' : 'Save'; toast(n.on ? 'Comment bookmarked. Find it on your profile.' : 'Bookmark removed.'); } catch (err) { toast(err.message, 'error'); }
       return;
     }
+    const like = e.target.closest('[data-like-comment]');
     if (like) {
       if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
       try { const n = await quietly(() => store.toggleCommentLike(like.dataset.likeComment, u)); like.classList.toggle('on', n.liked); like.setAttribute('aria-pressed', n.liked); like.querySelector('span').textContent = `Like${n.count ? ` (${n.count})` : ''}`; if (!$app.querySelector('form.reply.inline')) await refreshComments(); } catch (err) { toast(err.message, 'error'); }   // redrawn for the "Liked by" badge, unless a reply is being written
@@ -386,8 +386,8 @@ function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
     <div class="c-actions">
       <button type="button" class="c-act${liked ? ' on' : ''}" data-like-comment="${esc(c.id)}" aria-pressed="${liked}" ${canLike ? '' : 'disabled'}>${ICON.heart}<span>Like${likedBy.length ? ` (${likedBy.length})` : ''}</span></button>
       ${canReply ? `<button type="button" class="c-act" data-reply-to="${esc(thread)}" data-reply-name="${esc(c.authorName)}">${ICON.comment}<span>Reply${replies?.length ? ` (${replies.length})` : ''}</span></button>` : replies?.length ? `<span class="c-act muted">${ICON.comment}<span>${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}</span></span>` : ''}
-      <span class="grow"></span>
       <button type="button" class="c-act star${saved ? ' on' : ''}" data-bookmark-comment="${esc(c.id)}" aria-pressed="${saved}" ${u && !u.preview ? '' : 'disabled'} title="${saved ? 'Bookmarked: find it on your profile' : 'Bookmark this comment'}">${ICON.star}<span>${saved ? 'Saved' : 'Save'}</span></button>
+      <span class="grow"></span>
       ${u && can(u, 'editComment', c, S) ? `<button type="button" class="c-act" data-edit-comment="${esc(c.id)}">Edit</button>` : ''}
       ${u && can(u, 'deleteComment', {...c, blogId: p?.blogId}, S) ? `<button type="button" class="c-act danger" data-del-comment="${esc(c.id)}">Delete</button>` : ''}
       <button type="button" class="c-act" data-share-comment="${esc(c.id)}">${ICON.share}<span>Share</span></button>
@@ -625,7 +625,6 @@ async function profileView() {
     delete d.penName;   // the pen name is generated by the site when the account is created and is never edited here
     try { await store.saveProfile(u.uid, d); toast('Profile saved.'); renderHeader(); } catch (err) { toast(err.message, 'error'); }
   };
-}
   bookmarksSection($app.querySelector('#bookmarks'), u);
 }
 
@@ -668,6 +667,7 @@ async function bookmarksSection(el, u) {
     if (up) data.posts = data.posts.filter(p => p.id !== up.dataset.unstarPost); else data.comments = data.comments.filter(c => c.id !== uc.dataset.unstarComment);
     toast('Bookmark removed.'); draw();
   };
+}
 
 // ---------- instructor area ----------
 // Posts, review queue, comments and roster for the modules an instructor teaches and
