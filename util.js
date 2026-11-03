@@ -79,11 +79,28 @@ export function shrinkImage(file, max = 1200, quality = 0.82) {
 
 export const by = (key, dir = -1) => (a, b) => ((a[key] ?? 0) > (b[key] ?? 0) ? 1 : (a[key] ?? 0) < (b[key] ?? 0) ? -1 : 0) * dir;
 export const groupBy = (arr, fn) => arr.reduce((m, x) => { const k = fn(x); (m[k] ||= []).push(x); return m; }, {});
-export function toast(msg, kind = '') {
+// A passing message at the bottom of the screen, gone after 3.5 s (or ms). The kind
+// 'corner' is the larger note at the bottom right (a copied link): a tick, a dismiss
+// button, read at a glance. Where the browser has popovers the toast is one, so it is
+// drawn over an open sheet (a <dialog> sits in the top layer, above any z-index).
+const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+export function toast(msg, kind = '', ms = 3500) {
   let t = document.getElementById('toast');
-  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.append(t); }
-  t.textContent = msg; t.className = 'show ' + kind;
-  clearTimeout(t._h); t._h = setTimeout(() => t.className = '', 3500);
+  if (!t) {
+    t = document.createElement('div'); t.id = 'toast'; document.body.append(t);
+    if (t.showPopover) t.setAttribute('popover', 'manual');
+    t.addEventListener('click', e => { if (e.target.closest('.toast-x')) hideToast(t); });
+  }
+  clearTimeout(t._h);
+  t.textContent = msg;
+  if (/\bcorner\b/.test(kind)) { t.insertAdjacentHTML('afterbegin', CHECK); t.insertAdjacentHTML('beforeend', '<button type="button" class="toast-x" aria-label="Dismiss">×</button>'); }
+  if (t.showPopover) { try { t.showPopover(); } catch {} }
+  t.className = 'show ' + kind;
+  t._h = setTimeout(() => hideToast(t), ms);
+}
+function hideToast(t) {
+  clearTimeout(t._h); t.className = '';
+  if (t.hidePopover) t._h = setTimeout(() => { try { t.hidePopover(); } catch {} }, 300);   // after the fade
 }
 
 // The heading of a page: an h1 on its own, or an h2 when the page is shown inside

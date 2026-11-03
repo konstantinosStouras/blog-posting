@@ -104,9 +104,17 @@ dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background
 .auth-form .or { text-align: center; color: var(--muted); font-size: 12px; margin: 10px 0 0; }
 .auth-form .btn.primary { width: 100%; margin-top: 8px; }
 .auth-msg { color: var(--bad); font-size: 13px; min-height: 1em; }
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 6px; opacity: 0; transition: .25s; pointer-events: none; z-index: 50; font-size: 13px; }
+/* Passing messages (util.js toast). A popover where the browser has them, so a toast is drawn over an open sheet; the margin, border and inset undo the browser's popover defaults. */
+#toast { position: fixed; inset: auto auto 24px 50%; margin: 0; border: 0; width: max-content; max-width: calc(100vw - 32px); height: auto; overflow: visible; transform: translate(-50%, 20px); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 6px; opacity: 0; transition: .25s; pointer-events: none; z-index: 50; font-size: 13px; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.error { background: var(--bad); }
+/* The larger note at the bottom right (a copied link): a tick, a dismiss button, read at a glance. */
+#toast.corner { inset: auto 24px 24px auto; transform: translateY(20px); display: flex; align-items: center; gap: 10px; max-width: min(380px, calc(100vw - 48px)); padding: 14px 18px; font: 500 15px/1.35 var(--ui); box-shadow: 0 8px 28px rgba(0, 0, 0, .28); pointer-events: auto; }
+#toast.corner.show { transform: translateY(0); }
+#toast.corner > svg { width: 20px; height: 20px; flex: none; color: #7fe0a4; }
+#toast .toast-x { margin-left: auto; padding: 0 0 0 8px; border: 0; background: none; color: #fff; opacity: .7; font: 20px/1 var(--ui); cursor: pointer; }
+#toast .toast-x:hover { opacity: 1; }
+@starting-style { #toast:popover-open { opacity: 0; } }
 
 /* ---- layout ---- */
 .app { max-width: var(--wrap); margin: 0 auto; padding: 24px 20px 60px; }
@@ -769,6 +777,7 @@ dialog.share-sheet { width: min(520px, 94vw); border: 0; border-radius: 12px; bo
 .share-row button svg, .share-row button img { width: 26px; height: 26px; }
 .share-row button > svg, .share-row button > img { box-sizing: content-box; padding: 18px; border-radius: 50%; background: #f1f1f1; transition: background .15s; }
 .share-row button:hover > svg, .share-row button:hover > img { background: #e4e4e4; }
+.share-row button.done > svg { background: #e3f5ea; color: var(--ok); }
 .share-row button[aria-expanded="true"] > svg { background: var(--ink); color: #fff; }
 .share-sheet .hint { margin-top: 14px; text-align: center; }
 .share-more { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }

@@ -12,6 +12,7 @@ const OWNER = {name: 'Kostas Stouras', linkedin: 'https://www.linkedin.com/in/st
 
 const I = {
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1 0l2.8-2.8a5 5 0 0 0-7.1-7.1L11 4.9"/><path d="M14 11a5 5 0 0 0-7.1 0l-2.8 2.8a5 5 0 0 0 7.1 7.1L13 19.1"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
   mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
   more: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
   device: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 9l5-5 5 5M5 15v4h14v-4"/></svg>',
@@ -92,7 +93,15 @@ export function openShare(p, {blog = null, module = null, comment = null} = {}) 
     const net = b.dataset.net, more = sheet.querySelector('.share-more'), qrBox = sheet.querySelector('.share-qr');
     if (net === 'more') { more.hidden = !more.hidden; b.setAttribute('aria-expanded', String(!more.hidden)); if (more.hidden) qrBox.hidden = true; return; }
     if (net === 'wechat' || net === 'qr') { qrBox.hidden = false; qrBox.scrollIntoView({block: 'nearest'}); return; }
-    if (net === 'copy') { try { await navigator.clipboard.writeText(t.url); toast('Link copied.'); } catch { prompt(comment ? 'Link to this comment' : 'Link to this post', t.url); } return; }
+    if (net === 'copy') {
+      // The button becomes a tick reading "Link copied" and a note appears at the bottom right of
+      // the screen; both go after twenty seconds (or the note when dismissed).
+      try { await navigator.clipboard.writeText(t.url); } catch { prompt(comment ? 'Link to this comment' : 'Link to this post', t.url); return; }
+      b.classList.add('done'); b.innerHTML = `${I.check}<span>Link copied</span>`;
+      clearTimeout(b._h); b._h = setTimeout(() => { b.classList.remove('done'); b.innerHTML = `${I.link}<span>Copy link</span>`; }, 20000);
+      toast('Link copied to clipboard', 'corner', 20000);
+      return;
+    }
     if (net === 'device') { try { await navigator.share({title: t.title, text: t.short, url: t.url}); } catch {} return; }
     const go = {
       linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${enc(t.linkedin)}`,

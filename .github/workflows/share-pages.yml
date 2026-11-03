@@ -1,5 +1,6 @@
-# Writes a crawlable page per published post (tools/share-pages.mjs) so that a shared post
-# or comment link shows the blog's card on WhatsApp, LinkedIn, Facebook, Slack and X.
+# Writes a crawlable page per blog and per published post (tools/share-pages.mjs) so that a
+# shared blog, post or comment link shows the blog's card on WhatsApp, LinkedIn, Facebook,
+# Slack and X instead of the site's 404 page.
 # Needs the repository secret FIREBASE_SERVICE_ACCOUNT: a service-account key (JSON) for
 # the stouras-ucd-blog Firebase project with Firestore read access.
 name: Link-preview pages
@@ -24,7 +25,7 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - name: Commit the pages
         run: |
-          git add -A -- '[0-9][0-9][0-9][0-9]/'
+          git add -A -- ':(glob)*/index.html' ':(glob)**/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*/index.html'
           if git diff --cached --quiet; then echo "No change."; exit 0; fi
           git -c user.name='Link-preview pages' -c user.email='actions@users.noreply.github.com' commit -m 'Link-preview pages for the published posts'
           git push
