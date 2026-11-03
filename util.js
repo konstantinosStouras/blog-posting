@@ -57,14 +57,15 @@ export function excerptOf(html, n = 180) {
   return t.length > n ? t.slice(0, n).replace(/\s+\S*$/, '') + '…' : t;
 }
 export const readingTime = words => Math.max(1, Math.round(words / 220)) + ' min read';
+export const fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
 
 // Images are stored inline as resized JPEG data URLs (same approach as wearwell),
 // so no Storage bucket, no extra rules and no orphaned files. ~1200px wide, under ~500KB.
 export function shrinkImage(file, max = 1200, quality = 0.82) {
   return new Promise((resolve, reject) => {
-    if (!file || !file.type.startsWith('image/')) return reject(Error('Please choose an image file.'));
+    if (!file || (file instanceof Blob ? !file.type.startsWith('image/') : !/^data:image\//.test(file))) return reject(Error('Please choose an image file.'));
     const img = new Image();
-    const url = URL.createObjectURL(file);
+    const url = file instanceof Blob ? URL.createObjectURL(file) : file;   // a file from the picker, or a data URL stored earlier (revoking a data URL is a no-op)
     img.onload = () => {
       URL.revokeObjectURL(url);
       const scale = Math.min(1, max / Math.max(img.width, img.height));

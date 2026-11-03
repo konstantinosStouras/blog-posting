@@ -111,6 +111,9 @@ export const local = {
   async listAllPosts() { const u = me(); return delay(structuredClone(state.posts.filter(p => u?.role === 'admin' || u?.managedModuleIds.includes(p.moduleId) || u?.managedBlogIds.includes(p.blogId)))); },
   async getPost(id) { return delay(structuredClone(state.posts.find(p => p.id === id) || null)); },
   async getPostBySlug(slug) { return delay(structuredClone(state.posts.find(p => p.slug === slug) || null)); },
+  // The prototype keeps each post's text in the post itself, so nothing is ever "unsplit" here.
+  async storageUsage() { const size = rows => JSON.stringify(rows || []).length; return {count: state.posts.length, inline: 0, posts: size(state.posts), images: state.posts.reduce((s, p) => s + (p.featuredImage || '').length, 0), comments: size(state.comments), writing: size(state.aiReviews)}; },
+  async slimPosts() { return {done: 0, failed: 0}; },
   async savePost(post, user) {
     const now = Date.now();
     let existing = post.id ? state.posts.find(p => p.id === post.id) : null;

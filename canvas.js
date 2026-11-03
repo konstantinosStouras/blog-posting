@@ -54,7 +54,7 @@ export function renderCanvas(posts, opts = {}) {
 // ---------- matching ----------
 function textOf(p) {
   const key = p.id + ':' + (p.updatedAt || '');
-  if (!searchIndex.has(key)) { if (searchIndex.size > 2000) searchIndex.clear(); searchIndex.set(key, [p.title, p.excerpt, p.organisation, (p.tags || []).join(' '), (p.industries || []).map(industryName).join(' '), p.authorName, catName(current, p.category, p), plainText(p.body)].join(' ').toLowerCase()); }
+  if (!searchIndex.has(key)) { if (searchIndex.size > 2000) searchIndex.clear(); searchIndex.set(key, [p.title, p.excerpt, p.organisation, (p.tags || []).join(' '), (p.industries || []).map(industryName).join(' '), p.authorName, catName(current, p.category, p), p.text ?? plainText(p.body || '')].join(' ').toLowerCase()); }
   return searchIndex.get(key);
 }
 function matches(p, f, skip = '') {
@@ -151,14 +151,14 @@ function gridHtml(st) {
 export function card(p, st = current || {f: parseFilters(''), base: '/posts', cats: [], modules: new Map(), blogs: new Map(), opts: {}}) {
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));
   const img = p.featuredImage ? `<a href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
-  const words = p.wordCount ?? wordCount(p.body), module = st.modules?.get(p.moduleId);
+  const words = p.wordCount ?? wordCount(p.body || ''), module = st.modules?.get(p.moduleId);
   const kicker = [...orgList(p.organisation).map(org => `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>`), p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : '', ...(p.industries || []).map(s => `<a href="${link({industry: s})}" data-set="industry" data-v="${esc(s)}" class="industry" title="All posts in ${esc(industryName(s))}">${esc(industryName(s))}</a>`)].filter(Boolean).join('');
   const pickable = st.selecting && st.bulk?.canDelete(p), on = pickable && st.selected.has(p.id);
   const pick = !st.selecting ? '' : pickable ? `<label class="pick"><input type="checkbox" data-pick="${esc(p.id)}" ${on ? 'checked' : ''} aria-label="Select ${esc(p.title)}">${on ? 'Selected' : 'Select'}</label>` : `<span class="pick locked" title="Not in a module or on a blog you teach">Not yours to moderate</span>`;
   return `<article class="card ${img ? '' : 'noimage'}${st.selecting ? (pickable ? ' selectable' : ' locked') : ''}${on ? ' selected' : ''}" ${pickable ? `data-card="${esc(p.id)}"` : ''}>${pick}${img}
     ${kicker ? `<div class="kicker">${kicker}</div>` : ''}
     <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
-    <p>${esc(p.excerpt || excerptOf(p.body))}</p>
+    <p>${esc(p.excerpt || excerptOf(p.text ?? p.body ?? ''))}</p>
     <div class="tags">${(p.tags || []).map(t => `<a href="${link({tags: [t]})}" data-tag="${esc(t)}" data-only="1">${esc(t)}</a>`).join('')}</div>
     <div class="meta"><a href="/author/${esc(p.authorId)}">${esc(p.authorName)}</a> · <a href="${link({year: yearKey(p)})}" data-set="year" data-v="${esc(yearKey(p))}" title="All posts from ${esc(yearKey(p))}">${fmtDate(p.publishedAt || p.updatedAt)}</a> · ${readingTime(words)}${module && st.f.module !== p.moduleId && st.modules.size > 1 ? ` · <a href="${link({module: p.moduleId})}" data-set="module" data-v="${esc(p.moduleId)}">${esc(module.code || module.title)}</a>` : ''}</div></article>`;
 }

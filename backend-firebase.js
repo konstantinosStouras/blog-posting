@@ -11,7 +11,7 @@
 //   posts/{id}, comments/{id}, settings/site
 import {firebaseConfig, ADMIN_EMAIL} from './firebase-config.js';
 import {DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
-import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
+import {newId, slugify, wordCount, excerptOf, plainText, isReservedUrlName, academicYearOf} from './util.js';
 import {registrationProfile} from './registration.js';
 import {randomCode, normalizeCode, STANDING_EXPIRY} from './invitation-codes.js';
 import {buildPeopleReport} from './people-model.js';
@@ -31,6 +31,14 @@ async function refreshManaged(self) {
 const listeners = new Set(), notify = () => { forget(); listeners.forEach(fn => fn()); };
 const ts = v => (v && typeof v.toMillis === 'function') ? v.toMillis() : (v ?? null);
 const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['createdAt', 'updatedAt', 'publishedAt']) if (k in o) o[k] = ts(o[k]); return o; };
+// A post's text (with its inline images) lives in posts/{id}/content/body, apart from the
+// record the cards are drawn from (title, excerpt, tags, the card image, a plain-text copy
+// for the search box), so the canvas and the staff lists download kilobytes per post, not
+// the whole post. Reading one post joins the two. Posts saved before 3 Nov 2026 still
+// carry body in their record until they are saved again or slimmed (slimPosts).
+const TEXT_MAX = 8000;
+const bodyRef = id => F.doc(db, 'posts', id, 'content', 'body');
+async function withBody(p) { if (!p || typeof p.body === 'string') return p; const s = await F.getDoc(bodyRef(p.id)); return {...p, body: s.exists() ? s.data().body || '' : ''}; }
 async function createCodedInvite(kind, data) {
   const inviteId = crypto.randomUUID();
   for (let attempt=0;attempt<60;attempt++) {
@@ -105,9 +113,9 @@ const MEMOED = ['listModules', 'getModule', 'listBlogs', 'getBlog', 'listMyModul
 // too (the rules let a module's or blog's staff delete them); a batch holds 500 writes, so a busy post
 // goes in several, with the post itself in the last one.
 async function removePost(id) {
-  if (role === 'student') { await F.deleteDoc(F.doc(db, 'posts', id)); return; }
-  const [cs, ls, vs, bs] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes')), F.getDocs(F.collection(db, 'posts', id, 'votes')), F.getDocs(F.collection(db, 'posts', id, 'bookmarks'))]);
-  const refs = [...cs.docs, ...ls.docs, ...vs.docs, ...bs.docs].map(d => d.ref);
+  if (role === 'student') { const b = F.writeBatch(db); b.delete(bodyRef(id)); b.delete(F.doc(db, 'posts', id)); await b.commit(); return; }
+  const [cs, ls, vs, bs, ct] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes')), F.getDocs(F.collection(db, 'posts', id, 'votes')), F.getDocs(F.collection(db, 'posts', id, 'bookmarks')), F.getDocs(F.collection(db, 'posts', id, 'content'))]);
+  const refs = [...cs.docs, ...ls.docs, ...vs.docs, ...bs.docs, ...ct.docs].map(d => d.ref);
   let b = F.writeBatch(db), n = 0;
   for (const r of refs) { b.delete(r); if (++n === 450) { await b.commit(); b = F.writeBatch(db); n = 0; } }
   b.delete(F.doc(db, 'posts', id)); await b.commit();
@@ -326,8 +334,10 @@ export const firebase = {
   async saveWritingHistory(row){const {id,...data}=row;await F.setDoc(F.doc(db,'writingHistory',id),data);},
   async listWritingHistory(moduleId=''){if(!user?.emailVerified||!['admin','lecturer'].includes(role))throw Error('Staff access required.');if(role==='admin'&&!moduleId){const s=await F.getDocs(F.collection(db,'writingHistory'));return s.docs.map(norm);}const ids=moduleId?[moduleId]:managedModuleIds;return (await Promise.all(ids.map(id=>F.getDocs(F.query(F.collection(db,'writingHistory'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
   async listWritingSessions(moduleId='') {const ids=moduleId?[moduleId]:managedModuleIds;if(role==='admin'&&!moduleId){const s=await F.getDocs(F.collection(db,'writingSessions'));return s.docs.map(norm);}return (await Promise.all(ids.map(id=>F.getDocs(F.query(F.collection(db,'writingSessions'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
-  async getPost(id) { const s = await F.getDoc(F.doc(db, 'posts', id)); return s.exists() ? norm(s) : null; },
-  async getPostBySlug(slug) {
+  // light: the record only (a list of titles), without the read for the text.
+  async getPost(id, {light = false} = {}) { const s = await F.getDoc(F.doc(db, 'posts', id)); const p = s.exists() ? norm(s) : null; return light ? p : withBody(p); },
+  async getPostBySlug(slug) { return withBody(await this.findPostBySlug(slug)); },
+  async findPostBySlug(slug) {
     const col = F.collection(db, 'posts'), bySlug = F.where('slug', '==', slug);
     const staff = user && role === 'admin';
     if (user && !staff) {
@@ -348,7 +358,7 @@ export const firebase = {
   },
   async savePost(post, u) {
     const id = post.id || newId();
-    const existing = post.id ? await this.getPost(id).catch(e => { if (e.code === 'permission-denied') return null; throw e; }) : null;   // a fresh id reads as missing
+    const existing = post.id ? await this.getPost(id, {light: true}).catch(e => { if (e.code === 'permission-denied') return null; throw e; }) : null;   // a fresh id reads as missing
     const module = await this.getModule(post.moduleId || existing?.moduleId);
     if (!module) throw Error('Choose a module before saving.');
     if (!module.blogId) throw Error('This module is not attached to a blog yet. Ask your instructor.');
@@ -356,18 +366,47 @@ export const firebase = {
     // Every post is stamped with its module's blog and academic year; the rules check the blog.
     const doc = {...(existing || {createdAt: now, authorId: u.uid, featured: false}), ...post, moduleId: module.id, blogId: module.blogId, updatedAt: now};
     delete doc.id;
+    // The text goes to its own record (withBody). A status change from a list passes no body: the
+    // text stays as it is, and a post from before the split moves out of the record on this save.
+    const body = typeof post.body === 'string' ? post.body : typeof existing?.body === 'string' ? existing.body : existing ? null : '';
+    delete doc.body;
     doc.authorName = existing && existing.authorId !== u.uid ? existing.authorName : (u.penName || 'student');
     // The slug follows the title while the post is a draft and freezes once published (stable URL).
     doc.slug = existing?.publishedAt ? existing.slug : slugify(doc.title);
     const publishing = doc.status === 'published' && existing?.status !== 'published';
-    if (!existing || existing.slug !== doc.slug || publishing) { const clash = await this.getPostBySlug(doc.slug); if (clash && clash.id !== id) doc.slug += '-' + id.slice(0, 4); }
-    doc.wordCount = wordCount(doc.body); doc.excerpt = String(doc.excerpt || '').trim();   // the subtitle; cards fall back to an excerpt of the body
+    if (!existing || existing.slug !== doc.slug || publishing) { const clash = await this.findPostBySlug(doc.slug); if (clash && clash.id !== id) doc.slug += '-' + id.slice(0, 4); }
+    if (body !== null) { doc.wordCount = wordCount(body); doc.text = plainText(body).slice(0, TEXT_MAX); doc.bodyBytes = body.length; }   // what the cards and the search box use, so the canvas never needs the text itself
+    doc.excerpt = String(doc.excerpt || '').trim();   // the subtitle; cards fall back to an excerpt of the text
     if (doc.status === 'published' && !doc.publishedAt) doc.publishedAt = now;
     if (doc.status !== 'published') doc.publishedAt = existing?.publishedAt || null;
     doc.academicYear = existing?.publishedAt && existing.academicYear ? existing.academicYear : academicYearOf(doc.publishedAt || now);   // the cohort is the year the post went live in
-    if (doc.body.length > 880000) throw Error(`This post is too large to save (about ${Math.round(doc.body.length / 1024)} KB; the limit is 880 KB). Inline images count towards it: remove or shrink one.`);
-    await F.setDoc(F.doc(db, 'posts', id), doc);
-    notify(); return {id, ...doc};
+    if (body !== null && body.length > 880000) throw Error(`This post is too large to save (about ${Math.round(body.length / 1024)} KB; the limit is 880 KB). Inline images count towards it: remove or shrink one.`);
+    const detail = JSON.stringify(doc).length;   // the record without the text: the card image is nearly all of it, and a record may not pass 1 MiB
+    if (detail > 900000) throw Error(`The featured image is too large to save with the post (about ${Math.round(detail / 1024)} KB; the limit is 900 KB). Choose a smaller image.`);
+    const batch = F.writeBatch(db); batch.set(F.doc(db, 'posts', id), doc); if (body !== null) batch.set(bodyRef(id), {body}); await batch.commit();
+    notify(); return {id, ...doc, ...(body !== null ? {body} : {})};
+  },
+  // What the blog holds, in bytes, by kind: the admin's storage line, across every module and
+  // instructor. JSON length stands in for Firestore's stored size (close enough; the free plan
+  // allows 1 GiB). One read per record, so it is measured only when that page is opened.
+  async storageUsage() {
+    if (role !== 'admin') throw Error('Admin access required.');
+    const all = async name => (await F.getDocs(F.collection(db, name))).docs.map(d => d.data());
+    const size = rows => rows.reduce((s, d) => s + JSON.stringify(d).length + 64, 0);
+    const [posts, comments, sessions, history, reviews] = await Promise.all(['posts', 'comments', 'writingSessions', 'writingHistory', 'aiReviews'].map(all));
+    const bodies = posts.reduce((s, p) => s + (typeof p.body === 'string' ? 0 : p.bodyBytes || 0), 0);   // text in its own record; an unsplit post's text is in its record already
+    return {count: posts.length, inline: posts.filter(p => typeof p.body === 'string').length, posts: size(posts) + bodies, images: posts.reduce((s, p) => s + (p.featuredImage || '').length, 0), comments: size(comments), writing: size(sessions) + size(history) + size(reviews)};
+  },
+  // Moves the text of posts saved before the split out of their records (withBody), for the posts
+  // the account may edit. Resolves to how many moved and how many could not.
+  async slimPosts() {
+    const rows = (await this.listAllPosts()).filter(p => typeof p.body === 'string');
+    let done = 0, failed = 0;
+    for (const {id, body, ...rest} of rows) {
+      try { const b = F.writeBatch(db); b.set(F.doc(db, 'posts', id), {...rest, wordCount: rest.wordCount ?? wordCount(body), text: plainText(body).slice(0, TEXT_MAX), bodyBytes: body.length}); b.set(bodyRef(id), {body}); await b.commit(); done++; }
+      catch (e) { console.warn('slimPosts', id, e); failed++; }
+    }
+    notify(); return {done, failed};
   },
   async deletePost(id) { await removePost(id); notify(); },
   // Several posts in one go (the canvas's select mode), one refresh at the end. Resolves to the posts

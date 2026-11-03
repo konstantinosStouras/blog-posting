@@ -34,6 +34,7 @@ beforeEach(async()=>{
    'moduleInvites/student-expired':{moduleId:'one',code:'rome',createdBy:'teacher-one',createdAt:time,expiresAt:time-1000,revoked:false},
    'registrationCodes/madrid':{kind:'student',inviteId:'student-valid',moduleId:'one',code:'madrid',expiresAt:time+86400000,revoked:false},
    'posts/draft':post(),'posts/published':post('one','student','published'),'posts/other-draft':post('two','other','draft','ops'),'posts/peer-published':post('three','peer','published'),
+   'posts/published/content/body':{body:'<p>Test content</p>'},'posts/draft/content/body':{body:'<p>Test content</p>'},
    'comments/comment':comment()
   }))b.set(doc(d,path),data);
   await b.commit();
@@ -415,5 +416,21 @@ test('feedback: anyone submits one bounded message with attachments in a batch; 
  await assertFails(updateDoc(doc(admin,'feedback/anon'),{text:'rewritten'}));
  await assertFails(updateDoc(doc(admin,'feedback/anon/attachments/0'),{dataUrl:'data:image/jpeg;base64,BBBB'}));
  const del=writeBatch(admin);del.delete(doc(admin,'feedback/anon/attachments/0'));del.delete(doc(admin,'feedback/anon/attachments/1'));del.delete(doc(admin,'feedback/anon'));
+ await assertSucceeds(del.commit());
+});
+test('a post’s text lives under posts/{id}/content/body and follows the post’s own access',async()=>{
+ const d=db('student','student@ucdconnect.ie');
+ await assertSucceeds(getDoc(doc(d,'posts/published/content/body')));
+ await assertSucceeds(getDoc(doc(d,'posts/draft/content/body')));   // the author's own draft
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'posts/published/content/body')));
+ await assertFails(getDoc(doc(db('peer','peer@ucd.ie'),'posts/draft/content/body')));   // another student's draft
+ const split=(()=>{const p=post();delete p.body;return {...p,text:'Test content',bodyBytes:19};})();   // the record without its text, as the app now saves it
+ const b=writeBatch(d);b.set(doc(d,'posts/split'),split);b.set(doc(d,'posts/split/content/body'),{body:'<p>Test content</p>'});
+ await assertSucceeds(b.commit());
+ await assertFails(setDoc(doc(d,'posts/split/content/body'),{body:'<p>x</p>',extra:1}));
+ await assertFails(setDoc(doc(d,'posts/split/content/notes'),{body:'<p>x</p>'}));
+ await assertFails(setDoc(doc(d,'posts/other-draft/content/body'),{body:'<p>x</p>'}));
+ await assertSucceeds(setDoc(doc(db('teacher-one','teacher-one@ucd.ie'),'posts/published/content/body'),{body:'<p>Edited by staff</p>'}));
+ const del=writeBatch(d);del.delete(doc(d,'posts/split/content/body'));del.delete(doc(d,'posts/split'));
  await assertSucceeds(del.commit());
 });

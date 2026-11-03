@@ -12,7 +12,7 @@ import {startWritingTimer} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
-import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl, orgList, orgPhrase} from './util.js';
+import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl, orgList, orgPhrase, fmtBytes} from './util.js';
 import {openShare, printPost} from './share.js';
 import {replyRulesOf, INDUSTRIES, MAX_INDUSTRIES, industryName} from './seed.js';
 
@@ -400,6 +400,8 @@ function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
 document.addEventListener('click', e => { const pop = document.getElementById('info-pop'); if (pop && !pop.hidden && !e.target.closest('.info-wrap')) { pop.hidden = true; document.getElementById('post-info')?.setAttribute('aria-expanded', 'false'); } });
 // Top bar: ‹ back · Saved chip … Preview · Continue. Toolbar. A centred column with
 // Title, subtitle, byline and the text. Drafts autosave two seconds after a change.
+// The featured image is a card: the canvas thumbnail and the share sheet, never the post itself.
+const FEATURED_MAX = 800;
 // Continue opens the details step (featured image, category, organisation(s), industries,
 // tags, word target, checklist) whose button is Publish: every one of those is needed
 // before a post goes live; Preview shows the post as readers
@@ -504,7 +506,7 @@ async function editorView(id, moduleId) {
   $('industry-chips').onclick = e => { const b = e.target.closest('[data-drop-industry]'); if (!b) return; draft.industries = draft.industries.filter(s => s !== b.dataset.dropIndustry); touched(); drawIndustries(); };
   $('tags').onchange = e => { const seen = new Set(); draft.tags = e.target.value.split(/[,;]/).map(t => t.trim()).filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 12); e.target.value = draft.tags.join(', '); touched(); };
   $('pick-image').onclick = () => $('image-file').click();
-  $('image-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { draft.featuredImage = await shrinkImage(f, 1400); $('thumb').src = draft.featuredImage; $('thumb').hidden = false; $('remove-image').hidden = false; touched(); } catch (err) { toast(err.message, 'error'); } };
+  $('image-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { draft.featuredImage = await shrinkImage(f, FEATURED_MAX); $('thumb').src = draft.featuredImage; $('thumb').hidden = false; $('remove-image').hidden = false; touched(); } catch (err) { toast(err.message, 'error'); } };
   $('remove-image').onclick = () => { draft.featuredImage = ''; $('thumb').hidden = true; $('remove-image').hidden = true; touched(); };
   $('continue').onclick = $('details').onclick = () => { updateMeter(); $('status-line').textContent = ''; $('sheet').showModal(); };
   const settle = async () => { clearTimeout(saveTimer); while (saving) await new Promise(r => setTimeout(r, 100)); };
@@ -558,6 +560,7 @@ async function editorView(id, moduleId) {
     saving = true; chip('saving', 'Saving…');
     const rev = revision; let ok = false;
     try {
+      if ((draft.featuredImage || '').length > 160000) { try { draft.featuredImage = await shrinkImage(draft.featuredImage, FEATURED_MAX); if ($('thumb')) $('thumb').src = draft.featuredImage; } catch {} }   // a full-size image from before the card-only change shrinks on its next save
       const saved = await store.savePost({...draft, id: p.id, status, title: draft.title.trim() || 'Untitled draft', excerpt: (draft.excerpt || '').trim()}, u);
       p = saved; Object.assign(draft, {id: saved.id, slug: saved.slug, status: saved.status, publishedAt: saved.publishedAt, updatedAt: saved.updatedAt, blogId: saved.blogId, academicYear: saved.academicYear}); if (revision === rev) dirty = false; ok = true;
       chip(status === 'published' ? 'published' : 'saved', status === 'published' ? 'Published' : status === 'pending' ? 'Submitted' : 'Saved');
@@ -643,11 +646,11 @@ async function profileView() {
 async function bookmarksSection(el, u) {
   let picked = '';   // a person's uid, or '' for everyone
   const [posts, comments] = await Promise.all([
-    Promise.all((u.bookmarkedPosts || []).map(id => store.getPost(id).catch(() => null))).then(rows => rows.filter(p => p && p.status === 'published')),
+    Promise.all((u.bookmarkedPosts || []).map(id => store.getPost(id, {light: true}).catch(() => null))).then(rows => rows.filter(p => p && p.status === 'published')),
     Promise.all((u.bookmarkedComments || []).map(id => store.getComment(id).catch(() => null))).then(rows => rows.filter(Boolean)),
   ]);
   const postsOf = Object.fromEntries(posts.map(p => [p.id, p]));
-  await Promise.all([...new Set(comments.map(c => c.postId))].filter(id => !postsOf[id]).map(async id => { postsOf[id] = await store.getPost(id).catch(() => null); }));
+  await Promise.all([...new Set(comments.map(c => c.postId))].filter(id => !postsOf[id]).map(async id => { postsOf[id] = await store.getPost(id, {light: true}).catch(() => null); }));
   const data = {posts, comments: comments.filter(c => postsOf[c.postId]?.status === 'published')};
   const count = s => [s.posts ? `${s.posts} post${s.posts === 1 ? '' : 's'}` : '', s.comments ? `${s.comments} comment${s.comments === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ');
   const draw = () => {
@@ -699,7 +702,7 @@ async function lecturer(tab = 'posts', query = '') {
   const real = uid => { const x = who[uid]; return x ? `${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || '—')}${x.studentId ? ` <span class="muted">${esc(x.studentId)}</span>` : ''}` : '<span class="muted">unknown</span>'; };
   const pending = posts.filter(p => p.status === 'pending');
   const tabs = `<nav class="tabs" aria-label="Instructor area"><a href="/review/posts${qs({})}" class="${tab === 'posts' ? 'active' : ''}">All posts (${posts.length})</a><a href="/review/queue${qs({})}" class="${tab === 'queue' ? 'active' : ''}">Review queue (${pending.length})</a><a href="/review/comments${qs({})}" class="${tab === 'comments' ? 'active' : ''}">Comments</a><a href="/review/roster${qs({})}" class="${tab === 'roster' ? 'active' : ''}">Roster${liveRoster ? '' : ` (${users.length})`}</a></nav>`;
-  const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + (wordCount(p.body)), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
+  const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + (p.wordCount ?? wordCount(p.body || '')), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
   // Posts per module and academic year, for the whole scope (before the year filter).
   const cells = groupBy(scope, p => (p.moduleId || '?') + '|' + (p.academicYear || '—'));
   const summaryYears = [...new Set(scope.map(p => p.academicYear || '—'))].sort().reverse();
@@ -709,7 +712,7 @@ async function lecturer(tab = 'posts', query = '') {
   const row = p => { const m = modOf(p.moduleId); return `<tr><td><a href="${p.status === 'published' ? postPath(p) : '/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b><br><span class="small">${real(p.authorId)}</span></td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${wordCount(p.body)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
     <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ''}${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`; };
   const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name / student</th><th>Module · year</th><th>Status</th><th>Words</th><th>Category</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
-  if (tab === 'posts') body = summary + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
+  if (tab === 'posts') body = summary + (u.role === 'admin' ? '<div id="storage" class="storage muted">Measuring what the blog stores…</div>' : '') + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
   if (tab === 'queue') body = '<p class="muted">Posts submitted for review. Approval is switched on per module in its settings.</p>' + table(pending);
   if (tab === 'comments') { const cs = (await store.recentComments(500)).filter(c=>posts.some(p=>p.id===c.postId)); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
   if (tab === 'roster' && !liveRoster && blogId && !moduleId && canRoster) { const lists = await Promise.all(teachingModules.filter(m => m.blogId === blogId && (u.role === 'admin' || (u.managedModuleIds || []).includes(m.id))).map(m => store.listUsers(m.id))); users = [...new Map(lists.flat().map(x => [x.uid, x])).values()]; }
@@ -728,6 +731,7 @@ async function lecturer(tab = 'posts', query = '') {
     await renderPeople(area, {moduleId, admin: false, embedded: true, moduleFilter: false}); return;
   }
   if (tab === 'roster') makeTablesSortable($app);
+  if (u.role === 'admin' && tab === 'posts') showStorage($app.querySelector('#storage'));
   $app.querySelector('#export-csv')?.addEventListener('click', () => {
     const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
     const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Category', 'Industries', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, publicUrl(postPath(p)), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, wordCount(p.body), catName(p.category, p), (p.industries || []).map(industryName).join('; '), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
@@ -743,6 +747,27 @@ async function lecturer(tab = 'posts', query = '') {
       toast('Updated.'); lecturer(tab, query);
     } catch (err) { toast(err.message, 'error'); }
   };
+}
+
+// What the blog holds in Firestore, across every module and instructor, against the free
+// plan's 1 GiB: a line under the staff stats, for the admin. Measured on each visit of the
+// posts tab (one read per record). Posts from before the text split are offered a slimming.
+const GIB = 1073741824;
+async function showStorage(el) {
+  if (!el) return;
+  try {
+    const s = await store.storageUsage();
+    const total = s.posts + s.comments + s.writing, pct = total / GIB * 100;
+    el.classList.remove('muted');
+    el.innerHTML = `<b>${fmtBytes(total)}</b> stored · <b>${pct < 0.1 ? 'under 0.1' : pct.toFixed(1)}%</b> of the free 1 GiB · posts ${fmtBytes(s.posts)} (card images ${fmtBytes(s.images)}) · comments ${fmtBytes(s.comments)} · writing records ${fmtBytes(s.writing)}
+      <span class="muted">${s.count} post${s.count === 1 ? '' : 's'} across all modules and instructors, measured just now.</span>${s.inline ? ` <span class="warn">${s.inline} post${s.inline === 1 ? ' still keeps its' : 's still keep their'} text inside the post record, so every canvas load downloads it.</span> <button type="button" class="linkish" id="slim-posts">Slim ${s.inline === 1 ? 'it' : 'them'}</button>` : ''}`;
+    const slim = el.querySelector('#slim-posts');
+    if (slim) slim.onclick = async () => {
+      slim.disabled = true; slim.textContent = 'Slimming…';
+      try { const r = await store.slimPosts(); toast(`${r.done} post${r.done === 1 ? '' : 's'} slimmed${r.failed ? `, ${r.failed} could not be` : ''}.`, r.failed ? 'error' : undefined); showStorage(el); }
+      catch (err) { toast(err.message, 'error'); slim.disabled = false; slim.textContent = 'Slim them'; }
+    };
+  } catch (err) { el.textContent = 'Storage could not be measured: ' + err.message; }
 }
 
 // ---------- admin area ----------

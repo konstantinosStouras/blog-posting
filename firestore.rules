@@ -16,6 +16,10 @@ service cloud.firestore {
     // post as it was before the batch that removes it).
     function postStaff(id) { let p = get(/databases/$(database)/documents/posts/$(id)).data; return staffOf(p.moduleId) || blogStaff(p.get('blogId','')); }
     function blogStaff(id) { return isAdmin() || (verified() && hasRole('lecturer') && blogExists(id) && request.auth.uid in get(blogPath(id)).data.teacherIds); }
+    // A post's text sits in posts/{id}/content/body, apart from the card fields (backend-firebase.js
+    // withBody): these say who may read or write a post, and so its text.
+    function postReadable(p) { return p.status == 'published' || own(p.authorId) || staffOf(p.moduleId) || blogStaff(p.get('blogId','')); }
+    function postWritable(p) { return staffOf(p.moduleId) || blogStaff(p.get('blogId','')) || (own(p.authorId) && memberOf(p.moduleId) && openSubmissions(p.moduleId)); }
     function blogMember(id) { return signedIn() && id is string && exists(/databases/$(database)/documents/blogs/$(id)/members/$(request.auth.uid)); }
     function moduleBlog(id) { return get(modulePath(id)).data.get('blogId', ''); }
     function own(uid) { return signedIn() && request.auth.uid == uid; }
@@ -220,10 +224,11 @@ service cloud.firestore {
     }
     function postShape() {
       let d = request.resource.data;
-      return d.keys().hasOnly(['title','slug','body','excerpt','category','organisation','industries','tags','featuredImage','status','featured','authorId','authorName','wordCount','createdAt','updatedAt','publishedAt','reviewNote','moduleId','blogId','academicYear'])
+      return d.keys().hasOnly(['title','slug','body','text','bodyBytes','excerpt','category','organisation','industries','tags','featuredImage','status','featured','authorId','authorName','wordCount','createdAt','updatedAt','publishedAt','reviewNote','moduleId','blogId','academicYear'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 200
         && d.slug is string && d.slug.size() > 0 && d.slug.size() <= 120
-        && d.body is string && d.body.size() <= 900000
+        && (!d.keys().hasAny(['body']) || (d.body is string && d.body.size() <= 900000))   // posts from before the text split still carry it
+        && str('text',8000) && d.get('bodyBytes',0) is number
         && str('excerpt',400) && str('category',80) && str('organisation',160) && str('authorName',60) && str('reviewNote',2000)
         && str('featuredImage',800000) && d.get('tags',[]) is list && d.get('tags',[]).size() <= 12
         && d.get('industries',[]) is list && d.get('industries',[]).size() <= 5
@@ -253,6 +258,15 @@ service cloud.firestore {
             && request.resource.data.get('featured',false) == resource.data.get('featured',false)
             && (request.resource.data.status != 'published' || !approvalRequired(resource.data.moduleId))));
       allow delete: if staffOf(resource.data.moduleId) || blogStaff(resource.data.get('blogId','')) || (verified() && own(resource.data.authorId) && resource.data.status != 'published');
+      // The post's text, one record named body, read and written with the post it belongs to. A new
+      // post and its text arrive in one batch, so the write looks at the post as it will then be.
+      match /content/{part} {
+        allow read: if signedIn() && postReadable(get(/databases/$(database)/documents/posts/$(id)).data);
+        allow create, update: if verified() && part == 'body'
+          && request.resource.data.keys().hasOnly(['body']) && request.resource.data.body is string && request.resource.data.body.size() <= 900000
+          && postWritable(getAfter(/databases/$(database)/documents/posts/$(id)).data);
+        allow delete: if postStaff(id) || (verified() && own(get(/databases/$(database)/documents/posts/$(id)).data.authorId) && get(/databases/$(database)/documents/posts/$(id)).data.status != 'published');
+      }
       // Poll votes: one document per poll and account; counts are changeable.
       match /votes/{voteId} {
         allow read: if signedIn();
