@@ -156,8 +156,9 @@ service cloud.firestore {
     }
     function moduleShape() {
       let d = request.resource.data;
-      return d.keys().hasOnly(['title','code','description','teacherName','teacherIds','createdBy','createdAt','updatedAt','submissionsOpen','requireApproval','blogId','academicYear','deadline','brightspaceUrl'])
+      return d.keys().hasOnly(['title','code','description','teacherName','teacherIds','createdBy','createdAt','updatedAt','submissionsOpen','requireApproval','blogId','academicYear','deadline','brightspaceUrl','peerReview','peerDeadline'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 160
+        && str('peerDeadline',20) && (!('peerReview' in d) || d.peerReview is bool)
         && str('code',40) && str('description',1200) && str('teacherName',200)
         && blogExists(d.blogId) && str('academicYear',20) && str('deadline',20) && str('brightspaceUrl',300)
         && d.teacherIds is list && d.teacherIds.size() > 0 && d.teacherIds.size() <= 20
@@ -169,10 +170,12 @@ service cloud.firestore {
       // A module may only write on a blog its instructor owns (or any blog, for the admin).
       allow create: if moduleShape() && moduleId.matches('^[a-z0-9][a-z0-9-]{1,79}$')
         && request.resource.data.createdBy == request.auth.uid && blogStaff(request.resource.data.blogId)
-        && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid]));
+        && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid] && request.resource.data.get('peerReview',false) == false));
+      // Peer review (the option and its deadline) is the admin's alone: another instructor's save leaves both as they are.
       allow update: if moduleShape() && staffOf(moduleId) && blogStaff(request.resource.data.blogId)
         && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
-        && (isAdmin() || request.resource.data.teacherIds == resource.data.teacherIds);
+        && (isAdmin() || (request.resource.data.teacherIds == resource.data.teacherIds
+          && request.resource.data.get('peerReview',false) == resource.data.get('peerReview',false) && request.resource.data.get('peerDeadline','') == resource.data.get('peerDeadline','')));
       allow delete: if false;
       match /members/{uid} {
         allow read: if own(uid) || staffOf(moduleId);
@@ -395,8 +398,8 @@ service cloud.firestore {
     match /peerRounds/{moduleId} {
       allow read: if isAdmin() || memberOf(moduleId);
       allow create, update: if isAdmin() && request.resource.data.moduleId == moduleId && moduleExists(moduleId)
-        && request.resource.data.keys().hasOnly(['moduleId','blogId','status','perStudent','seed','deadline','assignedAt','assignedBy','openedAt','closedAt','releasedAt','updatedAt','updatedBy'])
-        && request.resource.data.status in ['open','closed'] && str('blogId',100) && str('deadline',10) && str('seed',40) && request.resource.data.get('perStudent',4) is number;
+        && request.resource.data.keys().hasOnly(['moduleId','blogId','status','perStudent','seed','academicYear','assignedAt','assignedBy','openedAt','closedAt','releasedAt','updatedAt','updatedBy'])
+        && request.resource.data.status in ['open','closed'] && str('blogId',100) && str('academicYear',20) && str('seed',40) && request.resource.data.get('perStudent',4) is number;
       allow delete: if isAdmin();
     }
     function peerReviewShape() {
@@ -416,15 +419,15 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.authorId == request.resource.data.authorId
         && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.status == 'published'
         && request.resource.data.get('grade',null) == null && request.resource.data.get('submittedAt',null) == null;
-      // The reviewer writes the grade (1 to 10) and the assessment (a paragraph) while the round is open; the admin anything within the shape.
+      // The reviewer writes the grade (a whole number from 1 to 10) and the assessment (any length) while the round is open; the admin anything within the shape.
       allow update: if peerReviewShape()
         && request.resource.data.moduleId == resource.data.moduleId && request.resource.data.postId == resource.data.postId
         && request.resource.data.reviewerUid == resource.data.reviewerUid && request.resource.data.authorId == resource.data.authorId
         && (isAdmin()
           || (verified() && own(resource.data.reviewerUid) && peerRound(resource.data.moduleId).status == 'open'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['grade','assessment','submittedAt','updatedAt'])
-            && request.resource.data.grade is number && request.resource.data.grade >= 1 && request.resource.data.grade <= 10
-            && request.resource.data.assessment is string && request.resource.data.assessment.size() >= 200
+            && request.resource.data.grade is int && request.resource.data.grade >= 1 && request.resource.data.grade <= 10
+            && request.resource.data.assessment is string
             && request.resource.data.submittedAt is number));
       allow delete: if isAdmin();
     }

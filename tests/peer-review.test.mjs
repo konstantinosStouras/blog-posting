@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededShuffle, validateReview, roundOpen, peerPostRows, peerReviewerRows, summaryFor, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, PER_STUDENT, reviewId} from '../peer-review-model.js';
+import {assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededShuffle, validateReview, roundOpen, peerPostRows, peerReviewerRows, summaryFor, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, PER_STUDENT, reviewId, peerCohort} from '../peer-review-model.js';
 
 const posts = n => Array.from({length: n}, (_, i) => ({id: 'p' + i, authorId: 'u' + i, authorName: 'pen-' + i, title: 'Post ' + i, status: 'published', publishedAt: 1000 + i, body: '<p>' + 'Analysis of the organisation. '.repeat(30) + '</p>'}));
 
@@ -66,19 +66,38 @@ test('the check reports self-reviews, duplicates and short counts', () => {
   assert.ok(c.problems.some(p => /Reviewer u1 has 1 post instead of 2/.test(p)));
 });
 
-test('a submission needs a rating from 1 to 10 in halves and at least fifty words', () => {
+test('a submission needs a whole-number rating from 1 to 10; the feedback has no minimum length', () => {
   const text = 'word '.repeat(60);
-  assert.deepEqual(validateReview({grade: '7.5', assessment: text}), {grade: 7.5, assessment: text.trim()});
+  assert.deepEqual(validateReview({grade: '7', assessment: text}), {grade: 7, assessment: text.trim()});
+  assert.deepEqual(validateReview({grade: 8, assessment: ''}), {grade: 8, assessment: ''});
   assert.throws(() => validateReview({grade: 0, assessment: text}), /from 1 to 10/);
-  assert.throws(() => validateReview({grade: 7.3, assessment: text}), /halves/);
-  assert.throws(() => validateReview({grade: 8, assessment: 'Too short.'}), /at least 50 words/);
-  assert.throws(() => validateReview({grade: 8, assessment: 'x'.repeat(4001) + ' ' + 'w '.repeat(60)}), /under 4000/);
+  assert.throws(() => validateReview({grade: 7.5, assessment: text}), /whole numbers/);
+  assert.throws(() => validateReview({grade: 8, assessment: 'x'.repeat(4001)}), /under 4000/);
   assert.equal(roundOpen({status: 'open'}), true);
   assert.equal(roundOpen({status: 'closed'}), false);
-  assert.equal(roundOpen({status: 'open', deadline: '2000-01-01'}), false);
-  assert.equal(roundOpen({status: 'open', deadline: '2999-01-01'}), true);
+  assert.equal(roundOpen({status: 'open'}, {peerDeadline: '2000-01-01'}), false);
+  assert.equal(roundOpen({status: 'open'}, {peerDeadline: '2999-01-01'}), true);
+  assert.equal(roundOpen({status: 'open', deadline: '2000-01-01'}), true);   // the deadline is the module's, not the round's
   assert.equal(roundOpen(null), false);
   assert.equal(reviewId('m', 'p', 'u'), 'm_p_u');
+});
+
+test('a round covers one academic year: its posts, and its students with or without a post', () => {
+  const sep26 = Date.UTC(2026, 8, 15), sep25 = Date.UTC(2025, 8, 15);
+  const posts = [
+    {id: 'new1', authorId: 'n1', status: 'published', academicYear: '2026/27', publishedAt: sep26 + 1},
+    {id: 'new2', authorId: 'n2', status: 'published', publishedAt: sep26 + 2},   // no stamp: the year of publication counts
+    {id: 'old1', authorId: 'o1', status: 'published', academicYear: '2025/26', publishedAt: sep25},
+    {id: 'draft', authorId: 'n3', status: 'draft', academicYear: '2026/27'},
+  ];
+  const students = [{uid: 'n1', joinedAt: sep26}, {uid: 'n2', joinedAt: sep26}, {uid: 'n3', joinedAt: sep26 + 5}, {uid: 'o1', joinedAt: sep25}, {uid: 'o2', joinedAt: sep25}];
+  const c = peerCohort({posts, students, year: '2026/27'});
+  assert.equal(c.year, '2026/27');
+  assert.deepEqual(c.posts.map(p => p.id).sort(), ['new1', 'new2']);
+  assert.deepEqual(c.authors.sort(), ['n1', 'n2']);
+  assert.deepEqual(c.extras, ['n3']);   // joined this year, no published post: reviews all the same; last year's students do not
+  const last = peerCohort({posts, students, year: '2025/26'});
+  assert.deepEqual(last.posts.map(p => p.id), ['old1']); assert.deepEqual(last.extras, ['o2']);
 });
 
 const reviews = [

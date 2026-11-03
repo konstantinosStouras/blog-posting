@@ -93,13 +93,13 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
   await setDoc(doc(d,'modules/one/members/other'),{...member('other'),email:'other@ucd.ie',contactEmail:'other@ucd.ie'});
   await setDoc(doc(d,'posts/other-published'),post('one','other','published'));
   await setDoc(doc(d,'posts/other-published/content/body'),{body:'<p>Other content</p>'});
-  await setDoc(doc(d,'peerRounds/one'),{moduleId:'one',blogId:'pm',status:'open',perStudent:4,seed:'abc',deadline:'',assignedAt:time,assignedBy:'admin',updatedAt:time,updatedBy:'admin'});
+  await setDoc(doc(d,'peerRounds/one'),{moduleId:'one',blogId:'pm',status:'open',perStudent:4,seed:'abc',academicYear:'2026/27',assignedAt:time,assignedBy:'admin',updatedAt:time,updatedBy:'admin'});
  });
  const admin=db('admin','kstouras@gmail.com'),student=db('student','student@ucdconnect.ie'),author=db('other','other@ucd.ie'),teacher=db('teacher-one');
  const row={moduleId:'one',blogId:'pm',postId:'other-published',authorId:'other',reviewerUid:'student',reviewerName:'quiet-heron-482',order:1,assignedAt:time,grade:null,assessment:'',submittedAt:null,updatedAt:time};
  const id='one_other-published_student';
  // the round: the admin writes it; the module's students read it; other instructors do not
- await assertSucceeds(setDoc(doc(admin,'peerRounds/one'),{moduleId:'one',blogId:'pm',status:'open',perStudent:4,seed:'abc',deadline:'2026-12-01',updatedAt:time,updatedBy:'admin'}));
+ await assertSucceeds(setDoc(doc(admin,'peerRounds/one'),{moduleId:'one',blogId:'pm',status:'open',perStudent:4,seed:'abc',academicYear:'2026/27',updatedAt:time,updatedBy:'admin'}));
  await assertSucceeds(getDoc(doc(student,'peerRounds/one')));
  await assertFails(getDoc(doc(teacher,'peerRounds/one')));
  await assertFails(setDoc(doc(teacher,'peerRounds/one'),{moduleId:'one',status:'open',updatedAt:time}));
@@ -120,15 +120,15 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await assertFails(getDoc(doc(author,'peerReviews/'+id)));
  await assertFails(getDoc(doc(teacher,'peerReviews/'+id)));
  await assertFails(getDocs(query(collection(db('peer','peer@ucd.ie'),'peerReviews'),where('moduleId','==','one'))));
- // submitting: the reviewer, a grade from 1 to 10 and at least a paragraph, nothing else changed
+ // submitting: the reviewer, a whole-number grade from 1 to 10, feedback of any length, nothing else changed
  const text='This post explains the organisation and its megatrend clearly. '.repeat(5);
  await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:11,assessment:text,submittedAt:time,updatedAt:time}));
  await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:0.5,assessment:text,submittedAt:time,updatedAt:time}));
- await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:'Nice.',submittedAt:time,updatedAt:time}));
+ await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:7.5,assessment:text,submittedAt:time,updatedAt:time}));   // whole numbers only
  await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:text,submittedAt:time,updatedAt:time,postId:'published'}));
  await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:text,submittedAt:time,updatedAt:time,aiScore:10}));
  await assertFails(updateDoc(doc(author,'peerReviews/'+id),{grade:10,assessment:text,submittedAt:time,updatedAt:time}));
- await assertSucceeds(updateDoc(doc(student,'peerReviews/'+id),{grade:7.5,assessment:text,submittedAt:time,updatedAt:time}));
+ await assertSucceeds(updateDoc(doc(student,'peerReviews/'+id),{grade:7,assessment:'Nice.',submittedAt:time,updatedAt:time}));   // no minimum length
  await assertSucceeds(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:text+' Revised.',submittedAt:time+1,updatedAt:time+1}));
  await assertSucceeds(setDoc(doc(admin,'peerReviews/'+id),{aiScore:8,aiNote:'Specific and fair'},{merge:true}));
  await assertSucceeds(setDoc(doc(admin,'peerRounds/one'),{status:'closed',closedAt:time},{merge:true}));
@@ -274,6 +274,8 @@ test('teachers create blogs and modules on their own blogs only; nobody appoints
  await assertFails(setDoc(doc(d,'modules/no-such-blog'),mod('teacher-one','missing')));
  await assertFails(updateDoc(doc(d,'modules/one'),{blogId:'ops'}));
  await assertSucceeds(updateDoc(doc(d,'modules/one'),{academicYear:'2027/28',deadline:'2027-11-30'}));
+ await assertFails(updateDoc(doc(d,'modules/one'),{peerReview:true,peerDeadline:'2027-12-14'}));   // the peer-review option is the admin's alone
+ await assertFails(setDoc(doc(d,'modules/six'),{...mod('teacher-one','pm'),peerReview:true}));
  await assertFails(updateDoc(doc(d,'modules/one'),{teacherIds:['teacher-one','other']}));
  await assertFails(updateDoc(doc(d,'blogs/pm'),{teacherIds:['teacher-one','other']}));
  await assertFails(setDoc(doc(db('student'),'modules/stolen'),mod('student')));
@@ -439,6 +441,7 @@ test('only admin creates invitations and admin retains platform-wide access',asy
  await assertSucceeds(getDocs(collection(d,'profiles')));
  await assertSucceeds(getDocs(collection(d,'posts')));
  await assertSucceeds(updateDoc(doc(d,'modules/two'),{title:'Admin edit'}));
+ await assertSucceeds(updateDoc(doc(d,'modules/two'),{peerReview:true,peerDeadline:'2027-12-14'}));
  await assertSucceeds(updateDoc(doc(d,'blogs/ops'),{title:'Admin edit'}));
 });
 test('students cannot self-enrol without a valid invitation for that exact module',async()=>{

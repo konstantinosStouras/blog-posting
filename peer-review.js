@@ -7,17 +7,17 @@
 import {store} from './store.js';
 import {currentUser} from './auth.js';
 import {navigate, publicUrl} from './router.js';
-import {esc, fmtDate, fmtDateTime, toast, postPath, pageHead} from './util.js';
+import {esc, fmtDate, fmtDateTime, toast, postPath, pageHead, academicYearOf} from './util.js';
 import {PROVIDERS, callProvider} from './ai-providers.js';
 import {DEFAULT_GRADER, htmlToText} from './ai-grading-model.js';
-import {PER_STUDENT, GRADE_MIN, GRADE_MAX, MIN_WORDS, MAX_CHARS, GUIDE_QUESTIONS, GRADE_SCALE, reviewId, newSeed, reviewablePosts, assignPeerReviews, fillGaps, verifyAssignments, validateReview, roundOpen, words, peerPostRows, peerReviewerRows, summaryFor, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, DEFAULT_PEER_PROMPTS, PEER_PLACEHOLDERS, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment} from './peer-review-model.js';
+import {PER_STUDENT, GRADE_MIN, GRADE_MAX, MAX_CHARS, GUIDE_QUESTIONS, GRADE_SCALE, reviewId, newSeed, peerCohort, assignPeerReviews, fillGaps, verifyAssignments, validateReview, roundOpen, words, peerPostRows, peerReviewerRows, summaryFor, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, DEFAULT_PEER_PROMPTS, PEER_PLACEHOLDERS, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment} from './peer-review-model.js';
 import {downloadExcelSheet} from './roster-export.js';
 import {makeTablesSortable} from './sortable-tables.js';
 
 const KEYS = 'ucd-blog.aiKeys', PREFS = 'ucd-blog.aiPrefs';   // the model and keys chosen on the AI grading page
 const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
-const grade = v => v == null || v === '' ? '—' : Number(v).toFixed(1);
-const GRADES = Array.from({length: (GRADE_MAX - GRADE_MIN) * 2 + 1}, (_, i) => GRADE_MIN + i / 2);
+const grade = v => v == null || v === '' ? '—' : Number.isInteger(Number(v)) ? String(Number(v)) : Number(v).toFixed(1);   // a student's whole-number rating reads 8, a mean 7.5
+const GRADES = Array.from({length: GRADE_MAX - GRADE_MIN + 1}, (_, i) => GRADE_MIN + i);   // whole numbers
 
 // ---------- the reviewer's form (a sheet over the post) ----------
 // Opens for one assignment; on save the assignment is written back and `onSaved` redraws.
@@ -30,7 +30,7 @@ function openAssessmentForm({assignment, post, onSaved}) {
     <details class="peer-guide"><summary>Questions to guide your feedback</summary><ol>${GUIDE_QUESTIONS.map(q => `<li>${esc(q)}</li>`).join('')}</ol><p class="muted small">Be polite, fair and professional, and consider how you would feel receiving these comments about your own work. Recognise strengths and offer constructive criticism.</p></details>
     <form class="peer-form">
       <label class="field">Rating from ${GRADE_MIN} to ${GRADE_MAX}<select name="grade" required><option value="">Choose…</option>${GRADES.map(g => `<option value="${g}" ${assignment.grade === g ? 'selected' : ''}>${g}</option>`).join('')}</select></label>
-      <label class="field">Constructive feedback (at least ${MIN_WORDS} words)<textarea name="assessment" rows="9" maxlength="${MAX_CHARS}" required placeholder="What is strong, what you learned, what is missing or doubtful, and how the author could improve the post.">${esc(assignment.assessment || '')}</textarea><p class="hint"><span data-words>${words(assignment.assessment)}</span> words</p></label>
+      <label class="field">Constructive feedback<textarea name="assessment" rows="9" maxlength="${MAX_CHARS}" placeholder="What is strong, what you learned, what is missing or doubtful, and how the author could improve the post.">${esc(assignment.assessment || '')}</textarea><p class="hint"><span data-words>${words(assignment.assessment)}</span> words</p></label>
       <p class="actions"><button type="submit" class="btn primary">${assignment.grade != null ? 'Save changes' : 'Submit assessment'}</button><button type="button" class="btn" data-cancel>Cancel</button></p></form>`;
   document.body.append(dialog);
   const form = dialog.querySelector('form.peer-form'), counter = dialog.querySelector('[data-words]');
@@ -56,9 +56,9 @@ export async function peerSidePanel(p, u) {
     return {html: `<section class="peer-panel released" aria-label="Peer feedback"><h3>Peer feedback</h3><p><b>${grade(s.mean)}</b> / 10 average from ${s.count} classmate${s.count === 1 ? '' : 's'}${s.adjustedMean != null && s.adjustedMean !== s.mean ? ` <span class="muted">(${grade(s.adjustedMean)} adjusted for reviewer leniency)</span>` : ''}</p>${s.feedback ? `<p class="peer-feedback">${esc(s.feedback)}</p>` : ''}${(s.assessments || []).length ? `<details><summary>The ${s.assessments.length} reviews as written</summary>${s.assessments.map(a => `<p class="peer-quote"><b>${grade(a.grade)}</b> / 10 · ${esc(a.assessment)}</p>`).join('')}</details>` : ''}<p class="muted small">Released ${fmtDate(s.releasedAt)}. Only you and your instructor see this.</p></section>`, bind() {}};
   }
   const a = await store.getPeerReview(reviewId(p.moduleId, p.id, u.uid)).catch(() => null); if (!a) return null;
-  const round = await store.getPeerRound(p.moduleId).catch(() => null);
-  const state = {a, round};
-  const html = () => { const open = roundOpen(state.round), done = state.a.grade != null; return `<h3>Your blog assessment</h3>${done ? `<p>You rated this post <b>${grade(state.a.grade)}</b> / 10 <span class="muted small">· ${fmtDateTime(state.a.submittedAt)}</span></p><p class="peer-quote">${esc(state.a.assessment)}</p>` : `<p class="muted">This post is one of the ${PER_STUDENT} assigned to you for assessment${state.round?.deadline ? `, due by ${fmtDate(state.round.deadline)}` : ''}.</p>`}<p class="actions">${open ? `<button type="button" class="btn ${done ? 'small' : 'primary'}" data-peer-assess>${done ? 'Edit assessment' : 'Submit blog assessment'}</button>` : `<span class="muted small">${done ? 'The review round has closed; your assessment is final.' : 'The review round has closed.'}</span>`}<a class="small" href="/peer-review">All your assigned posts</a></p>`; };
+  const [round, module] = await Promise.all([store.getPeerRound(p.moduleId).catch(() => null), store.getModule(p.moduleId).catch(() => null)]);
+  const state = {a, round, module};
+  const html = () => { const open = roundOpen(state.round, state.module), done = state.a.grade != null; return `<h3>Your blog assessment</h3>${done ? `<p>You rated this post <b>${grade(state.a.grade)}</b> / 10 <span class="muted small">· ${fmtDateTime(state.a.submittedAt)}</span></p><p class="peer-quote">${esc(state.a.assessment)}</p>` : `<p class="muted">This post is one of the ${PER_STUDENT} assigned to you for assessment${state.module?.peerDeadline ? `, due by ${fmtDate(state.module.peerDeadline)}` : ''}.</p>`}<p class="actions">${open ? `<button type="button" class="btn ${done ? 'small' : 'primary'}" data-peer-assess>${done ? 'Edit assessment' : 'Submit blog assessment'}</button>` : `<span class="muted small">${done ? 'The review round has closed; your assessment is final.' : 'The review round has closed.'}</span>`}<a class="small" href="/peer-review">All your assigned posts</a></p>`; };
   return {html: `<section class="peer-panel" id="peer-panel" aria-label="Your blog assessment">${html()}</section>`, bind(root) {
     const el = root.querySelector('#peer-panel'); if (!el) return;
     el.onclick = e => { if (e.target.closest('[data-peer-assess]')) openAssessmentForm({assignment: state.a, post: p, onSaved: saved => { state.a = saved || state.a; el.innerHTML = html(); }}); };
@@ -74,9 +74,9 @@ export async function myPeerReviews(target) {
   const [modules, rounds, posts, notes] = await Promise.all([Promise.all(moduleIds.map(id => store.getModule(id))), Promise.all(moduleIds.map(id => store.getPeerRound(id))), Promise.all(mine.map(r => store.getPost(r.postId, {light: true}).catch(() => null))), Promise.all(moduleIds.map(id => store.getMyPeerReviewerNote(id).catch(() => null)))]);
   const postOf = Object.fromEntries(mine.map((r, i) => [r.postId, posts[i]]));
   const section = (moduleId, i) => {
-    const m = modules[i], round = rounds[i], rows = mine.filter(r => r.moduleId === moduleId), done = rows.filter(r => r.grade != null).length, open = roundOpen(round), note = notes[i];
+    const m = modules[i], round = rounds[i], rows = mine.filter(r => r.moduleId === moduleId), done = rows.filter(r => r.grade != null).length, open = roundOpen(round, m), note = notes[i];
     return `<section class="blog-group"><h2 class="group-title">${esc(m ? [m.code, m.title].filter(Boolean).join(' ') : moduleId)}</h2>
-      <p class="muted">${done} of ${rows.length} submitted${round?.deadline ? ` · due by <b>${fmtDate(round.deadline)}</b>` : ''}${open ? '' : ' · <b>the round has closed</b>'}. Read each post, then use <b>Submit blog assessment</b> beside it. Your name is never shown to the author.</p>
+      <p class="muted">${done} of ${rows.length} submitted${m?.peerDeadline ? ` · due by <b>${fmtDate(m.peerDeadline)}</b>` : ''}${open ? '' : ' · <b>the round has closed</b>'}. Read each post, then use <b>Submit blog assessment</b> beside it. Your name is never shown to the author.</p>
       <table class="list"><thead><tr><th>#</th><th>Post</th><th>Your rating</th><th>Submitted</th><th></th></tr></thead><tbody>${rows.map((r, k) => { const p = postOf[r.postId]; return `<tr><td>${k + 1}</td><td>${p ? `<a href="${postPath(p)}">${esc(p.title || 'Untitled')}</a><br><span class="muted small">by ${esc(p.authorName || 'a classmate')}${p.organisation ? ' · ' + esc(p.organisation) : ''}</span>` : '<span class="muted">This post is no longer available.</span>'}</td><td>${r.grade != null ? `<b>${grade(r.grade)}</b> / 10` : '<span class="muted">—</span>'}</td><td>${r.submittedAt ? fmtDateTime(r.submittedAt) : '<span class="muted">Not yet</span>'}</td><td class="actions">${p ? `<a class="btn small ${r.grade == null && open ? 'primary' : ''}" href="${postPath(p)}">${r.grade == null ? (open ? 'Read and assess' : 'Read') : 'Read again'}</a>` : ''}</td></tr>`; }).join('')}</tbody></table>
       ${note?.releasedAt ? `<div class="notice ok"><b>Your reviewing${note.grade ? `: ${esc(note.grade)}` : ''}.</b> ${esc(note.note || '')}</div>` : ''}</section>`;
   };
@@ -85,10 +85,10 @@ export async function myPeerReviews(target) {
     <p class="actions"><a class="btn" href="/my-modules">My modules</a></p>`;
 }
 // A line for a student's module card: "Peer review: 2 of 4 submitted".
-export function peerCardLine(reviews, moduleId) {
-  const rows = reviews.filter(r => r.moduleId === moduleId); if (!rows.length) return '';
+export function peerCardLine(reviews, module) {
+  const rows = reviews.filter(r => r.moduleId === module.id); if (!rows.length) return '';
   const done = rows.filter(r => r.grade != null).length;
-  return ` Peer review: <b>${done} of ${rows.length}</b> assessments submitted. <a href="/peer-review">Your assigned posts</a>.`;
+  return ` Peer review: <b>${done} of ${rows.length}</b> assessments submitted${module.peerDeadline ? `, due by <b>${fmtDate(module.peerDeadline)}</b>` : ''}. <a href="/peer-review">Your assigned posts</a>.`;
 }
 
 // ---------- the admin's control room: /admin/peer?module= ----------
@@ -102,18 +102,19 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
   const picker = `<div class="review-filters"><label class="field">Module<select id="peer-module"><option value="">Choose a module…</option>${modules.map(m => `<option value="${esc(m.id)}" ${m.id === moduleId ? 'selected' : ''}>${esc(label(m))}</option>`).join('')}</select></label></div>`;
   if (!moduleId || !modules.some(m => m.id === moduleId)) {
     const rounds = await Promise.all(modules.map(m => store.getPeerRound(m.id).catch(() => null)));
-    target.innerHTML = `${head}${picker}<table class="list"><thead><tr><th>Module</th><th>Submissions</th><th>Peer review</th><th></th></tr></thead><tbody>${modules.map((m, i) => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.deadline ? ` · deadline ${fmtDate(m.deadline)}` : ''}</td><td>${rounds[i] ? `${rounds[i].status === 'open' ? 'Round open' : 'Round closed'}${rounds[i].deadline ? ` · due ${fmtDate(rounds[i].deadline)}` : ''}` : '<span class="muted">Not started</span>'}</td><td class="actions"><a href="/admin/peer?module=${esc(m.id)}">${rounds[i] ? 'Open' : 'Start'}</a></td></tr>`).join('') || '<tr><td colspan="4">You are not a teacher on any module.</td></tr>'}</tbody></table>`;
+    target.innerHTML = `${head}${picker}<table class="list"><thead><tr><th>Module</th><th>Submissions</th><th>Peer review</th><th></th></tr></thead><tbody>${modules.map((m, i) => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.deadline ? ` · deadline ${fmtDate(m.deadline)}` : ''}</td><td>${!m.peerReview && !rounds[i] ? `<span class="muted">Off</span> · <a href="/modules/edit/${esc(m.id)}">turn on in module settings</a>` : `${rounds[i] ? (rounds[i].status === 'open' ? 'Round open' : 'Round closed') + (rounds[i].academicYear ? ` · ${esc(rounds[i].academicYear)}` : '') : 'On, not started'}${m.peerDeadline ? ` · due ${fmtDate(m.peerDeadline)}` : ''}`}</td><td class="actions"><a href="/admin/peer?module=${esc(m.id)}">${rounds[i] ? 'Open' : 'Start'}</a></td></tr>`).join('') || '<tr><td colspan="4">You are not a teacher on any module.</td></tr>'}</tbody></table>`;
     target.querySelector('#peer-module').onchange = e => navigate('/admin/peer' + (e.target.value ? '?module=' + e.target.value : ''));
     return;
   }
   const module = modules.find(m => m.id === moduleId), blog = blogs.find(b => b.id === module.blogId) || {};
   const [allPosts, members, round, reviews, notes, aiReviews, summaries, promptsSaved, graderSaved] = await Promise.all([store.listAllPosts(), store.listUsers(moduleId), store.getPeerRound(moduleId), store.listPeerReviews(moduleId), store.listPeerReviewerNotes(moduleId), store.listAiReviews(moduleId), store.listPeerSummaries(moduleId), store.getPeerPrompts(), store.getGraderConfig()]);
   const posts = allPosts.filter(p => p.moduleId === moduleId), students = members.filter(m => (m.role || 'student') === 'student' || !m.role), who = new Map(students.map(m => [m.uid, m]));
-  const pool = reviewablePosts(posts), without = students.filter(m => !pool.some(p => p.authorId === m.uid));
+  // One round per academic year: the module is reused, so the draw covers this year's posts and this year's students (those who joined in it) only.
+  const cohort = peerCohort({posts, students, year: round?.academicYear || academicYearOf()}), pool = cohort.posts, without = students.filter(m => cohort.extras.includes(m.uid));
   const prompts = {...DEFAULT_PEER_PROMPTS, ...(promptsSaved || {})}, persona = graderSaved?.persona || DEFAULT_GRADER.persona;
   const postUrl = p => p && p.slug ? publicUrl(postPath(p)) : '';
   const postRows = peerPostRows({reviews, posts, users: students, aiReviews, summaries}), reviewerRows = peerReviewerRows({reviews, posts, users: students, notes});
-  const check = round ? verifyAssignments(reviews.map(r => ({postId: r.postId, authorId: r.authorId, reviewerUid: r.reviewerUid})), {perStudent: round.perStudent || PER_STUDENT, posts}) : null;
+  const check = round ? verifyAssignments(reviews.map(r => ({postId: r.postId, authorId: r.authorId, reviewerUid: r.reviewerUid})), {perStudent: round.perStudent || PER_STUDENT, posts: pool}) : null;
   const providers = {...PROVIDERS, ...(store.mode === 'local' ? {demo: {name: 'Demo (local prototype)'}} : {})}, prefs = {provider: store.mode === 'local' ? 'demo' : 'anthropic', model: '', effort: '', ...read(PREFS, {})}, keys = read(KEYS, {});
   if (!providers[prefs.provider]) prefs.provider = Object.keys(providers)[0];
   const selection = () => ({provider: prefs.provider, name: providers[prefs.provider]?.name || prefs.provider, apiKey: keys[prefs.provider] || '', model: prefs.model || providers[prefs.provider]?.models?.[0]?.id || (prefs.provider === 'demo' ? 'demo' : ''), effort: prefs.effort || providers[prefs.provider]?.defaultEffort || ''});
@@ -121,17 +122,15 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
 
   const roundPanel = () => !round
     ? `<div class="panel"><h3>1. Assign the posts</h3>
-        <p>${students.length} student${students.length === 1 ? '' : 's'} on the roster, <b>${pool.length}</b> with a published post${without.length ? `, ${without.length} without` : ''}. ${module.submissionsOpen !== false ? '<span class="warn">Submissions are still open: close them in the module settings first, so no post changes under its reviewers.</span>' : 'Submissions are closed.'}</p>
+        ${module.peerReview ? '' : `<p class="warn">Peer review is off for this module. Turn it on in <a href="/modules/edit/${esc(moduleId)}">module settings</a> and set the review deadline there.</p>`}
+        <p>Academic year <b>${esc(cohort.year)}</b>: <b>${pool.length}</b> student${pool.length === 1 ? '' : 's'} with a published post${without.length ? `, ${without.length} who joined this year without one (they review too: ${PER_STUDENT} posts each, so a few posts get a fifth review)` : ''}. ${module.peerDeadline ? `Review deadline <b>${fmtDate(module.peerDeadline)}</b>.` : '<span class="warn">No review deadline is set in the module settings.</span>'} ${module.submissionsOpen !== false ? '<span class="warn">Submissions are still open: close them in the module settings first, so no post changes under its reviewers.</span>' : 'Submissions are closed.'}</p>
         <p class="muted small">Each student with a post is placed on a shuffled circle and reviews the next ${PER_STUDENT} posts round it: nobody gets their own, nobody gets one twice, every post gets exactly ${PER_STUDENT} reviewers. The draw is checked row by row before anything is saved.</p>
-        ${without.length ? `<label class="field check"><input type="checkbox" id="peer-extras"> Also give ${PER_STUDENT} posts to the ${without.length} student${without.length === 1 ? '' : 's'} without a published post (a few posts then get a fifth review)</label>` : ''}
-        <label class="field">Review deadline (optional)<input type="date" id="peer-deadline"><p class="hint">Shown to students; submissions close at the end of that day, or when you close the round.</p></label>
-        <p class="actions"><button type="button" class="btn primary" id="peer-assign" ${pool.length < PER_STUDENT + 1 ? 'disabled' : ''}>Assign ${PER_STUDENT} posts to each student</button>${pool.length < PER_STUDENT + 1 ? `<span class="muted small">At least ${PER_STUDENT + 1} published posts are needed.</span>` : ''}</p></div>`
+        <p class="actions"><button type="button" class="btn primary" id="peer-assign" ${!module.peerReview || pool.length < PER_STUDENT + 1 ? 'disabled' : ''}>Assign ${PER_STUDENT} posts to each student</button>${pool.length < PER_STUDENT + 1 ? `<span class="muted small">At least ${PER_STUDENT + 1} published posts are needed.</span>` : ''}</p></div>`
     : `<div class="panel"><h3>1. The round</h3>
-        <p><b>${round.status === 'open' ? 'Open' : 'Closed'}</b>${round.deadline ? ` · due ${fmtDate(round.deadline)}${round.status === 'open' && !roundOpen(round) ? ' <span class="warn">(passed: students can no longer submit; close the round)</span>' : ''}` : ''} · assigned ${fmtDateTime(round.assignedAt)} · ${reviews.length} assignments, ${submitted} submitted (${reviews.length ? Math.round(submitted / reviews.length * 100) : 0}%) · seed <code>${esc(round.seed || '')}</code></p>
+        <p><b>${round.status === 'open' ? 'Open' : 'Closed'}</b>${round.academicYear ? ` · ${esc(round.academicYear)}` : ''}${module.peerDeadline ? ` · due ${fmtDate(module.peerDeadline)}${round.status === 'open' && !roundOpen(round, module) ? ' <span class="warn">(passed: students can no longer submit; close the round)</span>' : ''}` : ' · <span class="warn">no review deadline in the module settings</span>'} · assigned ${fmtDateTime(round.assignedAt)} · ${reviews.length} assignments, ${submitted} submitted (${reviews.length ? Math.round(submitted / reviews.length * 100) : 0}%) · seed <code>${esc(round.seed || '')}</code></p>
         <p class="${check.ok ? 'ok' : 'warn'} small">${check.ok ? `✓ Every one of ${check.reviewers} reviewers has ${round.perStudent || PER_STUDENT} distinct posts of others, and every one of ${check.posts} posts has at least ${round.perStudent || PER_STUDENT} distinct reviewers.` : `${check.problems.length} problem${check.problems.length === 1 ? '' : 's'}: ${esc(check.problems.slice(0, 5).join(' '))}${check.problems.length > 5 ? ' …' : ''}`}</p>
-        <label class="field">Review deadline<input type="date" id="peer-deadline" value="${esc(round.deadline || '')}"></label>
         <p class="actions">${round.status === 'open' ? '<button type="button" class="btn" id="peer-close">Close the round</button>' : '<button type="button" class="btn" id="peer-reopen">Reopen the round</button>'}<button type="button" class="btn" id="peer-fill" ${check.ok && !without.some(m => !reviews.some(r => r.reviewerUid === m.uid)) ? 'disabled' : ''}>Fill the gaps</button><button type="button" class="btn danger" id="peer-reset">Delete the round</button></p>
-        <p class="hint">Fill the gaps assigns reviewers to a post published after the draw and posts to a student who joined after it, leaving existing assignments as they are. Deleting the round removes every assignment, review, note and released summary of this module.</p></div>`;
+        <p class="hint">Fill the gaps assigns reviewers to a post published after the draw and posts to a student who joined after it, leaving existing assignments as they are. Deleting the round removes every assignment, review, note and released summary of this module. The review deadline is set in the <a href="/modules/edit/${esc(moduleId)}">module settings</a>; for a new academic year, delete the old round once its grades are released and assign again.</p></div>`;
   const aiPanel = () => { const s = selection(); return `<div class="panel"><h3>2. AI aggregation</h3>
       <p class="small">Model: <b>${esc(s.name)}</b>${s.model ? ` · ${esc(s.model)}` : ''}${s.effort ? ` · ${esc(s.effort)}` : ''}${s.provider !== 'demo' && !s.apiKey ? ' · <span class="warn">no key saved</span>' : ''}. The model, the key and the grader persona are set on <a href="/admin/grading">AI grading</a>; the persona is reused here.</p>
       <details><summary>Edit the two prompts</summary>
@@ -151,22 +150,22 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
   // ---- the round ----
   if (!round) $('peer-assign').onclick = async () => {
     try {
-      const extras = $('peer-extras')?.checked ? without.map(m => m.uid) : [];
-      const draw = assignPeerReviews({posts, extraReviewers: extras, seed: newSeed()}), check = verifyAssignments(draw.assignments, {posts});
+      if (!module.peerReview) throw Error('Peer review is off for this module: turn it on in the module settings first.');
+      const extras = cohort.extras;
+      const draw = assignPeerReviews({posts: pool, extraReviewers: extras, seed: newSeed()}), check = verifyAssignments(draw.assignments, {posts: pool});
       if (!check.ok) throw Error('The draw failed its own check: ' + check.problems.join(' '));
       if (!confirm(`Assign ${draw.assignments.length} reviews: ${check.reviewers} reviewers × ${PER_STUDENT} posts, ${check.posts} posts reviewed${extras.length ? `, ${draw.extras.length} extra reviewer${draw.extras.length === 1 ? '' : 's'}` : ''}? Every reviewer has ${PER_STUDENT} distinct posts of others and every post has at least ${PER_STUDENT} distinct reviewers.`)) return;
       await store.assignPeerReviews(moduleId, draw.assignments.map(a => ({...a, blogId: module.blogId || '', reviewerName: who.get(a.reviewerUid)?.penName || ''})));
-      await store.savePeerRound(moduleId, {blogId: module.blogId || '', status: 'open', perStudent: PER_STUDENT, seed: draw.seed, deadline: $('peer-deadline').value || '', assignedAt: Date.now(), assignedBy: u.uid});
+      await store.savePeerRound(moduleId, {blogId: module.blogId || '', academicYear: cohort.year, status: 'open', perStudent: PER_STUDENT, seed: draw.seed, assignedAt: Date.now(), assignedBy: u.uid});
       toast('Posts assigned. Students now see “Submit blog assessment” on each of theirs.'); redraw();
     } catch (e) { toast(e.message, 'error'); }
   };
   else {
-    $('peer-deadline').onchange = async e => { try { await store.savePeerRound(moduleId, {deadline: e.target.value || ''}); toast('Deadline saved.'); } catch (err) { toast(err.message, 'error'); } };
     $('peer-close')?.addEventListener('click', async () => { if (!confirm('Close the round? Students can no longer submit or edit assessments.')) return; try { await store.savePeerRound(moduleId, {status: 'closed', closedAt: Date.now()}); redraw(); } catch (e) { toast(e.message, 'error'); } });
     $('peer-reopen')?.addEventListener('click', async () => { try { await store.savePeerRound(moduleId, {status: 'open', openedAt: Date.now()}); redraw(); } catch (e) { toast(e.message, 'error'); } });
     $('peer-fill').onclick = async () => {
       try {
-        const added = fillGaps({assignments: reviews, posts, reviewers: students.map(m => m.uid), perStudent: round.perStudent || PER_STUDENT});
+        const added = fillGaps({assignments: reviews, posts: pool, reviewers: [...cohort.authors, ...cohort.extras], perStudent: round.perStudent || PER_STUDENT});
         if (!added.length) return toast('Nothing to fill: every post and every reviewer is covered.');
         if (!confirm(`Add ${added.length} assignment${added.length === 1 ? '' : 's'}? Existing ones are not touched.`)) return;
         await store.assignPeerReviews(moduleId, added.map(a => ({...a, blogId: module.blogId || '', reviewerName: who.get(a.reviewerUid)?.penName || ''}))); toast('Gaps filled.'); redraw();

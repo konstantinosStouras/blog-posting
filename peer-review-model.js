@@ -13,10 +13,11 @@
 // PER_STUDENT reviews and every reviewer gives exactly PER_STUDENT. The spreadsheet's
 // "uniques = 5" column is verifyAssignments(), run on every row.
 import {htmlToText, fill, clampGrade} from './ai-grading-model.js';
+import {academicYearOf} from './util.js';
 
 export const PER_STUDENT = 4;
-export const GRADE_MIN = 1, GRADE_MAX = 10;          // the guide: "rate your blogs assigned from 1 to 10"
-export const MIN_WORDS = 50, MAX_CHARS = 4000;       // "a short paragraph of constructive feedback"
+export const GRADE_MIN = 1, GRADE_MAX = 10;          // the guide: "rate your blogs assigned from 1 to 10"; whole numbers only
+export const MAX_CHARS = 4000;                       // the feedback: any length up to this, no minimum
 export const reviewId = (moduleId, postId, reviewerUid) => `${moduleId}_${postId}_${reviewerUid}`;
 
 // The guide's questions, shown beside the form.
@@ -50,6 +51,15 @@ export function reviewablePosts(posts) {
   const latest = new Map();
   for (const p of posts) { if (p.status !== 'published' || !p.authorId) continue; const cur = latest.get(p.authorId); if (!cur || (p.publishedAt || 0) > (cur.publishedAt || 0)) latest.set(p.authorId, p); }
   return [...latest.values()];
+}
+// The cohort of a round. A module is reused year after year, so a round covers one academic
+// year: the posts published in it and the students who joined in it. Students of the year
+// without a published post review all the same (it is a separate piece of assessment), as extras.
+export function peerCohort({posts = [], students = [], year = academicYearOf()} = {}) {
+  const pool = reviewablePosts(posts.filter(p => (p.academicYear || academicYearOf(p.publishedAt)) === year));
+  const authors = [...new Set(pool.map(p => p.authorId))];
+  const extras = students.filter(m => !authors.includes(m.uid) && academicYearOf(m.joinedAt) === year).map(m => m.uid);
+  return {year, posts: pool, authors, extras};
 }
 
 // The draw. `posts`: the module's posts; `extraReviewers`: uids of students with no post
@@ -120,14 +130,13 @@ export const words = s => String(s || '').trim().split(/\s+/).filter(Boolean).le
 export function validateReview({grade, assessment}) {
   const g = clampGrade(grade);
   if (g == null || g < GRADE_MIN) throw Error(`Give a rating from ${GRADE_MIN} to ${GRADE_MAX}.`);
-  if (Math.round(g * 2) !== g * 2) throw Error('Ratings go in halves: 7, 7.5, 8…');
+  if (!Number.isInteger(g)) throw Error('Ratings are whole numbers: 7, 8, 9…');
   const a = String(assessment || '').trim();
-  if (words(a) < MIN_WORDS) throw Error(`Write at least ${MIN_WORDS} words of feedback (you have ${words(a)}).`);
   if (a.length > MAX_CHARS) throw Error(`Keep the feedback under ${MAX_CHARS} characters.`);
   return {grade: g, assessment: a};
 }
-// A round takes submissions while it is open and, if it names a deadline, until the end of that day.
-export const roundOpen = (round, now = Date.now()) => !!round && round.status === 'open' && (!round.deadline || now <= new Date(round.deadline + 'T23:59:59').getTime());
+// A round takes submissions while it is open and, if the module names a peer-review deadline, until the end of that day.
+export const roundOpen = (round, module = null, now = Date.now()) => { const due = module?.peerDeadline || ''; return !!round && round.status === 'open' && (!due || now <= new Date(due + 'T23:59:59').getTime()); };
 
 // ---------- aggregation ----------
 const mean = xs => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
