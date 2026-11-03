@@ -564,7 +564,7 @@ export const firebase = {
   // assessment); the author never reads these. peerReviewerNotes/{moduleId_uid}: the AI's and the
   // admin's view of a student's reviewing. peerSummaries/{postId}: what the author is shown once released.
   async getPeerPrompts(){if(role!=='admin')return null;const s=await F.getDoc(F.doc(db,'adminContent','peer'));return s.exists()?s.data():null;},
-  async savePeerPrompts(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={synthesis:String(cfg.synthesis||''),reviewer:String(cfg.reviewer||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','peer'),doc);return doc;},
+  async savePeerPrompts(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={synthesis:String(cfg.synthesis||''),reviewer:String(cfg.reviewer||''),noticeSubject:String(cfg.noticeSubject||''),noticeBody:String(cfg.noticeBody||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','peer'),doc);return doc;},
   async getPeerRound(moduleId){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerRounds',moduleId));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
   async savePeerRound(moduleId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'peerRounds',moduleId);await F.setDoc(ref,{...patch,moduleId,updatedAt:Date.now(),updatedBy:user.uid},{merge:true});const s=await F.getDoc(ref);notify();return {id:moduleId,...s.data()};},
   async assignPeerReviews(moduleId,rows){if(role!=='admin')throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;

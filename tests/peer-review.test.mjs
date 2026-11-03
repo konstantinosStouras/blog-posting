@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededShuffle, validateReview, roundOpen, peerPostRows, peerReviewerRows, summaryFor, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, PER_STUDENT, reviewId, peerCohort} from '../peer-review-model.js';
+import {assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededShuffle, validateReview, roundOpen, peerPostRows, peerReviewerRows, summaryFor, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, PER_STUDENT, reviewId, peerCohort, buildNotice, mailtoLink, noticeSheet} from '../peer-review-model.js';
 
 const posts = n => Array.from({length: n}, (_, i) => ({id: 'p' + i, authorId: 'u' + i, authorName: 'pen-' + i, title: 'Post ' + i, status: 'published', publishedAt: 1000 + i, body: '<p>' + 'Analysis of the organisation. '.repeat(30) + '</p>'}));
 
@@ -95,7 +95,7 @@ test('a round covers one academic year: its posts, and its students with or with
   assert.equal(c.year, '2026/27');
   assert.deepEqual(c.posts.map(p => p.id).sort(), ['new1', 'new2']);
   assert.deepEqual(c.authors.sort(), ['n1', 'n2']);
-  assert.deepEqual(c.extras, ['n3']);   // joined this year, no published post: reviews all the same; last year's students do not
+  assert.deepEqual(c.extras, ['n3']);   // joined this year, no published post: listed, not a reviewer until they publish; last year's students are out
   const last = peerCohort({posts, students, year: '2025/26'});
   assert.deepEqual(last.posts.map(p => p.id), ['old1']); assert.deepEqual(last.extras, ['o2']);
 });
@@ -162,4 +162,22 @@ test('replies parse as JSON or fall back to text', () => {
   const r = parseReviewerAssessment('```json\n{"score": 8, "feedback": "Good", "perReview": [{"score": 9, "note": "specific"}, {"score": "7", "note": 1}]}\n```');
   assert.equal(r.score, 8); assert.equal(r.perReview.length, 2); assert.equal(r.perReview[1].score, 7); assert.equal(r.perReview[1].note, '1');
   assert.deepEqual(parseReviewerAssessment('no json').perReview, []);
+});
+
+test('the notice to a reviewer fills the merge fields with their posts in order, names no form, and feeds the mail-merge sheet', () => {
+  const rows = peerReviewerRows({reviews, posts: twoPosts, users});
+  const r1 = rows.find(r => r.reviewerUid === 'r1');
+  const n = buildNotice({row: r1, module: {code: 'BMGT2017D', title: 'Project Management'}, postUrl: p => 'https://x/' + p.id, reviewPage: 'https://x/peer-review', deadline: '14 December 2026'});
+  assert.equal(n.subject, 'BMGT2017D: the 4 blog posts assigned to you for review');
+  assert.match(n.body, /^Dear Rae,\n/);
+  assert.match(n.body, /\n1\. https:\/\/x\/p1\n2\. https:\/\/x\/p2\n3\. \n4\. \n/);   // r1 has two posts; the other fields empty
+  assert.ok(n.body.includes('BMGT2017D (Project Management)') && n.body.includes('14 December 2026') && n.body.includes('https://x/peer-review'));
+  assert.ok(!/google|\bforms?\b|brightspace/i.test(n.body) && !/«/.test(n.body));
+  assert.equal(n.to, '');   // no email on the roster
+  assert.ok(mailtoLink(n).startsWith('mailto:?subject=BMGT2017D%3A'));
+  assert.ok(mailtoLink({...n, to: 'a@ucd.ie'}).startsWith('mailto:a%40ucd.ie?subject='));
+  const own = buildNotice({template: {subject: 'Hi «Student_Name»', body: '«Blog_URL_1» by «Deadline» («Unknown»)'}, row: r1, postUrl: p => p.id});
+  assert.deepEqual([own.subject, own.body], ['Hi Rae One', 'p1 by shown on your module card («Unknown»)']);
+  const sheet = noticeSheet(rows, {module: {code: 'M'}, postUrl: p => p.id});
+  assert.equal(sheet.length, rows.length); assert.equal(sheet[rows.indexOf(r1)].Blog_URL_2, 'p2'); assert.equal(sheet[0].Module_Code, 'M'); assert.ok(sheet[0].Body.includes('1. '));
 });
