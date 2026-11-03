@@ -51,11 +51,18 @@ export async function myModules(target = app, embedded = false) {
   const teaching = mine.filter(isTeaching), byBlog = new Map();
   for (const m of teaching) (byBlog.get(m.blogId || '') || byBlog.set(m.blogId || '', []).get(m.blogId || '')).push(m);
   const section = (blogId, ms) => { const b = blogOf(blogId); return `<section class="blog-group"><h2 class="group-title">${b ? `<a href="/${esc(b.id)}">${esc(b.title)}</a>` : 'Modules without a blog'}</h2>${b ? `<p class="actions small"><a href="/blogs/edit/${esc(b.id)}">Blog settings</a><a href="/${esc(b.id)}/brief">Brief</a><a href="/review?blog=${esc(b.id)}">Review posts</a><button class="linkish" data-copy="${esc(blogUrl(b.id))}">Copy public link</button></p>` : '<p class="muted small">Open each module’s settings to attach it to a blog.</p>'}
-    <table class="list"><thead><tr><th>Module</th><th>Deadline</th><th>Submissions</th><th></th></tr></thead><tbody>${ms.map(m => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${m.deadline ? fmtDate(m.deadline) : '—'}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.requireApproval ? ' · approval' : ''}</td><td class="actions"><a href="/modules/edit/${esc(m.id)}">Settings</a><a href="/modules/invite/${esc(m.id)}">Invite students</a><a href="/review/roster?module=${esc(m.id)}">Roster</a><a href="/review?module=${esc(m.id)}">Posts</a></td></tr>`).join('')}</tbody></table></section>`; };
+    <table class="list"><thead><tr><th>Module</th><th>Deadline</th><th>Submissions</th><th></th></tr></thead><tbody>${ms.map(m => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${m.deadline ? fmtDate(m.deadline) : '—'}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.requireApproval ? ' · approval' : ''}</td><td class="actions"><a href="/modules/edit/${esc(m.id)}">Settings</a><a href="/modules/invite/${esc(m.id)}">Invite students</a><a href="/review/roster?module=${esc(m.id)}">Roster</a><a href="/review?module=${esc(m.id)}">Posts</a><button class="linkish danger" data-delete-module="${esc(m.id)}" data-label="${esc(moduleLabel(m))}" title="Delete this module and its roster">Delete</button></td></tr>`).join('')}</tbody></table></section>`; };
   target.innerHTML = `${pageHead(embedded ? 'Manage modules' : 'My modules', 'Your teaching modules, grouped by the blog they write on.', embedded)}
     <p class="actions"><a class="btn primary" href="/modules/new">Create module</a><a class="btn" href="/blogs">Explore blogs</a><a class="btn" href="/review">Instructor area</a>${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
     ${teaching.length ? [...byBlog.entries()].map(([id, ms]) => section(id, ms)).join('') : '<p class="empty">Create your first module. You will choose a new blog for it, or reuse one of your existing blogs.</p>'}`;
   target.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Public link copied.'); } catch { prompt('Public blog link', b.dataset.copy); } });
+  // Delete, at the end of each row: the same deletion as on the module's Settings page (a module with posts is refused there and here).
+  target.querySelectorAll('[data-delete-module]').forEach(b => b.onclick = async () => {
+    if (!confirm(`Delete the module ${b.dataset.label}? Its students lose their place in it and its invitation code stops working. This cannot be undone.`)) return;
+    b.disabled = true;
+    try { await store.deleteModule(b.dataset.deleteModule); toast('Module deleted.'); await myModules(target, embedded); }
+    catch (err) { toast(err.message, 'error'); b.disabled = false; }
+  });
 }
 
 // ---------- the public blog canvas ----------
