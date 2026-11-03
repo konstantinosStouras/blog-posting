@@ -211,9 +211,10 @@ async function browse(f) {
   // filters are facets inside the canvas (read from the ?query); author and month
   // arrive as route parameters and narrow the set before it is drawn.
   const u = user(), [all, modules, mine] = await Promise.all([store.listPosts({status: 'published'}), store.listModules(), u && rank(u.role) < 1 ? store.listMyModules() : []]);
-  // A student's "all" is the published posts of their own module(s); staff see the modules they teach and the blogs they own.
-  const cohort = mine.map(m => m.code || m.title).filter(Boolean);
-  let posts = all.sort(by('publishedAt')), title = 'All posts', sub = cohort.length ? `Published posts in ${cohort.join(' and ')}` : BLOGS.length > 1 ? 'Across every blog' : 'Published posts';
+  // A student's "all" is the published posts of the blog(s) their module(s) write on, named by blog
+  // (never by module); staff see the modules they teach and the blogs they own.
+  const myBlogs = [...new Set(mine.map(m => blogOf(m.blogId)?.title).filter(Boolean))];
+  let posts = all.sort(by('publishedAt')), title = 'All posts', sub = myBlogs.length ? `Published posts on ${myBlogs.join(' and ')}` : BLOGS.length > 1 ? 'Across every blog' : 'Published posts';
   if (f.author) { posts = posts.filter(p => p.authorId === f.author); title = posts[0]?.authorName || 'Author'; sub = 'Posts by'; }
   if (f.month) { posts = posts.filter(p => monthKey(p.publishedAt) === f.month); title = monthName(f.month); sub = 'Archive'; }
   $app.innerHTML = `<p class="page-sub" style="margin:0">${esc(sub)}</p><h1 class="page-title">${esc(title)}</h1>${canvas(posts, {modules, emptyText: f.author || f.month ? 'No published posts here.' : 'No posts have been published yet.'})}`;
@@ -297,6 +298,7 @@ async function postView(slug, blogId = null) {
   // Students take part in their own module's posts only (the rules say the same); staff in the modules they teach and on the blogs they own.
   const canParticipate = u && (store.mode !== 'firebase' || u.emailVerified) && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId));
   const showModule = module && seesModule(u, module);   // the post's module: for its instructors, the blog's owners and the admin
+  const shareModule = showModule || (u && u.uid === p.authorId) ? module : null;   // the share credit names the module for the author and those readers only
   const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}), store.listLikes(p.id), store.listBookmarks(p.id)]);
@@ -343,7 +345,7 @@ async function postView(slug, blogId = null) {
     catch (err) { toast(err.message, 'error'); button.disabled = false; }
   };
   enhance($app.querySelector('.post .body'), {post: p, user: u, store});
-  $app.querySelector('[data-share]').onclick = () => openShare(p, {blog, module});
+  $app.querySelector('[data-share]').onclick = () => openShare(p, {blog, module: shareModule});
   $app.querySelector('[data-pdf]').onclick = () => printPost(p, blog);
   // A bookmark is the reader's own: it lives on their profile (bookmarkedPosts), and the profile page lists it.
   $app.querySelector('[data-bookmark]').onclick = async e => {
@@ -371,7 +373,7 @@ async function postView(slug, blogId = null) {
       return;
     }
     const sh = e.target.closest('[data-share-comment]');
-    if (sh) { const c = (await store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId})).find(x => x.id === sh.dataset.shareComment); if (c) openShare(p, {blog, module, comment: c}); return; }
+    if (sh) { const c = (await store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId})).find(x => x.id === sh.dataset.shareComment); if (c) openShare(p, {blog, module: shareModule, comment: c}); return; }
     const rp = e.target.closest('[data-reply-to]');
     if (rp) {   // the reply box opens under the thread's first comment; one box at a time
       $app.querySelectorAll('.reply-slot').forEach(s => { s.innerHTML = ''; });

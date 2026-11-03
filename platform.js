@@ -109,7 +109,8 @@ export async function blogCanvas(id) {
   const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);
   // The action row (Write your blog post, The brief, …) is the header's, drawn by blogActions above.
-  app.innerHTML = `<p class="page-sub">${esc((owner ? onBlog : writing ? [writing] : []).map(m => m.code || m.title).filter(Boolean).join(' · ') || 'Blog')}</p>
+  // The module line above the canvas is the owner's: a student sees no module here, not even their own.
+  app.innerHTML = `${owner ? `<p class="page-sub">${esc(onBlog.map(m => m.code || m.title).filter(Boolean).join(' · ') || 'Blog')}</p>` : ''}
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
     <p class="muted small">${owner ? 'Published posts are public and every module’s students see them all; each module’s discussion is its own, and the instructors on this blog see everything.' : 'Published posts are public. The discussion under each post is for its author’s classmates and their instructors.'}</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
 }
@@ -118,7 +119,7 @@ export async function blogCanvas(id) {
 export async function moduleRedirect(id) {
   const m = await store.getModule(id), u = currentUser();
   if (!m) { app.innerHTML = '<p class="empty">Module not found. <a href="/blogs">Explore blogs</a></p>'; return; }
-  if (m.blogId) { const r = route(), q = new URLSearchParams(r.includes('?') ? r.slice(r.indexOf('?') + 1) : ''); if (!q.get('module')) q.set('module', id); navigate('/' + m.blogId + '?' + q.toString(), {replace: true}); return; }
+  if (m.blogId) { const r = route(), q = new URLSearchParams(r.includes('?') ? r.slice(r.indexOf('?') + 1) : ''); if (!q.get('module') && instructs(u, m)) q.set('module', id); navigate('/' + m.blogId + (q.size ? '?' + q.toString() : ''), {replace: true}); return; }   // the module filter is the instructor's; a student lands on the whole canvas
   app.innerHTML = `<p class="page-sub">${esc(m.code || '')}</p><h1 class="page-title">${esc(m.title)}</h1><p class="empty">This module’s blog is not set up yet.${instructs(u, m) ? ` <a href="/modules/edit/${esc(id)}">Attach it to a blog</a>.` : ''}</p>`;
 }
 
