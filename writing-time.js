@@ -1,3 +1,4 @@
+import {coveredSeconds,PRESENCE_SINCE} from './presence.js';
 export function formatWritingTime(seconds=0){
  const n=Math.max(0,Math.floor(Number(seconds)||0));
  return `${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;
@@ -12,11 +13,13 @@ const postRow=(p,m,u={})=>({postId:p.id,title:p.title,slug:p.slug||'',blogId:p.b
 // How a post's recorded work sits in calendar time. The window runs from the post's creation (or its first
 // recorded session, if earlier) to its submission — publication, or the last save of a post awaiting review —
 // extended by any session recorded after that; a draft's window is still open and is measured up to `now`.
-// Active time is the sum of the sessions, idle time the rest of the window (so the gaps before the first and
-// after the last session count too) and utilisation their ratio. Sessions, and the breaks between consecutive
-// sessions, are listed oldest first in UTC. Legacy visits without timestamps count towards active time but
-// cannot be placed, so they appear in neither list.
-export function postAnalytics(post={},sessions=[],now=Date.now()){
+// Active time is the sum of the sessions (time editing the text), idle time the rest of the window (time not
+// editing, so the gaps before the first and after the last session count too) and utilisation their ratio.
+// Time away is the part of the window that none of the author's visits covers (`presence`: the author's
+// signed-in visits, see presence.js); a window that starts before visits were recorded leaves it blank.
+// Sessions, and the breaks between consecutive sessions, are listed oldest first in UTC. Legacy visits
+// without timestamps count towards active time but cannot be placed, so they appear in neither list.
+export function postAnalytics(post={},sessions=[],now=Date.now(),presence=[]){
  const active=sessions.reduce((n,s)=>n+Math.max(0,Number(s.seconds)||0),0);
  const timed=sessions.filter(s=>s.startedAt>0).sort((a,b)=>a.startedAt-b.startedAt);
  const endOf=s=>Math.max(s.startedAt,s.endedAt||0,s.lastRecordedAt||0,s.lastActivityAt||0);
@@ -34,15 +37,17 @@ export function postAnalytics(post={},sessions=[],now=Date.now()){
  const breakLines=[];
  for(let i=1;i<timed.length;i++){const from=endOf(timed[i-1]),gap=Math.floor((timed[i].startedAt-from)/1000);if(gap>0)breakLines.push(`${formatDuration(gap)} · ${utcMinute(from)}`);}
  const untimed=sessions.length-timed.length;
- return {createdAt:post.createdAt||0,lastPublishedAt,submittedAt,windowStart:placed?startedAt:0,windowEnd:placed?endedAt:0,open,recorded,elapsedSeconds:elapsed,idleSeconds:recorded?idle:'',idleTime:recorded?formatDuration(idle):'',utilisation,utilisationLabel:utilisation===null?'':utilisation>0&&utilisation<0.005?'<1%':`${Math.round(utilisation*100)}%`,sessionCount:timed.length,untimedSessions:untimed,sessionNote:untimed?`${untimed} older visit${untimed===1?'':'s'} without timestamps`:recorded?'':'No session recorded',sessionLines:timed.map(s=>`${formatWritingTime(s.seconds)} · ${utcMinute(s.startedAt)}`),breakLines};
+ const visited=placed&&startedAt>=PRESENCE_SINCE,present=visited?coveredSeconds(presence,startedAt,endedAt):0,away=visited?Math.max(0,elapsed-present):null;
+ return {createdAt:post.createdAt||0,lastPublishedAt,submittedAt,windowStart:placed?startedAt:0,windowEnd:placed?endedAt:0,open,recorded,elapsedSeconds:elapsed,idleSeconds:recorded?idle:'',idleTime:recorded?formatDuration(idle):'',presentSeconds:visited?present:'',awaySeconds:visited?away:'',awayTime:visited?formatDuration(away):'',utilisation,utilisationLabel:utilisation===null?'':utilisation>0&&utilisation<0.005?'<1%':`${Math.round(utilisation*100)}%`,sessionCount:timed.length,untimedSessions:untimed,sessionNote:untimed?`${untimed} older visit${untimed===1?'':'s'} without timestamps`:recorded?'':'No session recorded',sessionLines:timed.map(s=>`${formatWritingTime(s.seconds)} · ${utcMinute(s.startedAt)}`),breakLines};
 }
 
-export function writingReport(posts=[],sessions=[],modules=[],users=[],now=Date.now()){
+export function writingReport(posts=[],sessions=[],modules=[],users=[],now=Date.now(),presence=[]){
  const allowed=new Map(modules.map(m=>[m.id,m])),people=new Map(users.map(u=>[u.uid,u]));
  return posts.filter(p=>allowed.has(p.moduleId)).map(p=>{
   const own=sessions.filter(s=>s.postId===p.id&&s.uid===p.authorId&&s.moduleId===p.moduleId);
+  const visits=presence.filter(v=>v.uid===p.authorId&&(!v.moduleId||v.moduleId===p.moduleId));   // the author's visits (the admin's carry no module)
   const seconds=own.reduce((n,s)=>n+Math.max(0,Number(s.seconds)||0),0);
-  return {...postRow(p,allowed.get(p.moduleId),people.get(p.authorId)),seconds,writingTime:formatWritingTime(seconds),...postAnalytics(p,own,now)};
+  return {...postRow(p,allowed.get(p.moduleId),people.get(p.authorId)),seconds,writingTime:formatWritingTime(seconds),...postAnalytics(p,own,now,visits)};
  });
 }
 
@@ -119,7 +124,7 @@ export function startWritingTimer({uid,postId,moduleId,store,baseSeconds=0,onTic
   else try{const lease=JSON.parse(localStorage.getItem(leaseKey)||'null');if(!lease||lease.id===instanceId||lease.until<Date.now()){localStorage.setItem(leaseKey,JSON.stringify({id:instanceId,until:Date.now()+2500}));acquired();release=()=>{try{if(JSON.parse(localStorage.getItem(leaseKey)||'null')?.id===instanceId)localStorage.removeItem(leaseKey);}catch{}};}}catch{}
  }
  function activity(event){
-  if(!event.isTrusted||!event.target?.closest?.('.writer, #sheet')||!eligible())return;
+  if(!event.isTrusted||!event.target?.closest?.('.writer')||!eligible())return;   // the text alone: the details sheet (category, tags, image) is not editing the post
   if(event.type==='keydown'&&!(['Backspace','Delete','Enter'].includes(event.key)||event.key.length===1))return;
   if(event.type==='pointerdown'&&!event.target.closest('.toolbar [data-cmd]'))return;
   sample();if(owned)history.activity(performance.now(),Date.now());else claim();stash();

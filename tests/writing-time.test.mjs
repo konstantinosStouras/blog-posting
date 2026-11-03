@@ -2,6 +2,25 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
 import {formatWritingTime,formatDuration,postAnalytics,writingReport,sessionHistoryReport,moduleWritingTotals,EditingActivityClock,WritingSessionHistory} from '../writing-time.js';
+import {coveredSeconds,startPresence,PRESENCE_SINCE} from '../presence.js';
+test('time away is the part of a post’s window that no signed-in visit of the author covers',async()=>{
+ const H=3600000,created=PRESENCE_SINCE+9*H;
+ assert.equal(coveredSeconds([{startedAt:created,lastSeenAt:created+H},{startedAt:created+0.5*H,lastSeenAt:created+2*H},{startedAt:created+5*H,lastSeenAt:created+9*H}],created,created+4*H),7200);
+ assert.equal(coveredSeconds([],created,created+H),0);
+ const visits=[{uid:'a',moduleId:'m',startedAt:created-H,lastSeenAt:created+H},{uid:'a',moduleId:'m',startedAt:created+3*H,lastSeenAt:created+5*H},{uid:'b',moduleId:'m',startedAt:created,lastSeenAt:created+4*H},{uid:'a',moduleId:'other',startedAt:created+2*H,lastSeenAt:created+3*H}];
+ const row=writingReport([{id:'p',moduleId:'m',authorId:'a',title:'Post',createdAt:created,status:'published',publishedAt:created+4*H}],[{postId:'p',moduleId:'m',uid:'a',seconds:600,startedAt:created,endedAt:created+600000}],[{id:'m',title:'Module'}],[],created+10*H,visits)[0];
+ assert.equal(row.elapsedSeconds,14400);assert.equal(row.presentSeconds,7200);assert.equal(row.awaySeconds,7200);assert.equal(row.awayTime,'2:00:00');assert.equal(row.idleTime,'3:50:00');assert.equal(row.utilisationLabel,'4%');
+ const admin=writingReport([{id:'q',moduleId:'m',authorId:'k',title:'Admin post',createdAt:created,status:'published',publishedAt:created+H}],[],[{id:'m',title:'Module'}],[],created+2*H,[{uid:'k',moduleId:'',startedAt:created,lastSeenAt:created+H}])[0];
+ assert.equal(admin.awaySeconds,0);assert.equal(admin.awayTime,'0:00:00');assert.equal(admin.sessionNote,'No session recorded');
+ const before=postAnalytics({createdAt:PRESENCE_SINCE-H,status:'published',publishedAt:PRESENCE_SINCE+H},[],PRESENCE_SINCE+2*H,[{startedAt:PRESENCE_SINCE,lastSeenAt:PRESENCE_SINCE+H}]);
+ assert.equal(before.awayTime,'');assert.equal(before.awaySeconds,'');
+ // the heartbeat: one row per module of the account, the same id each beat so only lastSeenAt moves
+ const saved=[];let t=created;const beat=startPresence({uid:'a',modules:()=>['m','n'],save:async r=>{saved.push({...r});},now:()=>t,newId:()=>'visit',intervalMs:1e9,doc:null});
+ await new Promise(r=>setTimeout(r,0));t+=60000;await beat.beat();beat.stop();
+ assert.deepEqual(saved.map(r=>r.id),['visit:m','visit:n','visit:m','visit:n']);assert.equal(saved[0].startedAt,created);assert.equal(saved[0].lastSeenAt,created);assert.equal(saved[2].lastSeenAt,created+60000);assert.equal(saved[2].startedAt,created);
+ const adminBeat=startPresence({uid:'k',modules:()=>[''],save:async r=>{saved.push({...r});},now:()=>t,newId:()=>'v2',intervalMs:1e9,doc:null});await new Promise(r=>setTimeout(r,0));adminBeat.stop();
+ assert.deepEqual(saved.at(-1),{id:'v2:site',uid:'k',moduleId:'',startedAt:t,lastSeenAt:t});
+});
 test('student module totals sum all posts, keep modules separate and include zero-post students',async()=>{
  const posts=[{postId:'a',moduleId:'one',authorId:'student',seconds:3600},{postId:'b',moduleId:'one',authorId:'student',seconds:6612},{postId:'c',moduleId:'two',authorId:'student',seconds:3},{postId:'private',moduleId:'other',authorId:'student',seconds:9999},{postId:'teacher',moduleId:'one',authorId:'teacher',seconds:20}];
  const memberships=[{uid:'student',moduleId:'one',studentId:'00123'},{uid:'student',moduleId:'two',studentId:'00123'},{uid:'zero',moduleId:'one'},{uid:'secret',moduleId:'other'}];
@@ -38,8 +57,8 @@ test('writing report sums only the author and assigned module sessions',()=>{
 });
 test('sort compares numerical values, natural text and blanks',()=>{assert.ok(compareTableValues(2,10)<0);assert.ok(compareTableValues('Module 2','Module 10')<0);assert.ok(compareTableValues('',1)>0);});
 test('Excel includes per-post analytics with bold heading and normal body',async()=>{
- const book=createRosterWorkbook(ExcelJS,{users:[],invitations:[],writing:[{title:'Post',writingTime:'2:50:12',seconds:10212,studentId:'00123',open:true,status:'pending',idleTime:'1 day 0:00:00',utilisationLabel:'11%',sessionLines:['2:50:12 · 2026-11-01 09:00'],breakLines:[]}]});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());const sheet=loaded.getWorksheet('Blog posting analytics');
- assert.equal(sheet.getCell('K2').value,'2:50:12');assert.equal(sheet.getCell('J2').value,'awaiting review');assert.equal(sheet.getCell('M2').value,'1 day 0:00:00');assert.equal(sheet.getCell('O2').value,'11%');assert.equal(sheet.getCell('P2').value,'2:50:12 · 2026-11-01 09:00');assert.equal(sheet.getCell('K1').font.bold,true);assert.equal(Boolean(sheet.getCell('K2').font.bold),false);
+ const book=createRosterWorkbook(ExcelJS,{users:[],invitations:[],writing:[{title:'Post',writingTime:'2:50:12',seconds:10212,studentId:'00123',open:true,status:'pending',idleTime:'1 day 0:00:00',awayTime:'20:00:00',awaySeconds:72000,utilisationLabel:'11%',sessionLines:['2:50:12 · 2026-11-01 09:00'],breakLines:[]}]});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());const sheet=loaded.getWorksheet('Blog posting analytics');
+ assert.equal(sheet.getCell('K2').value,'2:50:12');assert.equal(sheet.getCell('J2').value,'awaiting review');assert.equal(sheet.getCell('M2').value,'1 day 0:00:00');assert.equal(sheet.getCell('O1').value,'Time away');assert.equal(sheet.getCell('O2').value,'20:00:00');assert.equal(String(sheet.getCell('P2').value),'72000');assert.equal(sheet.getCell('Q2').value,'11%');assert.equal(sheet.getCell('R2').value,'2:50:12 · 2026-11-01 09:00');assert.equal(sheet.getCell('K1').font.bold,true);assert.equal(Boolean(sheet.getCell('K2').font.bold),false);
 });
 test('post analytics measure the window from creation to the last publication, its idle share and the breaks between sessions',()=>{
  const H=3600000,created=Date.UTC(2026,10,1,9,0);

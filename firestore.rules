@@ -388,6 +388,21 @@ service cloud.firestore {
         && (!('endedAt' in resource.data) || request.resource.data == resource.data);
       allow delete: if false;
     }
+    // Presence: one row per signed-in visit and module (the admin's visits carry no module and are the admin's
+    // alone to read); the tab moves lastSeenAt once a minute. Staff read their modules' rows for "time away".
+    match /presence/{id} {
+      allow read: if isAdmin() || (resource.data.moduleId != '' && staffOf(resource.data.moduleId));
+      function presenceShape(){let d=request.resource.data;return verified()
+        && d.keys().hasOnly(['uid','moduleId','startedAt','lastSeenAt'])
+        && d.uid == request.auth.uid && d.moduleId is string
+        && (d.moduleId == '' ? isAdmin() : (memberOf(d.moduleId) || staffOf(d.moduleId)))
+        && d.startedAt is number && d.startedAt <= request.time.toMillis()+60000
+        && d.lastSeenAt is number && d.lastSeenAt >= d.startedAt && d.lastSeenAt <= request.time.toMillis()+60000;}
+      allow create: if presenceShape() && request.resource.data.startedAt >= request.time.toMillis()-86400000;
+      allow update: if presenceShape() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt'])
+        && request.resource.data.lastSeenAt >= resource.data.lastSeenAt;
+      allow delete: if false;
+    }
     match /adminContent/{id} { allow read, write: if isAdmin(); }
     // AI grading assistant: one private review per post, written and read by the admin only.
     // API keys are never stored here; the grader persona lives in adminContent/grader.

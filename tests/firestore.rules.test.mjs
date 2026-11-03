@@ -69,6 +69,26 @@ test('the admin and a module’s instructor record writing time on their own pos
  await assertFails(setDoc(doc(db('teacher-two'),'writingHistory/outsider'),row('teacher-two','outsider-draft')));
  await assertFails(setDoc(doc(db('teacher-one'),'writingHistory/not-mine'),row('teacher-one','draft')));   // the student's post, not the instructor's
 });
+test('presence is written by the signed-in account for its own modules, moves forward only, and is read by the modules’ staff',async()=>{
+ const d=db('student','student@ucdconnect.ie'),now=Date.now(),row={uid:'student',moduleId:'one',startedAt:now-5000,lastSeenAt:now-5000};
+ await assertSucceeds(setDoc(doc(d,'presence/v:one'),row));
+ await assertSucceeds(setDoc(doc(d,'presence/v:one'),{...row,lastSeenAt:now}));
+ await assertFails(setDoc(doc(d,'presence/v:one'),{...row,lastSeenAt:now-9000}));   // never backwards
+ await assertFails(setDoc(doc(d,'presence/v:one'),{...row,startedAt:now-9000,lastSeenAt:now}));   // the start is fixed
+ await assertFails(setDoc(doc(d,'presence/v:two'),{...row,moduleId:'two'}));   // not a member
+ await assertFails(setDoc(doc(d,'presence/v:site'),{...row,moduleId:''}));   // the admin's shape alone
+ await assertFails(setDoc(doc(d,'presence/forged'),{...row,uid:'peer'}));
+ await assertFails(getDoc(doc(d,'presence/v:one')));
+ await assertFails(deleteDoc(doc(d,'presence/v:one')));
+ await assertSucceeds(setDoc(doc(db('admin','kstouras@gmail.com'),'presence/a:site'),{uid:'admin',moduleId:'',startedAt:now-5000,lastSeenAt:now}));
+ await assertSucceeds(setDoc(doc(db('teacher-one'),'presence/t:one'),{uid:'teacher-one',moduleId:'one',startedAt:now-5000,lastSeenAt:now}));
+ await assertFails(setDoc(doc(db('teacher-two'),'presence/t:one-other'),{uid:'teacher-two',moduleId:'one',startedAt:now-5000,lastSeenAt:now}));
+ await assertSucceeds(getDocs(query(collection(db('teacher-one'),'presence'),where('moduleId','==','one'))));
+ await assertFails(getDocs(query(collection(db('teacher-two'),'presence'),where('moduleId','==','one'))));
+ await assertFails(getDocs(query(collection(db('teacher-one'),'presence'),where('moduleId','==',''))));
+ await assertSucceeds(getDocs(collection(db('admin','kstouras@gmail.com'),'presence')));
+ await assertSucceeds(getDocs(query(collection(db('admin','kstouras@gmail.com'),'presence'),where('moduleId','==',''))));
+});
 test('writing time is private, author-owned, monotonic and bounded by elapsed time',async()=>{
  const d=db('student','student@ucdconnect.ie'),row={uid:'student',postId:'draft',moduleId:'one',seconds:0,startedAt:Date.now()-10000};
  await assertFails(getDoc(doc(d,'writingSessions/new')));

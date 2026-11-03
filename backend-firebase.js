@@ -16,6 +16,7 @@ import {registrationProfile} from './registration.js';
 import {randomCode, normalizeCode, STANDING_EXPIRY, JOIN_CITIES, isJoinCity, cityLabel} from './invitation-codes.js';
 import {buildPeopleReport} from './people-model.js';
 import {writingReport,sessionHistoryReport,moduleWritingTotals} from './writing-time.js';
+import {startPresence} from './presence.js';
 import {randomAlias} from './aliases.js';
 import {reviewId} from './peer-review-model.js';
 
@@ -26,6 +27,15 @@ let registration = null;
 // as a student. Posts and comments are fetched one module (or owned blog) at a time, because the
 // rules let a reader list a module's published posts only when the query names that module.
 let managedModuleIds = [], managedBlogIds = [], memberModuleIds = [], myBlogIds = [];   // myBlogIds: the blogs of every module this account belongs to or teaches, plus the blogs it owns
+// Presence (presence.js): a signed-in tab beats once a minute under the real account, whatever preview
+// is on. A student's visit is filed under each module they belong to, an instructor's under those they
+// teach or belong to, the admin's under no module (readable by the admin alone).
+let presence = null;
+const presenceModules = () => role === 'admin' ? [''] : [...new Set([...memberModuleIds, ...managedModuleIds])];
+function trackPresence(self) {
+  presence?.stop(); presence = null;
+  if (user?.emailVerified) presence = startPresence({uid: user.uid, modules: presenceModules, save: row => self.savePresence(row)});
+}
 async function refreshManaged(self) {
   if (!user) { managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = []; return; }
   const [modules, blogs] = await Promise.all([self.listModules(), self.listBlogs()]);
@@ -178,6 +188,7 @@ export const firebase = {
         user = u; forget();
         if (u) { try { await loadAccount(this, u); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
         else { profile = null; role = 'student'; managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; }
+        trackPresence(this);
         await site; notify(); resolve();
       });
     });
@@ -198,7 +209,7 @@ export const firebase = {
     } else if (provider === 'password') cred = await A.signInWithEmailAndPassword(auth, email, password);
     else throw Error('Unknown sign-in method.');
     user = cred.user; forget();
-    await loadAccount(this, user); notify(); return cred;
+    await loadAccount(this, user); trackPresence(this); notify(); return cred;
   },
   async register(data, teacher = false) {
     const invitation=await this.resolveRegistrationCode(data.registrationCode);
@@ -227,7 +238,7 @@ export const firebase = {
   async refreshVerification() {
     if (!user) return;
     await A.reload(user); await A.getIdToken(user, true);
-    role = await loadRole(user.uid, user.email, user.emailVerified); notify();
+    role = await loadRole(user.uid, user.email, user.emailVerified); if (!presence) trackPresence(this); notify();
     return user.emailVerified;
   },
   async signOut() { await A.signOut(auth); },
@@ -431,6 +442,11 @@ export const firebase = {
   },
   async saveWritingHistory(row){const {id,...data}=row;await F.setDoc(F.doc(db,'writingHistory',id),data);},
   async listWritingHistory(moduleId=''){if(!user?.emailVerified||!['admin','lecturer'].includes(role))throw Error('Staff access required.');if(role==='admin'&&!moduleId){const s=await getDocs(F.collection(db,'writingHistory'));return s.docs.map(norm);}const ids=moduleId?[moduleId]:managedModuleIds;return (await Promise.all(ids.map(id=>getDocs(F.query(F.collection(db,'writingHistory'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
+  // ---- presence (written by the tab's heartbeat under the real account; read by staff) ----
+  async savePresence(row){const {id,...data}=row;await F.setDoc(F.doc(db,'presence',id),data);},
+  async listPresence(moduleId=''){if(!user?.emailVerified||!['admin','lecturer'].includes(role))throw Error('Staff access required.');if(role==='admin'&&!moduleId){const s=await getDocs(F.collection(db,'presence'));return s.docs.map(norm);}
+   const ids=moduleId?[moduleId]:[...managedModuleIds];if(role==='admin')ids.push('');   // the admin's own visits carry no module
+   return (await Promise.all(ids.map(id=>getDocs(F.query(F.collection(db,'presence'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
   async listWritingSessions(moduleId='') {const ids=moduleId?[moduleId]:managedModuleIds;if(role==='admin'&&!moduleId){const s=await getDocs(F.collection(db,'writingSessions'));return s.docs.map(norm);}return (await Promise.all(ids.map(id=>getDocs(F.query(F.collection(db,'writingSessions'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
   // light: the record only (a list of titles), without the read for the text.
   async getPost(id, {light = false} = {}) { const s = await getDoc(F.doc(db, 'posts', id)); const p = s.exists() ? norm(s) : null; return light ? p : withBody(p); },
@@ -626,9 +642,9 @@ export const firebase = {
       Promise.all(modules.map(m=>this.listModuleInvites(m.id))).then(a=>a.flat())
     ]);
     const report=buildPeopleReport({users,memberships,modules,instructorInvites,studentInvites,includePlatformUsers:role==='admin'&&!moduleId});
-    const [posts,legacy,history]=await Promise.all([this.listAllPosts(),this.listWritingSessions(moduleId),this.listWritingHistory(moduleId)]);
+    const [posts,legacy,history,visits]=await Promise.all([this.listAllPosts(),this.listWritingSessions(moduleId),this.listWritingHistory(moduleId),this.listPresence(moduleId)]);
     const sessions=[...legacy.map(s=>({...s,id:'legacy-'+s.id})),...history];
-    report.writing=writingReport(posts,sessions,modules,report.users);report.sessions=sessionHistoryReport(posts,sessions,modules,report.users);report.moduleTotals=moduleWritingTotals(report.writing,memberships,modules,report.users);return report;
+    report.writing=writingReport(posts,sessions,modules,report.users,Date.now(),visits);report.sessions=sessionHistoryReport(posts,sessions,modules,report.users);report.moduleTotals=moduleWritingTotals(report.writing,memberships,modules,report.users);return report;
   },
   async getAdminGuide(){const s=await getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
   // ---- AI grading assistant (admin only; keys never reach the database) ----
