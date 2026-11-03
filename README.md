@@ -144,7 +144,13 @@ filtered view is a shareable link, for example
 `/module/managing-innovative-projects?trend=sustainability&org=Ryanair&year=2026&tag=ESG`.
 Filtering happens in the browser on the published posts already fetched; no
 Firestore index is involved. Old `/category/…`, `/tag/…` and `/search/…`
-links redirect into `/posts?…`.
+links redirect into `/posts?…`. Hovering a card (or tabbing into it) lifts it
+on a shadow, zooms its cover image slowly under a soft gradient, slides a
+"Read the post" ribbon up over the image and draws a blue underline under the
+title; a card without an image colours its top rule orange instead. The effect
+is CSS alone (styles.css, the card's hover), so visitors get it as well as
+members; readers who asked their system for less motion keep the colours, the
+shadow and the ribbon without the movement, and select mode keeps its outline.
 
 To check the design against the sample posts without touching the live
 database, start `python dev-server.py 8787` (the `ucd-blog-local` launch
