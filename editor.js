@@ -44,14 +44,14 @@ document.addEventListener('click', e => { for (const c of document.querySelector
 export function mountEditor(container, {html = '', onChange = () => {}, placeholder = 'Start writing…', extras = []} = {}) {
   container.classList.add('editor');
   const btn = (cmd, title, icon) => `<button type="button" data-cmd="${cmd}" title="${esc(title)}" aria-label="${esc(title)}">${icon}</button>`;
-  const menu = (id, label, items, cls = '') => `<div class="menu-wrap"><button type="button" class="menu-btn ${cls}" data-menu="${id}" aria-haspopup="menu" aria-expanded="false" title="${esc({align: 'Alignment', quote: 'Quote', color: 'Text colour', hilite: 'Highlight', script: 'Superscript & subscript'}[id] || id[0].toUpperCase() + id.slice(1))}">${label} ${ICONS.chevron}</button><div class="menu" role="menu" hidden>${items.map(([cmd, text, icon]) => `<button type="button" role="menuitem" data-cmd="${cmd}">${icon ? `<span class="mi">${ICONS[icon] || icon}</span>` : ''}${esc(text)}</button>`).join('')}</div></div>`;
+  const menu = (id, label, items, cls = '', radio = false) => `<div class="menu-wrap"><button type="button" class="menu-btn ${cls}" data-menu="${id}" aria-haspopup="menu" aria-expanded="false" title="${esc({align: 'Alignment', quote: 'Quote', color: 'Text colour', hilite: 'Highlight', script: 'Superscript & subscript'}[id] || id[0].toUpperCase() + id.slice(1))}">${label} ${ICONS.chevron}</button><div class="menu" role="menu" hidden>${items.map(([cmd, text, icon]) => `<button type="button" role="${radio ? 'menuitemradio' : 'menuitem'}" data-cmd="${cmd}">${icon ? `<span class="mi">${ICONS[icon] || icon}</span>` : ''}${esc(text)}</button>`).join('')}</div></div>`;
   const more = [['codeblock', 'Code block', 'codeBlock'], ['hr', 'Divider', 'divider'], ['chart', 'Financial chart', 'chart'], ['footnote', 'Footnote', 'footnote'], ['latex', 'LaTeX', 'latex'], ['poll', 'Poll', 'poll'], ['caption', 'Caption / legend', 'caption'], ['clear', 'Clear formatting', 'clear'], ...extras.map((x, i) => ['extra:' + i, x.label, 'outline'])];
   container.innerHTML = `<div class="toolbar" role="toolbar" aria-label="Formatting">
       ${btn('undo', 'Undo (Ctrl+Z)', ICONS.undo)}${btn('redo', 'Redo (Ctrl+Y)', ICONS.redo)}<span class="sep"></span>
       ${menu('style', 'Style', STYLES.map(([v, l, i]) => ['style:' + v, l, i]))}<span class="sep"></span>
       ${btn('bold', 'Bold (Ctrl+B)', ICONS.bold)}${btn('italic', 'Italic (Ctrl+I)', ICONS.italic)}${btn('strikeThrough', 'Strikethrough', ICONS.strike)}${btn('code', 'Code', ICONS.code)}${menu('color', ICONS.textColor, COLORS.map(([v, l, c]) => ['color:' + v, l, `<span class="dot" style="background:${c || v}"></span>`]), 'icon-only')}${menu('hilite', ICONS.highlight, HILITES.map(([v, l, c]) => ['hilite:' + v, l, `<span class="dot" style="background:${c || v};border-color:#ccc"></span>`]), 'icon-only')}${menu('script', ICONS.script, SCRIPTS, 'icon-only')}<span class="sep"></span>
       <div class="menu-wrap">${btn('link', 'Link (Ctrl+K)', ICONS.link)}<div class="link-pop" hidden><b>Create a link</b><input class="lk-text" placeholder="Enter text…" maxlength="200"><input class="lk-url" placeholder="Enter URL…" type="url" maxlength="2000"><div class="actions"><button type="button" class="btn accent small" data-link-ok>Link</button><button type="button" class="btn small" data-link-cancel>Cancel</button><button type="button" class="linkish danger small" data-link-remove hidden>Remove link</button></div></div></div>
-      ${btn('image', 'Insert image', ICONS.image)}${menu('quote', ICONS.quote, QUOTES.map(([v, l]) => ['quote:' + v, l]), 'icon-only')}<span class="sep"></span>
+      ${btn('image', 'Insert image', ICONS.image)}${menu('quote', ICONS.quote, QUOTES.map(([v, l]) => ['quote:' + v, l]), 'icon-only', true)}<span class="sep"></span>
       ${btn('insertUnorderedList', 'Bulleted list', ICONS.ul)}${btn('insertOrderedList', 'Numbered list', ICONS.ol)}${menu('align', ICONS.alignLeft, ALIGNS.map(([v, l, i]) => [v, l, i]), 'icon-only')}<span class="sep"></span>
       ${menu('more', 'More', more)}
     </div>
@@ -90,13 +90,22 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
   toolbar.addEventListener('mousedown', e => { if (e.target.closest('button') && !e.target.closest('.link-pop')) e.preventDefault(); });   // keep the text selection
   toolbar.addEventListener('click', e => {
     const menuBtn = e.target.closest('.menu-btn');
-    if (menuBtn) { const wrap = menuBtn.parentElement, m = wrap.querySelector('.menu'), open = m.hidden; closeMenus(); if (open) { m.hidden = false; menuBtn.setAttribute('aria-expanded', 'true'); } return; }
+    if (menuBtn) { const wrap = menuBtn.parentElement, m = wrap.querySelector('.menu'), open = m.hidden; closeMenus(); if (open) { markCurrent(m, menuBtn.dataset.menu); m.hidden = false; menuBtn.setAttribute('aria-expanded', 'true'); } return; }
     if (e.target.closest('.link-pop')) return;
     const b = e.target.closest('button[data-cmd]'); if (!b) return;
     closeMenus();
     run(b.dataset.cmd);
   });
   container.closeMenus = closeMenus;   // the module-level listener below closes menus on outside clicks
+  // The quote menu shows where the caret is: a tick on the environment it sits in, the other two dimmed. Picking
+  // the ticked one switches it off (quote() toggles), picking another switches to it.
+  const currentQuote = () => inside('aside.callout') ? 'callout' : inside('blockquote.pull') ? 'pullquote' : inside('blockquote') ? 'blockquote' : '';
+  function markCurrent(m, id) {
+    const cur = id === 'quote' ? currentQuote() : '';
+    const items = [...m.querySelectorAll('[role=menuitemradio]')]; if (!items.length) return;
+    items.forEach(b => { const on = !!cur && b.dataset.cmd === id + ':' + cur; b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); });
+    m.classList.toggle('has-on', !!cur);
+  }
   function run(c) {
     if (c.startsWith('style:')) { exec('formatBlock', c.slice(6)); return; }
     if (c.startsWith('color:')) { const v = c.slice(6); exec('foreColor', v === 'default' ? 'inherit' : v); return; }
