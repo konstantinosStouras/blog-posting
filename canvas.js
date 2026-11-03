@@ -151,9 +151,9 @@ function gridHtml(st) {
 export function card(p, st = current || {f: parseFilters(''), base: '/posts', cats: [], modules: new Map(), blogs: new Map(), opts: {}}) {
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));
   const words = p.wordCount ?? wordCount(p.body || ''), module = st.modules?.get(p.moduleId);
-  // The cover image sits in a clipped frame so it can zoom on hover, with a "Read the post"
-  // ribbon that slides up over it (styles.css, the card's hover).
-  const img = p.featuredImage ? `<a class="frame" href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"><span class="read">Read the post<span class="mins">${readingTime(words)}</span></span></a>` : '';
+  // The cover image sits in a clipped frame so it can zoom on hover, with the reading time
+  // ("1 min read") on a ribbon that slides up over it (styles.css, the card's hover).
+  const img = p.featuredImage ? `<a class="frame" href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"><span class="read">${readingTime(words)}</span></a>` : '';
   const kicker = [...orgList(p.organisation).map(org => `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>`), p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : '', ...(p.industries || []).map(s => `<a href="${link({industry: s})}" data-set="industry" data-v="${esc(s)}" class="industry" title="All posts in ${esc(industryName(s))}">${esc(industryName(s))}</a>`)].filter(Boolean).join('');
   const pickable = st.selecting && st.bulk?.canDelete(p), on = pickable && st.selected.has(p.id);
   const pick = !st.selecting ? '' : pickable ? `<label class="pick"><input type="checkbox" data-pick="${esc(p.id)}" ${on ? 'checked' : ''} aria-label="Select ${esc(p.title)}">${on ? 'Selected' : 'Select'}</label>` : `<span class="pick locked" title="Not in a module or on a blog you teach">Not yours to moderate</span>`;
