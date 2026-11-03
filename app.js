@@ -7,6 +7,7 @@ import {mountEditor, fillOutline} from './editor.js';
 import {configurePlatform, blogDirectory, myModules, blogCanvas, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {renderPeople} from './people.js';
 import {renderGrading} from './ai-grading.js';
+import {renderPeerAdmin, myPeerReviews, peerSidePanel} from './peer-review.js';
 import {mountFeedbackButton, renderFeedbackInbox} from './feedback.js';
 import {startWritingTimer} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
@@ -58,6 +59,7 @@ const routes = [
   [/^\/write\/([a-z0-9-]+)$/, moduleId => editorView(null,moduleId)],
   [/^\/edit\/([^/?]+)$/, editorView],
   [/^\/mine$/, mine],
+  [/^\/peer-review$/, () => myPeerReviews($app)],   // a student's assigned posts (study guide 5.3)
   [/^\/profile$/, profileView],
   [/^\/review\/?([a-z]*)(?:\?(.*))?$/, lecturer],
   [/^\/admin\/?([a-z]*)(?:\?module=([a-z0-9-]+))?$/, admin],
@@ -211,7 +213,7 @@ function lateNote(p, module, u) {
 // The column beside the post: the author's own tools (status, Edit, Publish, Delete) and the
 // late note at the top, then the post's details for every reader. On a narrow screen the column
 // moves above the article and the details list is dropped, as the byline already shows them.
-function postSideHtml(p, {u, module, blog, words, context}) {
+function postSideHtml(p, {u, module, blog, words, context, peer = null}) {
   const row = (k, v) => v ? `<div class="fact"><dt>${k}</dt><dd>${v}</dd></div>` : '';
   const editor = u && can(u, 'edit', p, context);
   const tools = editor ? `<div class="post-actions side-tools"><div class="side-status"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span></div>
@@ -219,7 +221,7 @@ function postSideHtml(p, {u, module, blog, words, context}) {
       ${p.status !== 'published' && can(u, 'publish', p, context) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
       ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : '';
   const edited = p.updatedAt && (!p.publishedAt || p.updatedAt - p.publishedAt > 60000) ? fmtDate(p.updatedAt) : '';
-  return `<aside class="post-side" aria-label="About this post">${tools}${lateNote(p, module, u)}
+  return `<aside class="post-side" aria-label="About this post">${tools}${lateNote(p, module, u)}${peer ? peer.html : ''}
     <dl class="post-facts">
       ${row('Published', p.status === 'published' && p.publishedAt ? fmtDate(p.publishedAt) : '<span class="muted">Not yet</span>')}
       ${row('Last edited', edited)}
@@ -257,7 +259,8 @@ async function postView(slug, blogId = null) {
   const u = user();
   if (p && p.blogId && blogId !== p.blogId) { navigate(postPath(p), {replace: true}); return; }   // an old or mistyped address: the post's one real address
   if (!p || (p.status !== 'published' && !(u && can(u, 'edit', p, S)))) { $app.innerHTML = `<p class="empty">That post is not available. <a href="/">Back to the blog</a></p>`; return; }
-  const [module, blog, mine] = await Promise.all([p.moduleId ? store.getModule(p.moduleId) : null, store.getBlog(p.blogId), u ? store.listMyModules() : []]);
+  // The peer-review panel: an assigned reviewer's "Submit blog assessment", or the author's released feedback (peer-review.js).
+  const [module, blog, mine, peer] = await Promise.all([p.moduleId ? store.getModule(p.moduleId) : null, store.getBlog(p.blogId), u ? store.listMyModules() : [], peerSidePanel(p, u).catch(() => null)]);
   // Cohort rules (approval, open/closed) come from the module; the comments policy from the blog.
   const context = {...S, ...(module || {}), allowComments: blog ? blog.allowComments !== false : true};
   // Students take part in their own module's posts only (the rules say the same); staff in the modules they teach and on the blogs they own.
@@ -275,7 +278,8 @@ async function postView(slug, blogId = null) {
       ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? commentFormHtml(u, blog) : u ? '<p class="muted">An invitation from this blog’s instructor is required to comment. <button class="linkish" id="invite-to-comment">Enter invitation code</button></p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
       <p class="comment-count" id="comment-count"></p>
       <div id="comment-list"></div>
-    </section></article>${postSideHtml(p, {u, module, blog, words, context})}</div>`;
+    </section></article>${postSideHtml(p, {u, module, blog, words, context, peer})}</div>`;
+  peer?.bind($app);
   $app.querySelector('#login-to-comment')?.addEventListener('click', () => store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'));
   $app.querySelector('#invite-to-comment')?.addEventListener('click',()=>openAuthModal('register'));
   // Posting, liking or deleting a comment redraws the comments section only. A full render()
@@ -777,7 +781,7 @@ async function showStorage(el) {
 // ---------- admin area ----------
 // Every admin page is drawn under one head (the title and the tab strip), so the
 // tabs stay in place whichever page is open and every other page is one click away.
-const ADMIN_TABS = [['guide', 'Admin guide'], ['people', 'People'], ['grading', 'AI grading'], ['feedback', 'Feedback'], ['modules', 'Manage modules'], ['settings', 'Site settings'], ['data', 'Data & backend']];
+const ADMIN_TABS = [['guide', 'Admin guide'], ['people', 'People'], ['grading', 'AI grading'], ['peer', 'Peer review'], ['feedback', 'Feedback'], ['modules', 'Manage modules'], ['settings', 'Site settings'], ['data', 'Data & backend']];
 async function admin(tab = 'users', moduleId = '') {
   const u = user();
   if (!u || rank(u.role) < 2) { $app.innerHTML = `<p class="empty">Admin access required.</p>`; return; }
@@ -801,7 +805,8 @@ async function admin(tab = 'users', moduleId = '') {
     people.querySelectorAll('[data-role]').forEach(sel => sel.onchange = async () => { try { await store.setRole(sel.dataset.role, sel.value); toast('Role updated.'); } catch (e) { toast(e.message, 'error'); } });
     return;
   }
-  if (tab === 'grading') { liveView = 'grading'; await renderGrading(area, {moduleId, embedded: true}); return; }   // like the editor: a store notification must not rebuild the page mid-batch
+  if (tab === 'grading') { liveView = 'grading'; await renderGrading(area, {moduleId, embedded: true}); return; }
+  if (tab === 'peer') { liveView = 'peer'; await renderPeerAdmin(area, {moduleId, embedded: true}); return; }   // like the editor: a store notification must not rebuild the page mid-batch
   if (tab === 'feedback') { area.innerHTML = `${pageHead('Feedback inbox', 'What visitors, students and instructors sent with the Feedback button: notes, screenshots and voice notes.', true)}<div id="fb-inbox"></div>`; await renderFeedbackInbox(area.querySelector('#fb-inbox')); return; }
   if (tab === 'modules') { await myModules(area, true); return; }
   let body = '';

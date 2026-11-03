@@ -378,11 +378,71 @@ service cloud.firestore {
     match /aiReviews/{postId} {
       allow read, delete: if isAdmin();
       allow create, update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['postId','moduleId','blogId','authorId','provider','model','effort','grade','summary','feedback','raw','error','usage','reviewedAt','inputChars','finalGrade','finalFeedback','finalEditedAt','updatedAt'])
+        && request.resource.data.keys().hasOnly(['postId','moduleId','blogId','authorId','provider','model','effort','grade','summary','feedback','raw','error','usage','reviewedAt','inputChars','finalGrade','finalFeedback','finalEditedAt','updatedAt','peerSynthesis','peerSummary','peerSuggestedGrade','peerSynthesisAt','peerSynthesisModel','peerSynthesisRaw','peerSynthesisError'])
         && request.resource.data.postId == postId && exists(/databases/$(database)/documents/posts/$(postId))
         && str('moduleId',100) && str('blogId',100) && str('authorId',100) && str('provider',40) && str('model',120) && str('effort',20)
-        && str('summary',4000) && str('feedback',20000) && str('raw',40000) && str('error',2000) && str('finalGrade',20) && str('finalFeedback',20000)
+        && str('summary',4000) && str('feedback',20000) && str('raw',40000) && str('error',2000) && str('finalGrade',20) && str('finalFeedback',20000) && str('peerSynthesis',20000) && str('peerSummary',4000) && str('peerSynthesisModel',120) && str('peerSynthesisRaw',40000) && str('peerSynthesisError',2000)
+        && (request.resource.data.get('peerSuggestedGrade',null) == null || request.resource.data.peerSuggestedGrade is number)
         && (request.resource.data.get('grade',0) == null || request.resource.data.get('grade',0) is number);
+    }
+    // Peer review (study guide 5.3, "Others' blog assessment"). The admin alone runs it, never
+    // another instructor: the round (peerRounds), the assignments (peerReviews), the notes on
+    // each reviewer (peerReviewerNotes) and the feedback released to authors (peerSummaries)
+    // are written by the admin. A reviewer fills in the grade and the assessment of their own
+    // assignments while the round is open and reads nothing else; an author reads only the
+    // released summary of their own post, never the reviews or who wrote them.
+    function peerRound(moduleId) { return get(/databases/$(database)/documents/peerRounds/$(moduleId)).data; }
+    match /peerRounds/{moduleId} {
+      allow read: if isAdmin() || memberOf(moduleId);
+      allow create, update: if isAdmin() && request.resource.data.moduleId == moduleId && moduleExists(moduleId)
+        && request.resource.data.keys().hasOnly(['moduleId','blogId','status','perStudent','seed','deadline','assignedAt','assignedBy','openedAt','closedAt','releasedAt','updatedAt','updatedBy'])
+        && request.resource.data.status in ['open','closed'] && str('blogId',100) && str('deadline',10) && str('seed',40) && request.resource.data.get('perStudent',4) is number;
+      allow delete: if isAdmin();
+    }
+    function peerReviewShape() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['moduleId','blogId','postId','authorId','reviewerUid','reviewerName','order','assignedAt','grade','assessment','submittedAt','updatedAt','aiScore','aiNote'])
+        && str('moduleId',100) && str('blogId',100) && str('postId',100) && str('authorId',100) && str('reviewerUid',100) && str('reviewerName',40) && str('assessment',4000) && str('aiNote',1000)
+        && d.get('order',0) is number && d.assignedAt is number && (d.get('grade',null) == null || d.grade is number);
+    }
+    match /peerReviews/{id} {
+      allow read: if isAdmin() || own(resource.data.reviewerUid);
+      // An assignment: a published post of the module, a member of the module who is not its author, no grade yet.
+      allow create: if isAdmin() && peerReviewShape()
+        && id == request.resource.data.moduleId + '_' + request.resource.data.postId + '_' + request.resource.data.reviewerUid
+        && request.resource.data.reviewerUid != request.resource.data.authorId
+        && exists(/databases/$(database)/documents/modules/$(request.resource.data.moduleId)/members/$(request.resource.data.reviewerUid))
+        && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.moduleId == request.resource.data.moduleId
+        && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.authorId == request.resource.data.authorId
+        && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.status == 'published'
+        && request.resource.data.get('grade',null) == null && request.resource.data.get('submittedAt',null) == null;
+      // The reviewer writes the grade (1 to 10) and the assessment (a paragraph) while the round is open; the admin anything within the shape.
+      allow update: if peerReviewShape()
+        && request.resource.data.moduleId == resource.data.moduleId && request.resource.data.postId == resource.data.postId
+        && request.resource.data.reviewerUid == resource.data.reviewerUid && request.resource.data.authorId == resource.data.authorId
+        && (isAdmin()
+          || (verified() && own(resource.data.reviewerUid) && peerRound(resource.data.moduleId).status == 'open'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['grade','assessment','submittedAt','updatedAt'])
+            && request.resource.data.grade is number && request.resource.data.grade >= 1 && request.resource.data.grade <= 10
+            && request.resource.data.assessment is string && request.resource.data.assessment.size() >= 200
+            && request.resource.data.submittedAt is number));
+      allow delete: if isAdmin();
+    }
+    match /peerReviewerNotes/{id} {
+      allow read: if isAdmin() || (own(resource.data.reviewerUid) && resource.data.get('releasedAt',null) != null);
+      allow create, update: if isAdmin() && id == request.resource.data.moduleId + '_' + request.resource.data.reviewerUid
+        && request.resource.data.keys().hasOnly(['moduleId','reviewerUid','aiScore','aiNote','aiPerReview','aiScoredAt','aiModel','aiRaw','aiError','grade','note','releasedAt','updatedAt'])
+        && str('moduleId',100) && str('reviewerUid',100) && str('aiNote',20000) && str('aiModel',120) && str('aiRaw',40000) && str('aiError',2000) && str('grade',20) && str('note',20000)
+        && (request.resource.data.get('aiScore',null) == null || request.resource.data.aiScore is number) && request.resource.data.get('aiPerReview',[]) is list;
+      allow delete: if isAdmin();
+    }
+    match /peerSummaries/{postId} {
+      allow read: if isAdmin() || own(resource.data.authorId);
+      allow create, update: if isAdmin() && request.resource.data.postId == postId && exists(/databases/$(database)/documents/posts/$(postId))
+        && request.resource.data.keys().hasOnly(['postId','moduleId','authorId','count','mean','adjustedMean','feedback','assessments','releasedAt','updatedAt'])
+        && str('moduleId',100) && str('authorId',100) && str('feedback',20000)
+        && request.resource.data.get('assessments',[]) is list && request.resource.data.get('assessments',[]).size() <= 10;
+      allow delete: if isAdmin();
     }
     // Feedback button. ANYONE — signed in or not — may create one bounded submission
     // (as on stouras.com/lit/feedback); only the admin reads, closes or deletes it.

@@ -28,6 +28,15 @@
         "/ucd-blog"
       ],
       "port": 8768
+    },
+    {
+      "name": "ucd-blog-local-2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "dev-server.py",
+        "8791"
+      ],
+      "port": 8791
     }
   ]
 }

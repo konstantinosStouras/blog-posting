@@ -87,6 +87,72 @@ test('AI reviews and the grader persona are private to the platform administrato
   await assertFails(getDoc(doc(d,'adminContent/grader')));
  }
 });
+test('peer review: the admin assigns, the reviewer alone grades while the round is open, the author sees only the released summary',async()=>{
+ await env.withSecurityRulesDisabled(async c=>{
+  const d=c.firestore();
+  await setDoc(doc(d,'modules/one/members/other'),{...member('other'),email:'other@ucd.ie',contactEmail:'other@ucd.ie'});
+  await setDoc(doc(d,'posts/other-published'),post('one','other','published'));
+  await setDoc(doc(d,'posts/other-published/content/body'),{body:'<p>Other content</p>'});
+  await setDoc(doc(d,'peerRounds/one'),{moduleId:'one',blogId:'pm',status:'open',perStudent:4,seed:'abc',deadline:'',assignedAt:time,assignedBy:'admin',updatedAt:time,updatedBy:'admin'});
+ });
+ const admin=db('admin','kstouras@gmail.com'),student=db('student','student@ucdconnect.ie'),author=db('other','other@ucd.ie'),teacher=db('teacher-one');
+ const row={moduleId:'one',blogId:'pm',postId:'other-published',authorId:'other',reviewerUid:'student',reviewerName:'quiet-heron-482',order:1,assignedAt:time,grade:null,assessment:'',submittedAt:null,updatedAt:time};
+ const id='one_other-published_student';
+ // the round: the admin writes it; the module's students read it; other instructors do not
+ await assertSucceeds(setDoc(doc(admin,'peerRounds/one'),{moduleId:'one',blogId:'pm',status:'open',perStudent:4,seed:'abc',deadline:'2026-12-01',updatedAt:time,updatedBy:'admin'}));
+ await assertSucceeds(getDoc(doc(student,'peerRounds/one')));
+ await assertFails(getDoc(doc(teacher,'peerRounds/one')));
+ await assertFails(setDoc(doc(teacher,'peerRounds/one'),{moduleId:'one',status:'open',updatedAt:time}));
+ await assertFails(setDoc(doc(admin,'peerRounds/one'),{moduleId:'one',status:'paused',updatedAt:time}));
+ // the assignment: the admin only, never one's own post, never a draft, never a non-member, never with a grade
+ await assertSucceeds(setDoc(doc(admin,'peerReviews/'+id),row));
+ await assertFails(setDoc(doc(teacher,'peerReviews/'+id),row));
+ await assertFails(setDoc(doc(admin,'peerReviews/one_published_student'),{...row,postId:'published',authorId:'student'}));
+ await assertFails(setDoc(doc(admin,'peerReviews/one_draft_other'),{...row,postId:'draft',authorId:'student',reviewerUid:'other'}));
+ await assertFails(setDoc(doc(admin,'peerReviews/one_other-published_peer'),{...row,reviewerUid:'peer'}));
+ await assertFails(setDoc(doc(admin,'peerReviews/one_other-published_student'),{...row,authorId:'student'}));
+ await assertFails(setDoc(doc(admin,'peerReviews/wrong-id'),row));
+ await assertFails(setDoc(doc(admin,'peerReviews/'+id),{...row,grade:8}));
+ // reading: the reviewer and the admin; not the author, not another instructor, not a classmate
+ await assertSucceeds(getDoc(doc(student,'peerReviews/'+id)));
+ await assertSucceeds(getDocs(query(collection(student,'peerReviews'),where('reviewerUid','==','student'))));
+ await assertSucceeds(getDocs(query(collection(admin,'peerReviews'),where('moduleId','==','one'))));
+ await assertFails(getDoc(doc(author,'peerReviews/'+id)));
+ await assertFails(getDoc(doc(teacher,'peerReviews/'+id)));
+ await assertFails(getDocs(query(collection(db('peer','peer@ucd.ie'),'peerReviews'),where('moduleId','==','one'))));
+ // submitting: the reviewer, a grade from 1 to 10 and at least a paragraph, nothing else changed
+ const text='This post explains the organisation and its megatrend clearly. '.repeat(5);
+ await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:11,assessment:text,submittedAt:time,updatedAt:time}));
+ await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:0.5,assessment:text,submittedAt:time,updatedAt:time}));
+ await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:'Nice.',submittedAt:time,updatedAt:time}));
+ await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:text,submittedAt:time,updatedAt:time,postId:'published'}));
+ await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:text,submittedAt:time,updatedAt:time,aiScore:10}));
+ await assertFails(updateDoc(doc(author,'peerReviews/'+id),{grade:10,assessment:text,submittedAt:time,updatedAt:time}));
+ await assertSucceeds(updateDoc(doc(student,'peerReviews/'+id),{grade:7.5,assessment:text,submittedAt:time,updatedAt:time}));
+ await assertSucceeds(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:text+' Revised.',submittedAt:time+1,updatedAt:time+1}));
+ await assertSucceeds(setDoc(doc(admin,'peerReviews/'+id),{aiScore:8,aiNote:'Specific and fair'},{merge:true}));
+ await assertSucceeds(setDoc(doc(admin,'peerRounds/one'),{status:'closed',closedAt:time},{merge:true}));
+ await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:9,assessment:text,submittedAt:time+2,updatedAt:time+2}));
+ await assertFails(deleteDoc(doc(student,'peerReviews/'+id)));
+ // reviewer notes: the admin writes; the reviewer reads theirs once released
+ await assertSucceeds(setDoc(doc(admin,'peerReviewerNotes/one_student'),{moduleId:'one',reviewerUid:'student',aiScore:8,aiNote:'Good reviewing',aiPerReview:[{postId:'other-published',score:8,note:'specific'}],aiScoredAt:time,aiModel:'claude-fable-5-1',updatedAt:time}));
+ await assertFails(getDoc(doc(student,'peerReviewerNotes/one_student')));
+ await assertSucceeds(setDoc(doc(admin,'peerReviewerNotes/one_student'),{grade:'A',note:'Thank you',releasedAt:time},{merge:true}));
+ await assertSucceeds(getDoc(doc(student,'peerReviewerNotes/one_student')));
+ await assertFails(getDoc(doc(author,'peerReviewerNotes/one_student')));
+ await assertFails(setDoc(doc(student,'peerReviewerNotes/one_student'),{moduleId:'one',reviewerUid:'student',grade:'A+',updatedAt:time},{merge:true}));
+ // the released summary: the admin writes it; the author reads it; the reviewer, other students and other instructors do not
+ const summary={postId:'other-published',moduleId:'one',authorId:'other',count:1,mean:8,adjustedMean:8,feedback:'Merged feedback',assessments:[{grade:8,assessment:text}],releasedAt:time,updatedAt:time};
+ await assertSucceeds(setDoc(doc(admin,'peerSummaries/other-published'),summary));
+ await assertFails(setDoc(doc(admin,'peerSummaries/missing'),{...summary,postId:'missing'}));
+ await assertFails(setDoc(doc(teacher,'peerSummaries/other-published'),summary));
+ await assertSucceeds(getDoc(doc(author,'peerSummaries/other-published')));
+ await assertFails(getDoc(doc(student,'peerSummaries/other-published')));
+ await assertFails(getDoc(doc(teacher,'peerSummaries/other-published')));
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'peerSummaries/other-published')));
+ // the AI's synthesis of the peer reviews sits beside the admin's review of the post
+ await assertSucceeds(setDoc(doc(admin,'aiReviews/other-published'),{postId:'other-published',moduleId:'one',peerSynthesis:'Merged',peerSummary:'Agree',peerSuggestedGrade:8,peerSynthesisAt:time,peerSynthesisModel:'anthropic · claude-fable-5-1 · high',updatedAt:time},{merge:true}));
+});
 test('students write under generated aliases and cannot pick an identifying pen name',async()=>{
  const d=db('student','student@ucdconnect.ie');
  await assertFails(updateDoc(doc(d,'profiles/student'),{penName:'Aoife Byrne'}));

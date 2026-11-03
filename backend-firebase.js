@@ -17,6 +17,7 @@ import {randomCode, normalizeCode, STANDING_EXPIRY} from './invitation-codes.js'
 import {buildPeopleReport} from './people-model.js';
 import {writingReport,sessionHistoryReport,moduleWritingTotals} from './writing-time.js';
 import {randomAlias} from './aliases.js';
+import {reviewId} from './peer-review-model.js';
 
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
 let app, auth, db, A, F, user = null, profile = null, role = 'student', settings = {...DEFAULT_SETTINGS};
@@ -557,6 +558,33 @@ export const firebase = {
   async saveGraderConfig(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={persona:String(cfg.persona||''),instructions:String(cfg.instructions||''),polish:String(cfg.polish||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','grader'),doc);return doc;},
   async listAiReviews(moduleId=''){if(role!=='admin')return [];const col=F.collection(db,'aiReviews');const s=await F.getDocs(moduleId?F.query(col,F.where('moduleId','==',moduleId)):col);return s.docs.map(d=>({id:d.id,...d.data()}));},
   async saveAiReview(postId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'aiReviews',postId);await F.setDoc(ref,{...patch,postId,updatedAt:Date.now()},{merge:true});const s=await F.getDoc(ref);return {id:postId,...s.data()};},
+  // ---- peer review (study guide 5.3): one round per module, one record per reviewer and post ----
+  // peerRounds/{moduleId}: the round's state (open/closed, deadline, seed), written by the admin.
+  // peerReviews/{moduleId_postId_reviewerUid}: the assignment, filled in by the reviewer (grade,
+  // assessment); the author never reads these. peerReviewerNotes/{moduleId_uid}: the AI's and the
+  // admin's view of a student's reviewing. peerSummaries/{postId}: what the author is shown once released.
+  async getPeerPrompts(){if(role!=='admin')return null;const s=await F.getDoc(F.doc(db,'adminContent','peer'));return s.exists()?s.data():null;},
+  async savePeerPrompts(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={synthesis:String(cfg.synthesis||''),reviewer:String(cfg.reviewer||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','peer'),doc);return doc;},
+  async getPeerRound(moduleId){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerRounds',moduleId));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
+  async savePeerRound(moduleId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'peerRounds',moduleId);await F.setDoc(ref,{...patch,moduleId,updatedAt:Date.now(),updatedBy:user.uid},{merge:true});const s=await F.getDoc(ref);notify();return {id:moduleId,...s.data()};},
+  async assignPeerReviews(moduleId,rows){if(role!=='admin')throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;
+    for(const r of rows){b.set(F.doc(db,'peerReviews',reviewId(moduleId,r.postId,r.reviewerUid)),{moduleId,blogId:r.blogId||'',postId:r.postId,authorId:r.authorId,reviewerUid:r.reviewerUid,reviewerName:r.reviewerName||'',order:r.order||0,assignedAt:now,grade:null,assessment:'',submittedAt:null,updatedAt:now});if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}
+    if(n)await b.commit();notify();},
+  async listPeerReviews(moduleId){if(role!=='admin')return [];const s=await F.getDocs(F.query(F.collection(db,'peerReviews'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async listMyPeerReviews(){if(!user)return [];const s=await F.getDocs(F.query(F.collection(db,'peerReviews'),F.where('reviewerUid','==',user.uid)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async getPeerReview(id){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerReviews',id));return s.exists()?{id,...s.data()}:null;}catch{return null;}},
+  async submitPeerReview(id,{grade,assessment}){if(!user?.emailVerified)throw Error('Verify your sign-in email before submitting a review.');const now=Date.now();await F.updateDoc(F.doc(db,'peerReviews',id),{grade,assessment,submittedAt:now,updatedAt:now});notify();return this.getPeerReview(id);},
+  async savePeerReview(id,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'peerReviews',id);await F.setDoc(ref,{...patch,updatedAt:Date.now()},{merge:true});const s=await F.getDoc(ref);return {id,...s.data()};},
+  async deletePeerRound(moduleId){if(role!=='admin')throw Error('Admin access required.');
+    const lists=await Promise.all(['peerReviews','peerReviewerNotes','peerSummaries'].map(c=>F.getDocs(F.query(F.collection(db,c),F.where('moduleId','==',moduleId)))));
+    let b=F.writeBatch(db),n=0;for(const d of lists.flatMap(s=>s.docs)){b.delete(d.ref);if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}
+    b.delete(F.doc(db,'peerRounds',moduleId));await b.commit();notify();},
+  async savePeerReviewerNote(moduleId,reviewerUid,patch){if(role!=='admin')throw Error('Admin access required.');const id=`${moduleId}_${reviewerUid}`,ref=F.doc(db,'peerReviewerNotes',id);await F.setDoc(ref,{...patch,moduleId,reviewerUid,updatedAt:Date.now()},{merge:true});const s=await F.getDoc(ref);return {id,...s.data()};},
+  async listPeerReviewerNotes(moduleId){if(role!=='admin')return [];const s=await F.getDocs(F.query(F.collection(db,'peerReviewerNotes'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async getMyPeerReviewerNote(moduleId){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerReviewerNotes',`${moduleId}_${user.uid}`));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
+  async releasePeerSummaries(rows){if(role!=='admin')throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;for(const r of rows){b.set(F.doc(db,'peerSummaries',r.postId),{...r,releasedAt:now,updatedAt:now});if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}if(n)await b.commit();notify();},
+  async listPeerSummaries(moduleId){if(role!=='admin')return [];const s=await F.getDocs(F.query(F.collection(db,'peerSummaries'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async getPeerSummary(postId){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerSummaries',postId));return s.exists()?{id:postId,...s.data()}:null;}catch{return null;}},
   async getProfile(uid) { const s = await F.getDoc(F.doc(db, 'profiles', uid)); return s.exists() ? {uid, ...s.data()} : null; },
   async saveProfile(uid, patch) {
     await F.setDoc(F.doc(db, 'profiles', uid), patch, {merge: true});

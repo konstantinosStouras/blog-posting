@@ -11,6 +11,7 @@ import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './u
 import {isStanding} from './invitation-codes.js';
 import {PM_EXERCISE, DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
+import {peerCardLine} from './peer-review.js';
 
 let app, canvas;
 export function configurePlatform(target, renderCanvas) { app = target; canvas = renderCanvas; }
@@ -39,9 +40,10 @@ export async function myModules(target = app, embedded = false) {
   const [mine, blogs] = await Promise.all([store.listMyModules(), store.listBlogs()]);
   const blogOf = id => blogs.find(b => b.id === id);
   if (!staff(u)) {
-    // Students: the blog(s) of the module(s) they belong to, and the way to write.
+    // Students: the blog(s) of the module(s) they belong to, the way to write, and their peer-review assignments.
+    const peerMine = await store.listMyPeerReviews().catch(() => []);
     target.innerHTML = `${pageHead('My modules', `Writing as <b>${esc(u.penName)}</b> · <a href="/profile">Edit profile</a>`, embedded)}
-      ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDate(m.deadline)}</b>.` : ''}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/${esc(b.id)}">Open blog</a><a class="btn small" href="/${esc(b.id)}/brief">The brief</a>` : ''}${m.brightspaceUrl ? `<a class="btn small" href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Brightspace</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
+      ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDate(m.deadline)}</b>.` : ''}${peerCardLine(peerMine, m.id)}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/${esc(b.id)}">Open blog</a><a class="btn small" href="/${esc(b.id)}/brief">The brief</a>` : ''}${m.brightspaceUrl ? `<a class="btn small" href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Brightspace</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
       <p class="actions"><a class="btn" href="/mine">My posts</a><button class="btn" id="platform-register">Enter an invitation code</button></p>`;
     target.querySelector('#platform-register')?.addEventListener('click', () => openAuthModal('register'));
     return;

@@ -5,6 +5,7 @@
 // `?local` on a dev server without touching the live database.
 import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, SEED_BLOGS, SEED_MODULES, SEED_MEMBERSHIPS, DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
+import {reviewId} from './peer-review-model.js';
 
 const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
 let state, listeners = new Set();
@@ -205,6 +206,24 @@ export const local = {
   async saveGraderConfig(cfg) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.grader = {persona: String(cfg.persona || ''), instructions: String(cfg.instructions || ''), polish: String(cfg.polish || ''), updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.grader); },
   async listAiReviews(moduleId = '') { const u = me(); if (u?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.aiReviews || {}).filter(r => !moduleId || r.moduleId === moduleId))); },
   async saveAiReview(postId, patch) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.aiReviews = state.aiReviews || {}; state.aiReviews[postId] = {...(state.aiReviews[postId] || {}), ...patch, postId, updatedAt: Date.now()}; save(); return structuredClone(state.aiReviews[postId]); },
+  // ---- peer review (study guide 5.3): rounds, assignments, the reviews written on them, notes and released summaries ----
+  async getPeerPrompts() { if (me()?.role !== 'admin') return null; return delay(structuredClone(state.peerPrompts || null)); },
+  async savePeerPrompts(cfg) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.peerPrompts = {synthesis: String(cfg.synthesis || ''), reviewer: String(cfg.reviewer || ''), updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.peerPrompts); },
+  async getPeerRound(moduleId) { return delay(structuredClone((state.peerRounds || {})[moduleId] || null)); },
+  async savePeerRound(moduleId, patch) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.peerRounds = state.peerRounds || {}; state.peerRounds[moduleId] = {...(state.peerRounds[moduleId] || {}), ...patch, id: moduleId, moduleId, updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.peerRounds[moduleId]); },
+  async assignPeerReviews(moduleId, rows) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.peerReviews = state.peerReviews || {}; const now = Date.now(); for (const r of rows) { const id = reviewId(moduleId, r.postId, r.reviewerUid); state.peerReviews[id] = {id, moduleId, blogId: r.blogId || '', postId: r.postId, authorId: r.authorId, reviewerUid: r.reviewerUid, reviewerName: r.reviewerName || '', order: r.order || 0, assignedAt: now, grade: null, assessment: '', submittedAt: null, updatedAt: now}; } save(); },
+  async listPeerReviews(moduleId) { if (me()?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.moduleId === moduleId))); },
+  async listMyPeerReviews() { const u = me(); if (!u) return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.reviewerUid === u.uid))); },
+  async getPeerReview(id) { const u = me(), r = (state.peerReviews || {})[id]; return delay(r && u && (r.reviewerUid === u.uid || u.role === 'admin') ? structuredClone(r) : null); },
+  async submitPeerReview(id, {grade, assessment}) { const u = me(), r = (state.peerReviews || {})[id]; if (!u || !r || r.reviewerUid !== u.uid) throw Error('This post is not assigned to you.'); if ((state.peerRounds || {})[r.moduleId]?.status !== 'open') throw Error('The review round is closed.'); Object.assign(r, {grade, assessment, submittedAt: Date.now(), updatedAt: Date.now()}); save(); return structuredClone(r); },
+  async savePeerReview(id, patch) { if (me()?.role !== 'admin') throw Error('Admin access required.'); const r = (state.peerReviews || {})[id]; if (!r) throw Error('Review not found.'); Object.assign(r, patch, {updatedAt: Date.now()}); save(); return structuredClone(r); },
+  async deletePeerRound(moduleId) { if (me()?.role !== 'admin') throw Error('Admin access required.'); for (const k of ['peerReviews', 'peerReviewerNotes', 'peerSummaries']) state[k] = Object.fromEntries(Object.entries(state[k] || {}).filter(([, r]) => r.moduleId !== moduleId)); delete (state.peerRounds || {})[moduleId]; save(); },
+  async savePeerReviewerNote(moduleId, reviewerUid, patch) { if (me()?.role !== 'admin') throw Error('Admin access required.'); state.peerReviewerNotes = state.peerReviewerNotes || {}; const id = `${moduleId}_${reviewerUid}`; state.peerReviewerNotes[id] = {...(state.peerReviewerNotes[id] || {}), ...patch, id, moduleId, reviewerUid, updatedAt: Date.now()}; save(); return structuredClone(state.peerReviewerNotes[id]); },
+  async listPeerReviewerNotes(moduleId) { if (me()?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.peerReviewerNotes || {}).filter(n => n.moduleId === moduleId))); },
+  async getMyPeerReviewerNote(moduleId) { const u = me(); if (!u) return null; return delay(structuredClone((state.peerReviewerNotes || {})[`${moduleId}_${u.uid}`] || null)); },
+  async releasePeerSummaries(rows) { if (me()?.role !== 'admin') throw Error('Admin access required.'); state.peerSummaries = state.peerSummaries || {}; const now = Date.now(); for (const r of rows) state.peerSummaries[r.postId] = {...r, id: r.postId, releasedAt: now, updatedAt: now}; save(); },
+  async listPeerSummaries(moduleId) { if (me()?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.peerSummaries || {}).filter(s => s.moduleId === moduleId))); },
+  async getPeerSummary(postId) { const u = me(), s = (state.peerSummaries || {})[postId]; return delay(s && u && (s.authorId === u.uid || u.role === 'admin') ? structuredClone(s) : null); },
 
   // ---- feedback button (anyone submits; the admin reads) ----
   async submitFeedback(doc, attachments = []) { const id = newId(); state.feedback = state.feedback || []; state.feedback.push({id, ...doc, attachments: attachments.map((a, i) => ({id: String(i), ...a}))}); save(); return delay({id, ticket: doc.ticket}); },
