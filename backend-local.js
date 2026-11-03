@@ -80,6 +80,19 @@ export const local = {
     if (existing) Object.assign(existing, doc); else state.modules.push(doc);
     save(); return structuredClone(doc);
   },
+  async deleteModule(id) {
+    const u = me(); if (!staff(u)) throw Error('Instructor access required.');
+    const m = state.modules.find(x => x.id === id); if (!m) throw Error('Module not found.');
+    if (!teaches(u, m)) throw Error('You cannot manage this module.');
+    const posts = state.posts.filter(p => p.moduleId === id).length;
+    if (posts) throw Error(`This module has ${posts} post${posts === 1 ? '' : 's'}. Delete them from Review posts first, or keep the module and reuse it next year.`);
+    for (const i of state.moduleInvites || []) if (i.moduleId === id) i.revoked = true;
+    state.memberships = state.memberships.filter(x => x.moduleId !== id);
+    state.modules = state.modules.filter(x => x.id !== id);
+    for (const k of ['peerReviews', 'peerReviewerNotes', 'peerSummaries']) state[k] = Object.fromEntries(Object.entries(state[k] || {}).filter(([, r]) => r.moduleId !== id));
+    delete (state.peerRounds || {})[id];
+    save();
+  },
   async listMyModules() {
     const u = me(); if (!u) return [];
     return delay(structuredClone(state.modules.filter(m => teaches(u, m) || state.memberships.some(x => x.uid === u.uid && x.moduleId === m.id)).map(m => ({...m, teaching: teaches(u, m)}))));

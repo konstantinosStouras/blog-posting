@@ -249,6 +249,30 @@ export const firebase = {
     await refreshManaged(this);
     notify(); return {id, ...doc};
   },
+  // An instructor deletes a module they teach (the admin, any module): its roster goes with it,
+  // together with the blog memberships the roster brought, and its invitation code is retired
+  // so nobody joins a module that is gone. Its posts are the students' work, so a module with
+  // posts stays until they are deleted (Review posts) or the module is reused. The blog is
+  // untouched: other modules may write on it.
+  async deleteModule(id) {
+    if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
+    const m = await this.getModule(id); if (!m) throw Error('Module not found.');
+    if (!(role === 'admin' || m.teacherIds.includes(user.uid))) throw Error('You cannot manage this module.');
+    const posts = await F.getDocs(F.query(F.collection(db, 'posts'), F.where('moduleId', '==', id)));
+    if (posts.size) throw Error(`This module has ${posts.size} post${posts.size === 1 ? '' : 's'}. Delete them from Review posts first, or keep the module and reuse it next year.`);
+    for (const i of await this.listModuleInvites(id)) if (!i.revoked) await this.revokeModuleInvite(i.id);
+    const members = await F.getDocs(F.collection(db, 'modules', id, 'members'));
+    let b = F.writeBatch(db), n = 0;
+    for (const d of members.docs) {
+      b.delete(d.ref);
+      if (m.blogId) { const bm = await F.getDoc(F.doc(db, 'blogs', m.blogId, 'members', d.id)).catch(() => null); if (bm?.exists() && bm.data().moduleId === id) b.delete(bm.ref); }
+      if ((n += 2) >= 450) { await b.commit(); b = F.writeBatch(db); n = 0; }
+    }
+    b.delete(F.doc(db, 'modules', id)); await b.commit();
+    if (role === 'admin') await this.deletePeerRound(id).catch(() => {});
+    forget(); await refreshManaged(this);
+    notify();
+  },
   async listMyModules() {
     if (!user) return [];
     const modules = await this.listModules();

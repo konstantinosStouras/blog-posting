@@ -294,6 +294,18 @@ test('teachers create blogs and modules on their own blogs only; nobody appoints
  await assertFails(setDoc(doc(db('student'),'blogs/stolen'),blog('student')));
  await assertSucceeds(setDoc(doc(db('admin','kstouras@gmail.com'),'modules/admin-module'),{...mod('admin','ops'),teacherIds:['admin']}));
 });
+test('a teacher deletes their own module with its roster and the blog memberships it brought; nobody else’s',async()=>{
+ const d=db('teacher-one');
+ await assertFails(deleteDoc(doc(d,'modules/two')));
+ await assertFails(deleteDoc(doc(db('teacher-two'),'modules/one')));
+ await assertFails(deleteDoc(doc(db('student'),'modules/one')));
+ await assertFails(deleteDoc(doc(db('teacher-two'),'modules/one/members/student')));
+ await assertFails(deleteDoc(doc(db('teacher-two'),'blogs/pm/members/student')));
+ // one batch, as the app does: the roster, the blog memberships pointing at the module, then the module itself
+ const b=writeBatch(d);b.delete(doc(d,'modules/one/members/student'));b.delete(doc(d,'blogs/pm/members/student'));b.delete(doc(d,'modules/one'));
+ await assertSucceeds(b.commit());
+ await assertSucceeds(deleteDoc(doc(db('admin','kstouras@gmail.com'),'modules/two')));
+});
 test('unverified accounts cannot post, comment, enrol or become lecturers',async()=>{
  const d=db('student','student@ucdconnect.ie',false);
  await assertFails(setDoc(doc(d,'posts/unverified'),post()));

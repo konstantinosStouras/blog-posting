@@ -187,7 +187,8 @@ service cloud.firestore {
         && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
         && (isAdmin() || (request.resource.data.teacherIds == resource.data.teacherIds
           && request.resource.data.get('peerReview',false) == resource.data.get('peerReview',false) && request.resource.data.get('peerDeadline','') == resource.data.get('peerDeadline','')));
-      allow delete: if false;
+      // A module's instructor (or the admin) deletes it, with its roster; the app refuses while it has posts.
+      allow delete: if staffOf(moduleId);
       match /members/{uid} {
         allow read: if own(uid) || staffOf(moduleId);
         function memberShape() { return own(uid) && verified() && moduleExists(moduleId)
@@ -203,7 +204,7 @@ service cloud.firestore {
             || (request.resource.data.registrationKind in ['teacher','instructor'] && (hasRole('lecturer') || isAdmin()))); }
         allow create: if memberShape() && validModuleInvite(moduleId,request.resource.data.inviteId);
         allow update: if memberShape() && request.resource.data.inviteId == resource.data.inviteId;
-        allow delete: if own(uid) || isAdmin();
+        allow delete: if own(uid) || staffOf(moduleId);
       }
     }
     function blogShape() {
@@ -235,7 +236,7 @@ service cloud.firestore {
           && request.resource.data.uid == uid && request.resource.data.joinedAt is number
           && moduleExists(request.resource.data.moduleId) && moduleBlog(request.resource.data.moduleId) == blogId
           && (existsAfter(/databases/$(database)/documents/modules/$(request.resource.data.moduleId)/members/$(uid)) || staffOf(request.resource.data.moduleId));
-        allow delete: if own(uid) || isAdmin();
+        allow delete: if own(uid) || staffOf(resource.data.moduleId);
       }
     }
     function postShape() {

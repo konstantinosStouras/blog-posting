@@ -152,7 +152,14 @@ export async function manageModule(id) {
       <label class="check"><input type="checkbox" name="peerReview" ${m?.peerReview ? 'checked' : ''}> Students assess each other’s posts in this module</label>
       <p class="hint indent">Your option alone, off unless you turn it on for a given module and year. Once submissions are closed, assign the posts at <a href="/admin/peer${m ? '?module=' + esc(m.id) : ''}">Peer review</a>.</p>
       <label class="field indent">Peer review deadline<input name="peerDeadline" type="date" value="${esc(m?.peerDeadline || '')}"><p class="hint">Shown to students once their posts are assigned; assessments close at the end of that day, or when you close the round. For a new academic year, set both deadlines here, reopen submissions, and delete last year’s round before assigning again.</p></label></fieldset>` : ''}
-    <p class="actions"><button class="btn primary">${m ? 'Save module' : 'Create module'}</button><a class="btn" href="/my-modules">Cancel</a></p><p class="auth-msg" aria-live="polite"></p></form></div>`;
+    <p class="actions"><button class="btn primary">${m ? 'Save module' : 'Create module'}</button><a class="btn" href="/my-modules">Cancel</a></p><p class="auth-msg" aria-live="polite"></p></form>
+    ${m ? `<section class="blog-group"><h2 class="group-title">Delete this module</h2><p class="hint">Removes the module and its roster; its invitation code is retired. The blog stays, as do the posts of any other module on it. A module with posts cannot be deleted: delete its posts from Review posts first, or keep the module and reuse it next year.</p><p class="actions"><button class="btn danger" id="delete-module">Delete module</button></p><p class="auth-msg" id="delete-msg" aria-live="polite"></p></section>` : ''}</div>`;
+  app.querySelector('#delete-module')?.addEventListener('click', async e => {
+    if (!confirm(`Delete the module ${moduleLabel(m)}? Its students lose their place in it and its invitation code stops working. This cannot be undone.`)) return;
+    e.target.disabled = true;
+    try { await store.deleteModule(m.id); toast('Module deleted.'); navigate('/my-modules'); }
+    catch (err) { app.querySelector('#delete-msg').textContent = err.message; e.target.disabled = false; }
+  });
   const form = app.querySelector('form'), modeInputs = [...form.querySelectorAll('[name=blogMode]')];
   const sync = () => { const mode = form.querySelector('[name=blogMode]:checked')?.value || 'new'; form.querySelector('.new-blog').hidden = mode !== 'new'; const sel = form.querySelector('[name=blogId]'); if (sel) sel.closest('label').hidden = mode !== 'existing'; };
   modeInputs.forEach(i => i.onchange = sync); sync();

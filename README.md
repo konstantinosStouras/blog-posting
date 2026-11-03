@@ -52,7 +52,11 @@ own module's posts.
 - Admin → Invite instructor generates an email-bound instructor invitation, a
   code and a link which prefills it. Instructor invitations expire
   after seven days and are single-use.
-- Instructors create several modules from My modules → Create module.
+- Instructors create several modules from My modules → Create module, and
+  delete one they teach from its Settings page (the admin, any module): the
+  roster and the blog memberships it brought go with it and its invitation
+  code is retired; the blog stays. A module with posts is not deleted until
+  its posts are deleted from Review posts.
 - Each public canvas has a stable `/module/<url-name>` address.
 - My modules → Invite students gives the module its invitation: one of eight
   fixed cities (madrid, dublin, paris, berlin, athens, seattle, singapore,
