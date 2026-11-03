@@ -257,6 +257,13 @@ test('poll votes are one per poll and account on published posts, changeable, co
  await assertFails(setDoc(doc(d,'posts/published/votes/poll-a_peer'),{...vote,option:42}));
  await assertFails(setDoc(doc(d,'posts/draft/votes/poll-a_peer'),vote));
  await assertFails(getDocs(query(collection(env.unauthenticatedContext().firestore(),'posts/published/votes'),where('pollId','==','poll-a'))));
+test('bookmarks are two id lists an account keeps on its own profile',async()=>{
+ const d=db('student','student@ucdconnect.ie');
+ await assertSucceeds(setDoc(doc(d,'profiles/student'),{bookmarkedPosts:arrayUnion('published'),bookmarkedComments:arrayUnion('comment')},{merge:true}));
+ await assertSucceeds(setDoc(doc(d,'profiles/student'),{bookmarkedPosts:arrayRemove('published')},{merge:true}));
+ await assertFails(setDoc(doc(d,'profiles/student'),{bookmarkedPosts:'published'},{merge:true}));
+ await assertFails(setDoc(doc(db('peer','peer@ucd.ie'),'profiles/student'),{bookmarkedPosts:arrayUnion('published')},{merge:true}));
+});
  await assertSucceeds(getDocs(query(collection(d,'posts/published/votes'),where('pollId','==','poll-a'))));
 });
 test('the writer may probe a fresh post id and save a first draft under it',async()=>{

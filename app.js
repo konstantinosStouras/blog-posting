@@ -190,6 +190,7 @@ const ICON = {
   arrowLeft: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
   arrowRight: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   pdf: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 17v-4h1.6a1.4 1.4 0 0 1 0 2.8H8.5M12.6 13h1.2a2 2 0 0 1 0 4h-1.2zM16.4 17v-4h2.4M16.4 15h2"/></svg>',
+  star: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8Z"/></svg>',
 };
 // A friendly, author-only note when a post went live after the module deadline. Nobody else sees it;
 // the deadline is informational and the public byline shows only the title, pen name and date.
@@ -229,7 +230,7 @@ function postSideHtml(p, {u, module, blog, words, context}) {
 }
 function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me = null, preview = false} = {}) {
   const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
-  const liked = !!me && likes.includes(me.uid);
+  const liked = !!me && likes.includes(me.uid), saved = !!me && (me.bookmarkedPosts || []).includes(p.id);
   return `<header class="post-head">
     ${p.category || (p.industries || []).length ? `<div class="cat">${p.category ? `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a>` : ''}${(p.industries || []).map(s => `<a class="industry" href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?industry=${esc(s)}">${esc(industryName(s))}</a>`).join('')}</div>` : ''}
     <h1>${esc(p.title || 'Untitled')}</h1>
@@ -239,6 +240,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
       <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes.length || ''}</span></button>
       <a class="react" href="#comments" data-comments aria-label="Comments">${ICON.comment}<span>${comments || ''}</span></a>
       <span class="grow"></span>
+      <button type="button" class="react ${saved ? 'on' : ''}" data-bookmark ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${saved}" aria-label="Bookmark" title="${saved ? 'Bookmarked: find it on your profile' : 'Bookmark this post'}">${ICON.star}</button>
       <button type="button" class="react wide" data-share ${preview ? 'disabled' : ''}>${ICON.share}<span>Share</span></button>
       <button type="button" class="react" data-pdf ${preview ? 'disabled' : ''} aria-label="Save as PDF" title="Save as PDF">${ICON.pdf}</button>
     </div></header>
@@ -304,6 +306,12 @@ async function postView(slug, blogId = null) {
   $app.querySelector('[data-share]').onclick = () => openShare(p, {blog, module});
   $app.querySelector('[data-pdf]').onclick = () => printPost(p, blog);
   $app.querySelector('[data-like]').onclick = async e => {
+  // A bookmark is the reader's own: it lives on their profile (bookmarkedPosts), and the profile page lists it.
+  $app.querySelector('[data-bookmark]').onclick = async e => {
+    const b = e.currentTarget;
+    if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
+    try { const n = await store.toggleBookmark('post', p.id); b.classList.toggle('on', n.on); b.setAttribute('aria-pressed', n.on); b.title = n.on ? 'Bookmarked: find it on your profile' : 'Bookmark this post'; toast(n.on ? 'Bookmarked. Find it on your profile.' : 'Bookmark removed.'); } catch (err) { toast(err.message, 'error'); }
+  };
     const b = e.currentTarget;
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
     try { const n = await store.toggleLike(p.id, u); b.classList.toggle('on', n.liked); b.setAttribute('aria-pressed', n.liked); b.querySelector('span').textContent = n.count || ''; } catch (err) { toast(err.message, 'error'); }
@@ -312,6 +320,11 @@ async function postView(slug, blogId = null) {
     const del = e.target.closest('[data-del-comment]');
     if (del) { if (confirm('Delete this comment?')) { try { await quietly(() => store.deleteComment(del.dataset.delComment)); await refreshComments(); } catch (err) { return toast(err.message, 'error'); } } return; }
     const like = e.target.closest('[data-like-comment]');
+    const star = e.target.closest('[data-bookmark-comment]');
+    if (star) {
+      try { const n = await store.toggleBookmark('comment', star.dataset.bookmarkComment); star.classList.toggle('on', n.on); star.setAttribute('aria-pressed', n.on); star.title = n.on ? 'Bookmarked: find it on your profile' : 'Bookmark this comment'; star.querySelector('span').textContent = n.on ? 'Saved' : 'Save'; toast(n.on ? 'Comment bookmarked. Find it on your profile.' : 'Bookmark removed.'); } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
     if (like) {
       if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
       try { const n = await quietly(() => store.toggleCommentLike(like.dataset.likeComment, u)); like.classList.toggle('on', n.liked); like.setAttribute('aria-pressed', n.liked); like.querySelector('span').textContent = `Like${n.count ? ` (${n.count})` : ''}`; if (!$app.querySelector('form.reply.inline')) await refreshComments(); } catch (err) { toast(err.message, 'error'); }   // redrawn for the "Liked by" badge, unless a reply is being written
@@ -364,7 +377,7 @@ function threadsHtml(cs, ctx) {
   return tops.map(c => commentHtml(c, ctx, (replies[c.id] || []).sort((a, b) => a.createdAt - b.createdAt))).join('') || (ctx.canReply ? '' : '<p class="muted">No comments yet.</p>');
 }
 function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
-  const likedBy = c.likedBy || [], liked = !!u && likedBy.includes(u.uid);
+  const likedBy = c.likedBy || [], liked = !!u && likedBy.includes(u.uid), saved = !!u && (u.bookmarkedComments || []).includes(c.id);
   const byAuthor = p && c.authorId !== p.authorId && likedBy.includes(p.authorId);   // the post's author liked this comment
   const thread = c.parentId || c.id;
   return `<div class="comment${replies ? '' : ' is-reply'}" id="c-${esc(c.id)}">
@@ -374,6 +387,7 @@ function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
       <button type="button" class="c-act${liked ? ' on' : ''}" data-like-comment="${esc(c.id)}" aria-pressed="${liked}" ${canLike ? '' : 'disabled'}>${ICON.heart}<span>Like${likedBy.length ? ` (${likedBy.length})` : ''}</span></button>
       ${canReply ? `<button type="button" class="c-act" data-reply-to="${esc(thread)}" data-reply-name="${esc(c.authorName)}">${ICON.comment}<span>Reply${replies?.length ? ` (${replies.length})` : ''}</span></button>` : replies?.length ? `<span class="c-act muted">${ICON.comment}<span>${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}</span></span>` : ''}
       <span class="grow"></span>
+      <button type="button" class="c-act star${saved ? ' on' : ''}" data-bookmark-comment="${esc(c.id)}" aria-pressed="${saved}" ${u && !u.preview ? '' : 'disabled'} title="${saved ? 'Bookmarked: find it on your profile' : 'Bookmark this comment'}">${ICON.star}<span>${saved ? 'Saved' : 'Save'}</span></button>
       ${u && can(u, 'editComment', c, S) ? `<button type="button" class="c-act" data-edit-comment="${esc(c.id)}">Edit</button>` : ''}
       ${u && can(u, 'deleteComment', {...c, blogId: p?.blogId}, S) ? `<button type="button" class="c-act danger" data-del-comment="${esc(c.id)}">Delete</button>` : ''}
       <button type="button" class="c-act" data-share-comment="${esc(c.id)}">${ICON.share}<span>Share</span></button>
@@ -595,7 +609,8 @@ async function profileView() {
     <form id="profile" class="two-col">
       <div>${f('firstName', 'First name')}${f('lastName', 'Last name')}</div>
       <div>${f('contactEmail', 'University email', 'Your university contact address, separate from your Google sign-in email.', 'email')}${u.registrationKind !== 'teacher' && u.role === 'student' ? f('studentId', 'University ID', 'Seen only by you and your module teachers.') : ''}${f('affiliation', 'School / university')}${f('website', 'Website (optional)', '', 'url')}<label class="field">LinkedIn profile (optional)<span class="field-row"><input name="linkedin" value="${esc(u.linkedin || '')}" maxlength="200" placeholder="linkedin.com/in/your-name" autocomplete="off"><button type="button" class="btn small" id="linkedin-btn">${u.linkedin ? 'Open profile' : 'Connect LinkedIn'}</button></span><p class="hint">Connect opens your own LinkedIn profile in a new tab: copy its address into this field and save. Once saved, the button opens your profile.</p></label><label class="field">Short bio (optional)<textarea name="bio" maxlength="400" rows="3">${esc(u.bio || '')}</textarea></label></div>
-      <div class="actions"><button class="btn primary">Save profile</button></div></form></div>`;
+      <div class="actions"><button class="btn primary">Save profile</button></div></form>
+    <section class="bookmarks" id="bookmarks" aria-live="polite"><h2>Bookmarks</h2><p class="muted">Loading your bookmarks…</p></section></div>`;
   const badLinkedin = () => toast('That is not a LinkedIn profile address. It should look like linkedin.com/in/your-name.', 'error');
   const li = $app.querySelector('[name=linkedin]'), liBtn = $app.querySelector('#linkedin-btn');
   li.oninput = () => { liBtn.textContent = li.value.trim() ? 'Open profile' : 'Connect LinkedIn'; };
@@ -611,6 +626,48 @@ async function profileView() {
     try { await store.saveProfile(u.uid, d); toast('Profile saved.'); renderHeader(); } catch (err) { toast(err.message, 'error'); }
   };
 }
+  bookmarksSection($app.querySelector('#bookmarks'), u);
+}
+
+// ---------- bookmarks ----------
+// The posts and comments a reader starred (two id lists on their profile), shown with the
+// people who wrote them: a row of person chips narrows both lists to one author. A post that
+// was unpublished, deleted or is out of the reader's reach is left out, as are its comments.
+async function bookmarksSection(el, u) {
+  let picked = '';   // a person's uid, or '' for everyone
+  const [posts, comments] = await Promise.all([
+    Promise.all((u.bookmarkedPosts || []).map(id => store.getPost(id).catch(() => null))).then(rows => rows.filter(p => p && p.status === 'published')),
+    Promise.all((u.bookmarkedComments || []).map(id => store.getComment(id).catch(() => null))).then(rows => rows.filter(Boolean)),
+  ]);
+  const postsOf = Object.fromEntries(posts.map(p => [p.id, p]));
+  await Promise.all([...new Set(comments.map(c => c.postId))].filter(id => !postsOf[id]).map(async id => { postsOf[id] = await store.getPost(id).catch(() => null); }));
+  const data = {posts, comments: comments.filter(c => postsOf[c.postId]?.status === 'published')};
+  const count = s => [s.posts ? `${s.posts} post${s.posts === 1 ? '' : 's'}` : '', s.comments ? `${s.comments} comment${s.comments === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ');
+  const draw = () => {
+    const people = {};
+    const add = (uid, name, k) => { if (!uid) return; const x = people[uid] ||= {uid, name: name || 'student', posts: 0, comments: 0}; x[k]++; };
+    data.posts.forEach(p => add(p.authorId, p.authorName, 'posts')); data.comments.forEach(c => add(c.authorId, c.authorName, 'comments'));
+    const who = Object.values(people).sort((a, b) => (b.posts + b.comments) - (a.posts + a.comments) || a.name.localeCompare(b.name));
+    if (picked && !people[picked]) picked = '';
+    const ps = data.posts.filter(p => !picked || p.authorId === picked).sort(by('publishedAt'));
+    const cs = data.comments.filter(c => !picked || c.authorId === picked).sort(by('createdAt'));
+    const byPost = groupBy(cs, c => c.postId);
+    el.innerHTML = `<h2>Bookmarks</h2><p class="page-sub">The posts and comments you starred, and the people who wrote them.</p>
+      ${!data.posts.length && !data.comments.length ? `<p class="muted empty-bm">Nothing bookmarked yet. The ${ICON.star} on a post, or <b>Save</b> under a comment, keeps it here.</p>` : `
+      <div class="bm-people" role="group" aria-label="People"><button type="button" class="chip${picked ? '' : ' on'}" data-person="" aria-pressed="${!picked}">Everyone <span class="n">${count({posts: data.posts.length, comments: data.comments.length})}</span></button>${who.map(x => `<button type="button" class="chip${picked === x.uid ? ' on' : ''}" data-person="${esc(x.uid)}" aria-pressed="${picked === x.uid}"><span class="avatar">${esc((x.name || '?')[0].toUpperCase())}</span>${esc(x.name)} <span class="n">${count(x)}</span></button>`).join('')}</div>
+      ${picked ? `<p class="muted bm-pick">Showing what <a href="/author/${esc(picked)}"><b>${esc(people[picked].name)}</b></a> wrote. <button type="button" class="linkish" data-person="">Show everyone</button></p>` : ''}
+      ${ps.length ? `<h3>Posts <span class="n">${ps.length}</span></h3><ul class="bm-list">${ps.map(p => `<li><a class="t" href="${postPath(p)}">${esc(p.title || 'Untitled')}</a><span class="muted">by <a href="/author/${esc(p.authorId || '')}">${esc(p.authorName || 'student')}</a>${blogOf(p) ? ` · ${esc(blogOf(p).title)}` : ''} · ${fmtDate(p.publishedAt || p.updatedAt)}</span><span class="grow"></span><button type="button" class="linkish" data-unstar-post="${esc(p.id)}">Remove</button></li>`).join('')}</ul>` : ''}
+      ${cs.length ? `<h3>Comments <span class="n">${cs.length}</span></h3>${Object.entries(byPost).map(([pid, rows]) => { const p = postsOf[pid]; return `<p class="bm-on">On <a href="${postPath(p)}">${esc(p.title || 'Untitled')}</a> <span class="muted">by ${esc(p.authorName || 'student')}</span></p><ul class="bm-list">${rows.map(c => `<li><span class="avatar">${esc((c.authorName || '?')[0].toUpperCase())}</span><a href="/author/${esc(c.authorId || '')}"><b>${esc(c.authorName || 'student')}</b></a><span class="muted">${fmtDateTime(c.createdAt)}</span><span class="grow"></span><a href="${postPath(p)}#c-${esc(c.id)}">Open</a><button type="button" class="linkish" data-unstar-comment="${esc(c.id)}">Remove</button><p class="c-body">${esc(c.body.length > 280 ? c.body.slice(0, 280).trimEnd() + '…' : c.body)}</p></li>`).join('')}</ul>`; }).join('')}` : ''}`}`;
+  };
+  draw();
+  if (location.hash === '#bookmarks') el.scrollIntoView();
+  el.onclick = async e => {
+    const who = e.target.closest('[data-person]'); if (who) { picked = who.dataset.person; draw(); return; }
+    const up = e.target.closest('[data-unstar-post]'), uc = e.target.closest('[data-unstar-comment]'); if (!up && !uc) return;
+    try { await store.toggleBookmark(up ? 'post' : 'comment', up ? up.dataset.unstarPost : uc.dataset.unstarComment); } catch (err) { return toast(err.message, 'error'); }
+    if (up) data.posts = data.posts.filter(p => p.id !== up.dataset.unstarPost); else data.comments = data.comments.filter(c => c.id !== uc.dataset.unstarComment);
+    toast('Bookmark removed.'); draw();
+  };
 
 // ---------- instructor area ----------
 // Posts, review queue, comments and roster for the modules an instructor teaches and

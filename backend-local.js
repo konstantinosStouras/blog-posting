@@ -146,7 +146,17 @@ export const local = {
   },
 
   // ---- comments ----
+  // ---- bookmarks: two id lists on the reader's own profile ----
+  async toggleBookmark(kind, id) {
+    const u = me(); if (!u) throw Error('Sign in to bookmark.');
+    const row = state.users.find(x => x.uid === u.uid), key = kind === 'comment' ? 'bookmarkedComments' : 'bookmarkedPosts';
+    row[key] = row[key] || []; const i = row[key].indexOf(id);
+    if (i >= 0) row[key].splice(i, 1); else row[key].push(id);
+    save(); return {on: i < 0, count: row[key].length};
+  },
+
   async listComments(postId) { return delay(structuredClone(state.comments.filter(c => c.postId === postId).sort((a, b) => a.createdAt - b.createdAt))); },
+  async getComment(id) { return delay(structuredClone(state.comments.find(c => c.id === id) || null)); },
   async recentComments(n = 5) { return delay(structuredClone([...state.comments].sort((a, b) => b.createdAt - a.createdAt).slice(0, n))); },
   // A reply names its parent (one level: a reply to a reply joins the same thread).
   async addComment({postId, body, parentId = ''}, user) {

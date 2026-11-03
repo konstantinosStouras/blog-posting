@@ -19,7 +19,7 @@ export async function initStore() {
 let preview = null;
 export const setStorePreview = p => { preview = p; access = null; };
 const WRITES = new Set(['register', 'completeRegistration', 'saveBlog', 'saveModule', 'joinModule', 'createModuleInvite', 'revokeModuleInvite', 'createTeacherInvite', 'revokeTeacherInvite', 'acceptTeacherInvite',
-  'saveWritingHistory', 'savePost', 'deletePost', 'votePoll', 'toggleLike', 'addComment', 'deleteComment', 'saveGraderConfig', 'saveAiReview', 'saveProfile', 'setRole', 'updateFeedback', 'deleteFeedback', 'saveSettings', 'resetDemo']);
+  'saveWritingHistory', 'savePost', 'deletePost', 'votePoll', 'toggleLike', 'toggleBookmark', 'addComment', 'deleteComment', 'saveGraderConfig', 'saveAiReview', 'saveProfile', 'setRole', 'updateFeedback', 'deleteFeedback', 'saveSettings', 'resetDemo']);
 const scopeModules = (rows, p) => p.kind === 'student' ? rows.filter(m => m.id === p.moduleId).map(m => ({...m, teaching: false})) : rows.filter(m => (m.teacherIds || []).includes(p.uid)).map(m => ({...m, teaching: true}));
 // Who may read what. Signed out: nothing. A student: the blog(s) of the module(s) they
 // belong to. An instructor: the blogs of their modules and the blogs they own. The admin:
