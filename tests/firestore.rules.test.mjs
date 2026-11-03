@@ -111,14 +111,16 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await assertFails(setDoc(doc(teacher,'peerRounds/one'),{moduleId:'one',status:'open',updatedAt:time}));
  await assertFails(setDoc(doc(admin,'peerRounds/one'),{moduleId:'one',status:'paused',updatedAt:time}));
  // the assignment: the admin only, never one's own post, never a draft, never a non-member, never with a grade
- await assertSucceeds(setDoc(doc(admin,'peerReviews/'+id),row));
+ // (each refusal is tried before the row exists: a set on an existing document is an update, not a create)
  await assertFails(setDoc(doc(teacher,'peerReviews/'+id),row));
  await assertFails(setDoc(doc(admin,'peerReviews/one_published_student'),{...row,postId:'published',authorId:'student'}));
  await assertFails(setDoc(doc(admin,'peerReviews/one_draft_other'),{...row,postId:'draft',authorId:'student',reviewerUid:'other'}));
  await assertFails(setDoc(doc(admin,'peerReviews/one_other-published_peer'),{...row,reviewerUid:'peer'}));
- await assertFails(setDoc(doc(admin,'peerReviews/one_other-published_student'),{...row,authorId:'student'}));
+ await assertFails(setDoc(doc(admin,'peerReviews/'+id),{...row,authorId:'student'}));
  await assertFails(setDoc(doc(admin,'peerReviews/wrong-id'),row));
- await assertFails(setDoc(doc(admin,'peerReviews/'+id),{...row,grade:8}));
+ await assertFails(setDoc(doc(admin,'peerReviews/'+id),{...row,grade:8}));   // the grade comes from the reviewer, never with the assignment
+ await assertSucceeds(setDoc(doc(admin,'peerReviews/'+id),row));
+ await assertSucceeds(setDoc(doc(admin,'peerReviews/'+id),{...row,order:2}));   // once assigned, the admin may correct a row within its shape
  // reading: the reviewer and the admin; not the author, not another instructor, not a classmate
  await assertSucceeds(getDoc(doc(student,'peerReviews/'+id)));
  await assertSucceeds(getDocs(query(collection(student,'peerReviews'),where('reviewerUid','==','student'))));
@@ -270,7 +272,10 @@ test('teachers moderate posts in their modules and on the blogs they own, and re
  await assertFails(deleteDoc(doc(d,'posts/other-draft')));
  await assertFails(deleteDoc(doc(db('student'),'posts/peer-published')));
  await assertFails(deleteDoc(doc(db('peer','peer@ucd.ie'),'posts/peer-published')));
- await assertSucceeds(deleteDoc(doc(db('student'),'posts/draft')));
+ // an author deletes their own post only while it is unpublished: posts/draft went live at the top of this test
+ await assertFails(deleteDoc(doc(db('student'),'posts/draft')));
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'posts/own-draft'),post()));
+ await assertSucceeds(deleteDoc(doc(db('student'),'posts/own-draft')));
 });
 test('teachers create blogs and modules on their own blogs only; nobody appoints other teachers',async()=>{
  const d=db('teacher-one');
