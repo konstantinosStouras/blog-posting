@@ -1,0 +1,26 @@
+# Backstop for the pre-commit hook: a commit made without it (the GitHub web editor, a
+# checkout that never ran npm install) gets its cache stamp here, so index.html always
+# names the modules it was published with (tools/stamp.mjs explains the stamp).
+name: Cache stamp
+on:
+  push:
+    branches: [main]
+    paths: ['*.js', 'styles.css', 'index.html']
+permissions:
+  contents: write
+concurrency: cache-stamp
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/stamp.mjs
+      - name: Commit the stamp
+        run: |
+          if git diff --quiet -- index.html; then echo "Already stamped."; exit 0; fi
+          git -c user.name='Cache stamp' -c user.email='actions@users.noreply.github.com' commit -m 'Cache stamp for the published modules' -- index.html
+          git pull --rebase
+          git push

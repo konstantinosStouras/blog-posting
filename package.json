@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "stamp": "node tools/stamp.mjs",
     "test": "node --test tests/registration.test.mjs tests/permissions.test.mjs tests/people.test.mjs tests/writing-time.test.mjs tests/ai-grading.test.mjs tests/aliases.test.mjs tests/feedback.test.mjs tests/router.test.mjs tests/linkedin.test.mjs tests/share-pages.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project demo-ucd-blog \"node --test tests/firestore.rules.test.mjs\""
   },

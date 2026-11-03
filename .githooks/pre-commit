@@ -1,0 +1,5 @@
+#!/bin/sh
+# Every commit carries the cache stamp of the files it commits (tools/stamp.mjs), so a
+# deploy never serves a page that mixes old and new cached modules. Switched on once
+# per checkout by `npm install` (package.json "prepare": git config core.hooksPath .githooks).
+node tools/stamp.mjs --index

@@ -199,6 +199,12 @@ Push this repository, then update only the `ucd-blog` submodule pointer on the
 `master` branch of `konstantinosStouras.github.io`. GitHub Pages serves that site
 at stouras.com. Always pass `--project stouras-ucd-blog` when deploying rules.
 
+Every module and the stylesheet are addressed with `?v=<stamp>` in `index.html`, a
+hash of their contents (`tools/stamp.mjs`). The pre-commit hook in `.githooks`
+(switched on by `npm install`) writes it into each commit, and the Cache stamp
+workflow adds it to any commit made without the hook, so a browser that kept old
+files from a previous visit never runs them beside new ones. `npm run stamp` by hand.
+
 ## First-time blog setup
 
 The one-off walkthrough for creating the Project Management and Operations
