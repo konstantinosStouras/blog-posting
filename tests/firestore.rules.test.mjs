@@ -128,15 +128,35 @@ test('signed-out visitors see blog and module titles only: no posts, comments, d
  await assertFails(getDoc(doc(d,'posts/published')));
  await assertFails(getDocs(collection(d,'comments')));
  await assertFails(getDoc(doc(d,'posts/draft')));
- const member=db('peer','peer@ucd.ie');   // signed in, published posts and comments can be read
- await assertSucceeds(getDocs(query(collection(member,'posts'),where('status','==','published'))));
- await assertSucceeds(getDoc(doc(member,'posts/published')));
- await assertSucceeds(getDocs(collection(member,'comments')));
+ const member=db('peer','peer@ucd.ie');   // signed in, the published posts and comments of one's own module can be read, and a query names that module
+ await assertSucceeds(getDocs(query(collection(member,'posts'),where('moduleId','==','three'),where('status','==','published'))));
+ await assertSucceeds(getDoc(doc(member,'posts/peer-published')));
+ await assertSucceeds(getDocs(query(collection(member,'comments'),where('moduleId','==','three'))));
+ await assertFails(getDocs(query(collection(member,'posts'),where('status','==','published'))));
+ await assertFails(getDocs(collection(member,'comments')));
  await assertFails(getDoc(doc(d,'profiles/student')));
  await assertFails(getDocs(collection(d,'modules/one/members')));
  await assertFails(getDocs(collection(d,'blogs/pm/members')));
  await assertFails(getDoc(doc(d,'teacherInvites/valid')));
  await assertFails(setDoc(doc(d,'comments/anon'),comment({authorId:'anon'})));
+});
+test('a student reads the published posts of their own module only, not those of another module on the same blog or of another instructor',async()=>{
+ const d=db('student','student@ucdconnect.ie');   // student is in module one; peer in module three, which shares the pm blog
+ await assertSucceeds(getDoc(doc(d,'posts/published')));
+ await assertSucceeds(getDocs(query(collection(d,'posts'),where('moduleId','==','one'),where('status','==','published'))));
+ await assertSucceeds(getDocs(query(collection(d,'posts'),where('slug','==','test-post'),where('moduleId','==','one'),where('status','==','published'))));
+ await assertSucceeds(getDoc(doc(d,'posts/published/content/body')));
+ await assertFails(getDoc(doc(d,'posts/peer-published')));
+ await assertFails(getDoc(doc(d,'posts/peer-published/content/body')));
+ await assertFails(getDocs(query(collection(d,'posts'),where('moduleId','==','three'),where('status','==','published'))));
+ await assertFails(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));   // the whole blog is the owner's view, not a student's
+ await assertFails(getDocs(query(collection(d,'posts'),where('moduleId','==','two'),where('status','==','published'))));
+ await assertFails(getDocs(query(collection(d,'posts'),where('moduleId','==','one'))));   // drafts of classmates stay private
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'comments/peer-comment'),comment({postId:'peer-published',moduleId:'three',authorId:'peer'})));
+ await assertSucceeds(getDocs(query(collection(d,'comments'),where('postId','==','published'),where('moduleId','==','one'))));
+ await assertFails(getDocs(query(collection(d,'comments'),where('postId','==','peer-published'),where('moduleId','==','three'))));
+ await assertFails(getDoc(doc(d,'comments/peer-comment')));
+ await assertFails(getDocs(query(collection(d,'comments'),where('blogId','==','pm'))));
 });
 test('student ownership and module membership constrain posts; posts carry their module’s blog',async()=>{
  const d=db('student','student@ucdconnect.ie');
@@ -209,13 +229,14 @@ test('module approval and submission controls cannot be bypassed',async()=>{
  await env.withSecurityRulesDisabled(c=>updateDoc(doc(c.firestore(),'modules/one'),{submissionsOpen:false}));
  await assertFails(setDoc(doc(d,'posts/closed'),post()));
 });
-test('members of any module on a blog may comment on its published posts; the blog decides whether comments are open',async()=>{
+test('members of a module comment on its published posts and on no other module’s; the blog decides whether comments are open',async()=>{
  const d=db('student','student@ucdconnect.ie');
  await assertSucceeds(setDoc(doc(d,'comments/new'),comment()));
- // peer belongs to module three, which shares the pm blog with module one
- await assertSucceeds(setDoc(doc(db('peer','peer@ucd.ie'),'comments/cross-module'),comment({authorId:'peer'})));
- // an instructor who joined the blog through a guest module comments under a staff pen name, not an alias
- await env.withSecurityRulesDisabled(c=>{const f=c.firestore();return Promise.all([setDoc(doc(f,'modules/guest'),mod('teacher-two','pm')),setDoc(doc(f,'blogs/pm/members/teacher-two'),{uid:'teacher-two',moduleId:'guest',joinedAt:time}),setDoc(doc(f,'profiles/teacher-two'),{...profile('two@ucd.ie'),studentId:'',registrationKind:'teacher',penName:'dr_two'})]);});
+ // peer belongs to module three, which shares the pm blog with module one: module one's posts are out of peer's reach
+ await assertFails(setDoc(doc(db('peer','peer@ucd.ie'),'comments/cross-module'),comment({authorId:'peer'})));
+ await assertSucceeds(setDoc(doc(db('peer','peer@ucd.ie'),'comments/own-module'),comment({authorId:'peer',postId:'peer-published',moduleId:'three'})));
+ // an instructor of a guest module on the blog reaches that module's posts only; enrolled in a module, they comment under a staff pen name, not an alias
+ await env.withSecurityRulesDisabled(c=>{const f=c.firestore();return Promise.all([setDoc(doc(f,'modules/guest'),mod('teacher-two','pm')),setDoc(doc(f,'blogs/pm/members/teacher-two'),{uid:'teacher-two',moduleId:'guest',joinedAt:time}),setDoc(doc(f,'modules/one/members/teacher-two'),{...member('teacher-two'),email:'teacher-two@ucd.ie',contactEmail:'teacher-two@ucd.ie'}),setDoc(doc(f,'profiles/teacher-two'),{...profile('two@ucd.ie'),studentId:'',registrationKind:'teacher',penName:'dr_two'})]);});
  await assertSucceeds(setDoc(doc(db('teacher-two'),'comments/staff-cross'),comment({authorId:'teacher-two',authorName:'dr_two'})));
  await assertFails(setDoc(doc(db('teacher-two'),'comments/staff-forged'),comment({authorId:'teacher-two',authorName:'someone-else-101'})));
  await assertFails(setDoc(doc(d,'comments/on-draft'),comment({postId:'draft'})));

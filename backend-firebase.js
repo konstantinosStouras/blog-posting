@@ -6,7 +6,7 @@
 //   registeredUsers/{uid}   contentless registration mark {t}
 //   roles/{uid}             {role: student|lecturer|admin}, written by the admin only
 //   blogs/{id}              a public canvas and its exercise, owned by instructors (teacherIds)
-//   blogs/{id}/members/{uid} link from a module membership, so the whole canvas can comment
+//   blogs/{id}/members/{uid} link from a module membership (a record; reading and commenting go by the module)
 //   modules/{id}            a cohort: roster, invitations, academic year, deadline, blogId
 //   posts/{id}, comments/{id}, settings/site
 import {firebaseConfig, ADMIN_EMAIL} from './firebase-config.js';
@@ -21,13 +21,23 @@ import {randomAlias} from './aliases.js';
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
 let app, auth, db, A, F, user = null, profile = null, role = 'student', settings = {...DEFAULT_SETTINGS};
 let registration = null;
-let managedModuleIds = [], managedBlogIds = [];
+// The account's reach: the modules it teaches, the blogs it owns and the modules it belongs to
+// as a student. Posts and comments are fetched one module (or owned blog) at a time, because the
+// rules let a reader list a module's published posts only when the query names that module.
+let managedModuleIds = [], managedBlogIds = [], memberModuleIds = [];
 async function refreshManaged(self) {
-  if (!user) { managedModuleIds = []; managedBlogIds = []; return; }
+  if (!user) { managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; return; }
   const [modules, blogs] = await Promise.all([self.listModules(), self.listBlogs()]);
   managedModuleIds = modules.filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
   managedBlogIds = blogs.filter(b => b.teacherIds.includes(user.uid)).map(b => b.id);
+  await self.listMyModules();   // sets memberModuleIds
 }
+// Reading a module's posts or comments: the query that the rules admit for this account.
+const readScope = f => ({
+  modules: [...new Set([...memberModuleIds, ...managedModuleIds])].filter(id => !f.moduleId || id === f.moduleId),
+  blogs: managedBlogIds.filter(id => !f.blogId || id === f.blogId),
+});
+const gather = async qs => { const rows = (await Promise.all(qs.map(q => F.getDocs(q).then(s => s.docs.map(norm))))).flat(); return [...new Map(rows.map(r => [r.id, r])).values()]; };
 const listeners = new Set(), notify = () => { forget(); listeners.forEach(fn => fn()); };
 const ts = v => (v && typeof v.toMillis === 'function') ? v.toMillis() : (v ?? null);
 const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['createdAt', 'updatedAt', 'publishedAt']) if (k in o) o[k] = ts(o[k]); return o; };
@@ -137,7 +147,7 @@ export const firebase = {
       A.onAuthStateChanged(auth, async u => {
         user = u; forget();
         if (u) { try { await loadAccount(this, u); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
-        else { profile = null; role = 'student'; managedModuleIds = []; managedBlogIds = []; }
+        else { profile = null; role = 'student'; managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; }
         await site; notify(); resolve();
       });
     });
@@ -241,12 +251,13 @@ export const firebase = {
   async listMyModules() {
     if (!user) return [];
     const modules = await this.listModules();
-    const rows = await Promise.all(modules.map(async m => {
+    const rows = (await Promise.all(modules.map(async m => {
       if (m.teacherIds.includes(user.uid) || role === 'admin') return {...m, teaching: true};
       const member = await F.getDoc(F.doc(db, 'modules', m.id, 'members', user.uid));
       return member.exists() ? {...m, teaching: false} : null;
-    }));
-    return rows.filter(Boolean);
+    }))).filter(Boolean);
+    memberModuleIds = rows.filter(m => !m.teaching).map(m => m.id);
+    return rows;
   },
   async joinModule(id, inviteId = '') {
     if (!user) throw Error('Sign in to join a module.');
@@ -267,7 +278,7 @@ export const firebase = {
     batch.set(ref, {uid:user.uid, ...details, penName:profile.penName, email:user.email, joinedAt,inviteId,lastSeenAt:now,lastSignInAt:Date.parse(user.metadata?.lastSignInTime || '') || now});
     if (m.blogId) batch.set(F.doc(db,'blogs',m.blogId,'members',user.uid), {uid:user.uid, moduleId:id, joinedAt});
     await batch.commit();
-    notify();
+    notify(); await refreshManaged(this);   // the new module's posts are now within reach
   },
   async resolveRegistrationCode(code) {
     const key=normalizeCode(code);
@@ -313,12 +324,15 @@ export const firebase = {
   // ---- posts ----
   async listPosts(f = {}) {
     const col = F.collection(db, 'posts');
-    let q;
-    if (f.authorId) q = F.query(col, F.where('authorId', '==', f.authorId));
-    else if (f.status) q = F.query(col, F.where('status', '==', f.status));
-    else q = F.query(col, F.where('status', '==', 'published')); // staff list everything via listAll()
-    const snap = await F.getDocs(q);
-    let rows = snap.docs.map(norm);
+    let rows;
+    if (f.authorId) rows = (await F.getDocs(F.query(col, F.where('authorId', '==', f.authorId)))).docs.map(norm);
+    else if (role === 'admin') rows = (await F.getDocs(F.query(col, F.where('status', '==', f.status || 'published')))).docs.map(norm);
+    else {
+      // A student reads the published posts of their own module(s), an instructor those of the
+      // modules they teach and every post on the blogs they own: one query per module or blog.
+      const status = f.status || 'published', {modules, blogs} = readScope(f);
+      rows = await gather([...modules.map(id => F.query(col, F.where('moduleId', '==', id), F.where('status', '==', status))), ...blogs.map(id => F.query(col, F.where('blogId', '==', id), F.where('status', '==', status)))]);
+    }
     if (f.status) rows = rows.filter(p => p.status === f.status);
     if (f.moduleId) rows = rows.filter(p => p.moduleId === f.moduleId);
     if (f.blogId) rows = rows.filter(p => p.blogId === f.blogId);
@@ -351,9 +365,16 @@ export const firebase = {
         const owned = await F.getDocs(F.query(col,bySlug,F.where('blogId','==',blogId),F.limit(1)));
         if (!owned.empty) return norm(owned.docs[0]);
       }
+      // A student: the published posts of their own module(s). A post from any other module is
+      // out of reach, whoever teaches it, and reads as missing.
+      for (const moduleId of memberModuleIds) {
+        const peers = await F.getDocs(F.query(col,bySlug,F.where('moduleId','==',moduleId),F.where('status','==','published'),F.limit(1)));
+        if (!peers.empty) return norm(peers.docs[0]);
+      }
+      return null;
     }
-    const filters = staff ? [bySlug] : [bySlug, F.where('status', '==', 'published')];
-    const s = await F.getDocs(F.query(col, ...filters, F.limit(1)));
+    if (!user) return null;   // signed out there is nothing to read; the page asks for a sign-in
+    const s = await F.getDocs(F.query(col, bySlug, F.limit(1)));
     return s.empty ? null : norm(s.docs[0]);
   },
   async savePost(post, u) {
@@ -455,8 +476,25 @@ export const firebase = {
 
   // ---- comments ----
   async getComment(id) { try { const s = await F.getDoc(F.doc(db, 'comments', id)); return s.exists() ? norm(s) : null; } catch { return null; } },
-  async listComments(postId) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', postId))); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt); },
-  async recentComments(n = 5) { const s = await F.getDocs(F.query(F.collection(db, 'comments'), F.orderBy('createdAt', 'desc'), F.limit(n))); return s.docs.map(norm); },
+  // Comments follow their post's module: the rules admit a comment query that names a module the
+  // account belongs to or teaches, or a blog it owns, so each read says which (the post's).
+  async listComments(postId, post = null) {
+    const col = F.collection(db, 'comments'), byPost = F.where('postId', '==', postId);
+    let q = F.query(col, byPost);
+    if (role !== 'admin' && post) {
+      const {modules, blogs} = readScope({});
+      if (modules.includes(post.moduleId)) q = F.query(col, byPost, F.where('moduleId', '==', post.moduleId));
+      else if (blogs.includes(post.blogId)) q = F.query(col, byPost, F.where('blogId', '==', post.blogId));
+    }
+    const s = await F.getDocs(q); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt);
+  },
+  async recentComments(n = 5) {
+    const col = F.collection(db, 'comments');
+    if (role === 'admin') { const s = await F.getDocs(F.query(col, F.orderBy('createdAt', 'desc'), F.limit(n))); return s.docs.map(norm); }
+    const {modules, blogs} = readScope({});   // a module's comments are few: fetched whole, sorted here, so no composite index is needed
+    const rows = await gather([...modules.map(id => F.query(col, F.where('moduleId', '==', id))), ...blogs.map(id => F.query(col, F.where('blogId', '==', id)))]);
+    return rows.sort((a, b) => b.createdAt - a.createdAt).slice(0, n);
+  },
   // A reply names its parent (one level: a reply to a reply joins the same thread).
   async addComment({postId, body, parentId = ''}, u) { if (!user?.emailVerified) throw Error('Verify your sign-in email before commenting.'); const post = await this.getPost(postId); if (!post) throw Error('Post not found.'); const c = {postId, parentId: parentId || '', moduleId:post.moduleId, blogId: post.blogId || '', body, authorId: u.uid, authorName: u.penName || 'student', createdAt: Date.now(), likedBy: []}; const ref = await F.addDoc(F.collection(db, 'comments'), c); notify(); return {id: ref.id, ...c}; },
   // A thread goes with its first comment where the rules allow (staff, or replies of one's own);

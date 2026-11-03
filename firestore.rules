@@ -18,9 +18,11 @@ service cloud.firestore {
     function blogStaff(id) { return isAdmin() || (verified() && hasRole('lecturer') && blogExists(id) && request.auth.uid in get(blogPath(id)).data.teacherIds); }
     // A post's text sits in posts/{id}/content/body, apart from the card fields (backend-firebase.js
     // withBody): these say who may read or write a post, and so its text.
-    function postReadable(p) { return p.status == 'published' || own(p.authorId) || staffOf(p.moduleId) || blogStaff(p.get('blogId','')); }
+    // A published post is read by the students of its own module (and nobody from another module,
+    // whether it shares the blog or belongs to another instructor), by its module's staff and by
+    // the owners of its blog; a draft by its author and those staff.
+    function postReadable(p) { return own(p.authorId) || staffOf(p.moduleId) || blogStaff(p.get('blogId','')) || (p.status == 'published' && memberOf(p.moduleId)); }
     function postWritable(p) { return staffOf(p.moduleId) || blogStaff(p.get('blogId','')) || (own(p.authorId) && memberOf(p.moduleId) && openSubmissions(p.moduleId)); }
-    function blogMember(id) { return signedIn() && id is string && exists(/databases/$(database)/documents/blogs/$(id)/members/$(request.auth.uid)); }
     function moduleBlog(id) { return get(modulePath(id)).data.get('blogId', ''); }
     function own(uid) { return signedIn() && request.auth.uid == uid; }
     function str(field, max) { let v = request.resource.data.get(field, ''); return v is string && v.size() <= max; }
@@ -238,9 +240,10 @@ service cloud.firestore {
     }
     match /posts/{id} {
       allow get: if signedIn() && resource == null;   // the writer checks a fresh id before its first save
-      // Posts, comments, votes and likes are read by signed-in accounts only; the app shows each
-      // person the blog(s) of their modules. Signed out, there is only the front door.
-      allow read: if signedIn() && (resource.data.status == 'published' || own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId));
+      // Signed out, there is only the front door. Signed in, a student reads the published posts of
+      // their own module(s); staff the modules they teach and the blogs they own. A list query must
+      // therefore name the module (or owned blog) it asks for, as backend-firebase.js does.
+      allow read: if signedIn() && (own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId) || (resource.data.status == 'published' && memberOf(resource.data.moduleId)));
       allow create: if verified() && postShape() && request.resource.data.authorId == request.auth.uid
         && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
           || (memberOf(request.resource.data.moduleId) && openSubmissions(request.resource.data.moduleId)
@@ -298,15 +301,16 @@ service cloud.firestore {
       }
     }
     match /comments/{id} {
-      allow read: if signedIn();
+      // A comment is read with its post: by the students of the post's module, its staff and the blog's owners.
+      allow read: if signedIn() && (own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId) || memberOf(resource.data.moduleId));
       allow create: if verified()
         && request.resource.data.keys().hasOnly(['postId','parentId','moduleId','blogId','body','authorId','authorName','createdAt','likedBy'])
         && request.resource.data.get('parentId','') is string && request.resource.data.get('likedBy',[]) == []
         && request.resource.data.authorId == request.auth.uid
         && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
-          || ((memberOf(request.resource.data.moduleId) || blogMember(request.resource.data.blogId))
+          || (memberOf(request.resource.data.moduleId)   // one's own module only: a member of another module on the same blog cannot see the post, let alone comment
             && request.resource.data.authorName == get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('penName','')
-            && (hasRole('lecturer') || request.resource.data.authorName.matches('^([a-z]+-[a-z]+-[0-9]{3}|student_[a-z0-9]+)$'))))   // an instructor on a shared blog comments under a staff pen name
+            && (hasRole('lecturer') || request.resource.data.authorName.matches('^([a-z]+-[a-z]+-[0-9]{3}|student_[a-z0-9]+)$'))))   // an instructor enrolled in a module comments under a staff pen name
         && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
         && str('authorName',60) && request.resource.data.createdAt is number
         && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))

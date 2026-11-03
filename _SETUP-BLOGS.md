@@ -75,8 +75,10 @@ next year's cohort uses the same code, and generating a second code leaves the
 first working until you revoke it. The modules sharing the Project Management
 blog each hand out their own code. Students register with name, university, university email
 and ID, verify their email, and land on the module's blog with a **Write your
-blog post** button. Members of any module on a blog can comment on all of its
-posts; the instructor area still lists posts by module and academic year.
+blog post** button. Students see, and comment on, the posts of their own module
+only, never another module's, even one sharing the blog; you, as the blog's
+owner, see every module on it, and the instructor area lists posts by module
+and academic year.
 
 ## Next year
 
