@@ -127,7 +127,7 @@ export const local = {
     save(); return structuredClone(doc);
   },
   async deletePost(id) { return this.deletePosts([id]); },
-  async deletePosts(ids) { const gone = new Set(ids); state.posts = state.posts.filter(p => !gone.has(p.id)); state.comments = state.comments.filter(c => !gone.has(c.postId)); state.likes = (state.likes || []).filter(l => !gone.has(l.postId)); state.votes = (state.votes || []).filter(v => !gone.has(v.postId)); save(); return []; },
+  async deletePosts(ids) { const gone = new Set(ids); state.posts = state.posts.filter(p => !gone.has(p.id)); state.comments = state.comments.filter(c => !gone.has(c.postId)); state.likes = (state.likes || []).filter(l => !gone.has(l.postId)); state.votes = (state.votes || []).filter(v => !gone.has(v.postId)); state.bookmarks = (state.bookmarks || []).filter(b => !gone.has(b.postId)); save(); return []; },
   async pollVotes(postId, pollId, u) {
     const rows = (state.votes || []).filter(v => v.postId === postId && v.pollId === pollId), counts = {};
     for (const v of rows) counts[v.option] = (counts[v.option] || 0) + 1;
@@ -146,13 +146,20 @@ export const local = {
     save(); return {liked: i < 0, count: state.likes.filter(l => l.postId === postId).length};
   },
 
-  // ---- bookmarks: two id lists on the reader's own profile ----
+  // ---- bookmarks: two id lists on the reader's own profile, plus a marker per reader on the post for the count ----
+  async listBookmarks(postId) { return (state.bookmarks || []).filter(b => b.postId === postId).map(b => b.uid); },
   async toggleBookmark(kind, id) {
     const u = me(); if (!u) throw Error('Sign in to bookmark.');
     const row = state.users.find(x => x.uid === u.uid), key = kind === 'comment' ? 'bookmarkedComments' : 'bookmarkedPosts';
     row[key] = row[key] || []; const i = row[key].indexOf(id);
     if (i >= 0) row[key].splice(i, 1); else row[key].push(id);
-    save(); return {on: i < 0, count: row[key].length};
+    let count = row[key].length;
+    if (kind !== 'comment') {
+      state.bookmarks = (state.bookmarks || []).filter(b => !(b.postId === id && b.uid === u.uid));
+      if (i < 0) state.bookmarks.push({postId: id, uid: u.uid});
+      count = state.bookmarks.filter(b => b.postId === id).length;
+    }
+    save(); return {on: i < 0, count};
   },
 
   // ---- comments ----

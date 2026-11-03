@@ -229,7 +229,7 @@ function postSideHtml(p, {u, module, blog, words, context}) {
       ${row('Industries', (p.industries || []).map(s => `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?industry=${esc(s)}">${esc(industryName(s))}</a>`).join(', '))}
     </dl></aside>`;
 }
-function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me = null, preview = false} = {}) {
+function articleHtml(p, {blog = null, words = null, likes = [], bookmarks = [], comments = 0, me = null, preview = false} = {}) {
   const w = words ?? (p.wordCount ?? wordCount(p.body || ''));
   const liked = !!me && likes.includes(me.uid), saved = !!me && (me.bookmarkedPosts || []).includes(p.id);
   return `<header class="post-head">
@@ -240,7 +240,7 @@ function articleHtml(p, {blog = null, words = null, likes = [], comments = 0, me
     <div class="post-actions-row" role="group" aria-label="Post actions">
       <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes.length || ''}</span></button>
       <a class="react" href="#comments" data-comments aria-label="Comments">${ICON.comment}<span>${comments || ''}</span></a>
-      <button type="button" class="react ${saved ? 'on' : ''}" data-bookmark ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${saved}" aria-label="Bookmark" title="${saved ? 'Bookmarked: find it on your profile' : 'Bookmark this post'}">${ICON.star}</button>
+      <button type="button" class="react ${saved ? 'on' : ''}" data-bookmark ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${saved}" aria-label="Bookmark" title="${saved ? 'Bookmarked: find it on your profile' : 'Bookmark this post'}">${ICON.star}<span>${bookmarks.length || ''}</span></button>
       <span class="grow"></span>
       <button type="button" class="react wide" data-share ${preview ? 'disabled' : ''}>${ICON.share}<span>Share</span></button>
       <button type="button" class="react" data-pdf ${preview ? 'disabled' : ''} aria-label="Save as PDF" title="Save as PDF">${ICON.pdf}</button>
@@ -261,11 +261,11 @@ async function postView(slug, blogId = null) {
   const canParticipate = u && (store.mode !== 'firebase' || u.emailVerified) && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId || (p.blogId && m.blogId === p.blogId)));
   const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
-  const [comments, likes] = await Promise.all([store.listComments(p.id), store.listLikes(p.id)]);
+  const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id), store.listLikes(p.id), store.listBookmarks(p.id)]);
   if (blog) renderHeader(route(), blog);   // a post's masthead is its blog's
   const words = wordCount(p.body);
   $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${module ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<div class="post-layout"><article class="post">
-    ${articleHtml(p, {blog, words, likes, comments: comments.length, me: u})}
+    ${articleHtml(p, {blog, words, likes, bookmarks, comments: comments.length, me: u})}
     <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
     <div class="prevnext">${prev ? `<a class="btn nav-btn" href="${postPath(prev)}" title="${esc(prev.title)}">${ICON.arrowLeft}<span>Previous</span></a>` : '<span></span>'}${next ? `<a class="btn nav-btn" href="${postPath(next)}" title="${esc(next.title)}"><span>Next</span>${ICON.arrowRight}</a>` : '<span></span>'}</div>
     <section class="comments" id="comments"><h2>Discussion about this post</h2>
@@ -310,7 +310,7 @@ async function postView(slug, blogId = null) {
   $app.querySelector('[data-bookmark]').onclick = async e => {
     const b = e.currentTarget;
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
-    try { const n = await store.toggleBookmark('post', p.id); b.classList.toggle('on', n.on); b.setAttribute('aria-pressed', n.on); b.title = n.on ? 'Bookmarked: find it on your profile' : 'Bookmark this post'; toast(n.on ? 'Bookmarked. Find it on your profile.' : 'Bookmark removed.'); } catch (err) { toast(err.message, 'error'); }
+    try { const n = await store.toggleBookmark('post', p.id); b.classList.toggle('on', n.on); b.setAttribute('aria-pressed', n.on); b.title = n.on ? 'Bookmarked: find it on your profile' : 'Bookmark this post'; b.querySelector('span').textContent = n.count || ''; toast(n.on ? 'Bookmarked. Find it on your profile.' : 'Bookmark removed.'); } catch (err) { toast(err.message, 'error'); }
   };
   $app.querySelector('[data-like]').onclick = async e => {
     const b = e.currentTarget;

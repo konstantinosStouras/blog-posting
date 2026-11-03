@@ -257,6 +257,17 @@ test('likes are one per verified account on published posts and countable by sig
  await assertSucceeds(getDocs(collection(d,'posts/published/likes')));
  await assertSucceeds(deleteDoc(doc(d,'posts/published/likes/peer')));
 });
+test('bookmark markers are one per verified account on published posts, countable by signed-in accounts, cleared by staff',async()=>{
+ const d=db('peer','peer@ucd.ie');
+ await assertSucceeds(setDoc(doc(d,'posts/published/bookmarks/peer'),{t:time}));
+ await assertFails(setDoc(doc(d,'posts/published/bookmarks/student'),{t:time}));
+ await assertFails(setDoc(doc(d,'posts/draft/bookmarks/peer'),{t:time}));
+ await assertFails(setDoc(doc(db('peer','peer@ucd.ie',false),'posts/peer-published/bookmarks/peer'),{t:time}));
+ await assertFails(getDocs(collection(env.unauthenticatedContext().firestore(),'posts/published/bookmarks')));
+ await assertSucceeds(getDocs(collection(d,'posts/published/bookmarks')));
+ await assertFails(deleteDoc(doc(db('student','student@ucdconnect.ie'),'posts/published/bookmarks/peer')));
+ await assertSucceeds(deleteDoc(doc(db('teacher-one'),'posts/published/bookmarks/peer')));
+});
 test('bookmarks are two id lists an account keeps on its own profile',async()=>{
  const d=db('student','student@ucdconnect.ie');
  await assertSucceeds(setDoc(doc(d,'profiles/student'),{bookmarkedPosts:arrayUnion('published'),bookmarkedComments:arrayUnion('comment')},{merge:true}));

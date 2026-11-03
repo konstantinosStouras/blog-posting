@@ -273,6 +273,15 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if own(uid) || postStaff(id);
       }
+      // Bookmarks: a marker per verified reader on a published post, so the star can show how many kept it.
+      // The reader's own list lives on their profile; this marker holds nothing but a time.
+      match /bookmarks/{uid} {
+        allow read: if signedIn();
+        allow create: if own(uid) && verified() && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t is number
+          && get(/databases/$(database)/documents/posts/$(id)).data.status == 'published';
+        allow update: if false;
+        allow delete: if own(uid) || postStaff(id);
+      }
     }
     match /comments/{id} {
       allow read: if signedIn();

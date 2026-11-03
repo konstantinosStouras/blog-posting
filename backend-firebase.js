@@ -106,8 +106,8 @@ const MEMOED = ['listModules', 'getModule', 'listBlogs', 'getBlog', 'listMyModul
 // goes in several, with the post itself in the last one.
 async function removePost(id) {
   if (role === 'student') { await F.deleteDoc(F.doc(db, 'posts', id)); return; }
-  const [cs, ls, vs] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes')), F.getDocs(F.collection(db, 'posts', id, 'votes'))]);
-  const refs = [...cs.docs, ...ls.docs, ...vs.docs].map(d => d.ref);
+  const [cs, ls, vs, bs] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes')), F.getDocs(F.collection(db, 'posts', id, 'votes')), F.getDocs(F.collection(db, 'posts', id, 'bookmarks'))]);
+  const refs = [...cs.docs, ...ls.docs, ...vs.docs, ...bs.docs].map(d => d.ref);
   let b = F.writeBatch(db), n = 0;
   for (const r of refs) { b.delete(r); if (++n === 450) { await b.commit(); b = F.writeBatch(db); n = 0; } }
   b.delete(F.doc(db, 'posts', id)); await b.commit();
@@ -396,13 +396,22 @@ export const firebase = {
     const likes = await this.listLikes(postId); return {liked: !had, count: likes.length};
   },
 
-  // ---- bookmarks: two id lists (posts, comments) on the reader's own profile; the rules let only its owner write them ----
+  // ---- bookmarks: two id lists (posts, comments) on the reader's own profile, which only its owner may write.
+  // A bookmarked post also carries a marker per reader (posts/{id}/bookmarks/{uid}, as likes do), so the star
+  // can show how many readers kept it; the marker names nobody beyond a uid, and the app shows only the number. ----
+  async listBookmarks(postId) { try { const s = await F.getDocs(F.collection(db, 'posts', postId, 'bookmarks')); return s.docs.map(d => d.id); } catch { return []; } },
   async toggleBookmark(kind, id) {
     if (!user) throw Error('Sign in to bookmark.');
     const key = kind === 'comment' ? 'bookmarkedComments' : 'bookmarkedPosts', had = (profile?.[key] || []).includes(id);
     await F.setDoc(F.doc(db, 'profiles', user.uid), {[key]: had ? F.arrayRemove(id) : F.arrayUnion(id)}, {merge: true});
     profile = {...profile, [key]: had ? (profile?.[key] || []).filter(x => x !== id) : [...(profile?.[key] || []), id]};
-    return {on: !had, count: profile[key].length};
+    let count = profile[key].length;
+    if (kind !== 'comment') {
+      const ref = F.doc(db, 'posts', id, 'bookmarks', user.uid);
+      try { if (had) await F.deleteDoc(ref); else await F.setDoc(ref, {t: Date.now()}); } catch {}   // the marker feeds the count only: an unverified account keeps its private bookmark without one
+      count = (await this.listBookmarks(id)).length;
+    }
+    return {on: !had, count};
   },
 
   // ---- comments ----
