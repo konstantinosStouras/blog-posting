@@ -155,7 +155,12 @@ export function card(p, st = current || {f: parseFilters(''), base: '/posts', ca
   const kicker = [...orgList(p.organisation).map(org => `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>`), p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : '', ...(p.industries || []).map(s => `<a href="${link({industry: s})}" data-set="industry" data-v="${esc(s)}" class="industry" title="All posts in ${esc(industryName(s))}">${esc(industryName(s))}</a>`)].filter(Boolean).join('');
   const pickable = st.selecting && st.bulk?.canDelete(p), on = pickable && st.selected.has(p.id);
   const pick = !st.selecting ? '' : pickable ? `<label class="pick"><input type="checkbox" data-pick="${esc(p.id)}" ${on ? 'checked' : ''} aria-label="Select ${esc(p.title)}">${on ? 'Selected' : 'Select'}</label>` : `<span class="pick locked" title="Not in a module or on a blog you teach">Not yours to moderate</span>`;
-  return `<article class="card ${img ? '' : 'noimage'}${st.selecting ? (pickable ? ' selectable' : ' locked') : ''}${on ? ' selected' : ''}" ${pickable ? `data-card="${esc(p.id)}"` : ''}>${pick}${img}
+  // The whole card opens the post: a cover link fills it beneath the visible links, so the
+  // image, the title, the excerpt and the space between them all lead there, while the
+  // organisation, category, tag and byline links on top keep filtering the canvas. In select
+  // mode there is no cover, since a click on the card ticks it instead.
+  const cover = st.selecting ? '' : `<a class="cover" href="${postPath(p)}" aria-hidden="true" tabindex="-1"></a>`;
+  return `<article class="card ${img ? '' : 'noimage'}${st.selecting ? (pickable ? ' selectable' : ' locked') : ''}${on ? ' selected' : ''}" ${pickable ? `data-card="${esc(p.id)}"` : ''}>${cover}${pick}${img}
     ${kicker ? `<div class="kicker">${kicker}</div>` : ''}
     <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
     <p>${esc(p.excerpt || excerptOf(p.text ?? p.body ?? ''))}</p>

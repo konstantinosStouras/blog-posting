@@ -132,7 +132,11 @@ dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background
 
 /* ---- post canvas ---- */
 .canvas { columns: 3 280px; column-gap: 28px; }
-.card { break-inside: avoid; display: inline-block; width: 100%; margin: 0 0 36px; vertical-align: top; }
+.card { break-inside: avoid; display: inline-block; width: 100%; margin: 0 0 36px; vertical-align: top; position: relative; }
+/* The cover link makes the whole card open its post; the visible links sit above it and keep their own targets. */
+.card .cover { position: absolute; inset: 0; z-index: 1; }
+.card .kicker, .card .tags, .card .meta, .card h2 .badge { position: relative; z-index: 2; }
+.card:hover h2 a { text-decoration: underline; }
 .card .thumb { display: block; aspect-ratio: 16/10; object-fit: cover; width: 100%; background: var(--soft); margin-bottom: 14px; }
 .card .thumb.placeholder { display: grid; place-items: center; font: 700 42px var(--serif); color: #bbb; }
 .card.noimage { border-top: 2px solid var(--rule); padding-top: 12px; }

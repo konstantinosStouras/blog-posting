@@ -92,11 +92,11 @@ async function doRender() {
 // a page waits for the database before it draws, and scrolling first showed the old page
 // jump to its top and sit there until the new one replaced it.
 let scrollPending = false;
-const pageDrawn = new MutationObserver(() => { if (scrollPending) { scrollPending = false; window.scrollTo(0, 0); } });
+const pageDrawn = new MutationObserver(() => { if (scrollPending) { scrollPending = false; window.scrollTo({top: 0, behavior: 'instant'}); } });   // instant: the smooth scrolling is for in-page anchors
 pageDrawn.observe($app, {childList: true});
 // After a page is drawn: a link that named an anchor (/2026/10/post#comments) scrolls to it.
 function landed(seq) {
-  if (scrollPending) { scrollPending = false; if (pageDrawn.takeRecords().length) window.scrollTo(0, 0); }   // drawn, but the observer has not run yet
+  if (scrollPending) { scrollPending = false; if (pageDrawn.takeRecords().length) window.scrollTo({top: 0, behavior: 'instant'}); }   // drawn, but the observer has not run yet
   const id = location.hash.slice(1);
   if (id) { const go = () => document.getElementById(id)?.scrollIntoView({block: 'start'}); go(); setTimeout(go, 400); setTimeout(go, 1200); }   // repeated: images and embeds shift the layout as they load
   renderFooter(seq);
