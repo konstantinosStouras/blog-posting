@@ -330,6 +330,23 @@ table.list select { padding: 3px 6px; border: 1px solid var(--line); border-radi
 .canvas-sort { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 .canvas-sort select, .canvas-facets select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 13px; color: var(--ink); }
 .canvas-count { font-size: 13px; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+/* select mode (staff): tick cards, act on them from the bar */
+.canvas-select[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.canvas-bulk { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; margin: -4px 0 16px; padding: 8px 12px; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.canvas-bulk:empty { display: none; }
+.canvas-bulk .bulk-count { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 80px; }
+.canvas-bulk .bulk-hint { color: var(--muted); font-size: 12px; }
+.canvas-bulk .linkish[disabled] { color: var(--muted); cursor: default; }
+.canvas-bulk [data-bulk-delete] { margin-left: auto; background: #fff; }
+.canvas-bulk [data-bulk-delete]:not([disabled]):hover { background: var(--bad); color: #fff; }
+.card .pick { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.card .pick input { width: 18px; height: 18px; accent-color: var(--blue); cursor: pointer; margin: 0; }
+.card .pick.locked { cursor: default; font-weight: 400; font-style: italic; }
+.card.selectable { cursor: pointer; outline: 2px solid transparent; outline-offset: 10px; border-radius: 3px; transition: outline-color .12s; }
+.card.selectable:hover { outline-color: var(--line); }
+.card.selected, .card.selected:hover { outline-color: var(--blue); }
+.card.selected .pick { color: var(--blue); }
+.card.locked { opacity: .55; }
 .chips a .n { color: var(--muted); margin-left: 5px; font-size: 11px; }
 .chips a.active .n { color: #ddd; }
 .chips a.zero { opacity: .45; }

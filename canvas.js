@@ -7,7 +7,12 @@
 // Several megatrends may be picked (a post has one, so they widen the set); several tags narrow it.
 // Changing a filter rewrites that query with history.replaceState (no page
 // re-render, no refetch) and redraws only the facets and the grid.
-import {esc, fmtDate, postPath, excerptOf, readingTime, wordCount, plainText} from './util.js';
+//
+// Staff get a select mode (opts.bulk = {canDelete(post), deletePosts(ids)}): filter the canvas
+// down to the posts in question (a megatrend, an academic year, a module…), tick them, delete
+// them in one go. Changing a filter drops the ticks on posts that leave the view, so what is
+// deleted is always what is on screen.
+import {esc, fmtDate, postPath, excerptOf, readingTime, wordCount, plainText, toast} from './util.js';
 import {route, rewrite} from './router.js';
 import {INDUSTRIES, industryName} from './seed.js';
 
@@ -39,9 +44,11 @@ const searchIndex = new Map();   // post id + updatedAt -> lower-cased searchabl
 
 export function renderCanvas(posts, opts = {}) {
   const [base, query] = routeParts();
-  current = {posts: posts.slice(), opts, f: parseFilters(query), base, allTags: false, cats: opts.categories || [], modules: new Map((opts.modules || []).map(m => [m.id, m])), blogs: new Map((opts.blogs || []).map(b => [b.id, b]))};
+  const carry = !!(current?.carry && current.base === base && current.selecting);   // the page re-rendered after a bulk delete: stay in select mode
+  const bulk = opts.bulk && posts.some(p => opts.bulk.canDelete(p)) ? opts.bulk : null;
+  current = {posts: posts.slice(), opts, f: parseFilters(query), base, allTags: false, cats: opts.categories || [], modules: new Map((opts.modules || []).map(m => [m.id, m])), blogs: new Map((opts.blogs || []).map(b => [b.id, b])), bulk, selecting: !!bulk && carry, selected: new Set()};
   if (!posts.length) return `<p class="empty">${esc(opts.emptyText || 'No posts here yet.')}</p>`;
-  return `<section class="canvas-root" aria-label="Posts">${headHtml(current)}<div class="canvas-filters">${filtersHtml(current)}</div><div class="canvas-grid">${gridHtml(current)}</div></section>`;
+  return `<section class="canvas-root" aria-label="Posts">${headHtml(current)}<div class="canvas-bulk" role="toolbar" aria-label="Selected posts">${bulkHtml(current)}</div><div class="canvas-filters">${filtersHtml(current)}</div><div class="canvas-grid">${gridHtml(current)}</div></section>`;
 }
 
 // ---------- matching ----------
@@ -102,7 +109,18 @@ function headHtml(st) {
   return `<div class="canvas-head">
     <form class="canvas-search" role="search" onsubmit="return false"><input type="search" name="q" value="${esc(st.f.q)}" placeholder="Search titles, organisations, tags, text…" aria-label="Search posts" autocomplete="off"><button type="button" class="clear" data-set="q" data-v="" aria-label="Clear search" ${st.f.q ? '' : 'hidden'}>×</button></form>
     <label class="canvas-sort">Sort<select data-set="sort" aria-label="Sort posts">${SORTS.map(([v, l]) => `<option value="${v}" ${st.f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    ${st.bulk ? `<button type="button" class="btn small canvas-select" data-select-mode aria-pressed="${st.selecting}" title="Tick posts and delete them together">${st.selecting ? 'Done' : 'Select'}</button>` : ''}
     <span class="canvas-count" aria-live="polite">${countText(st)}</span></div>`;
+}
+// The select-mode bar: how many are ticked, select all / none of the posts on screen, and the action.
+function bulkHtml(st) {
+  if (!st.selecting) return '';
+  const pickable = shownPosts(st).filter(p => st.bulk.canDelete(p)), n = st.selected.size, all = pickable.length > 0 && pickable.every(p => st.selected.has(p.id));
+  return `<span class="bulk-count">${n} selected</span>
+    <button type="button" class="linkish" data-select-all ${all ? 'disabled' : ''}>Select all shown (${pickable.length})</button>
+    <button type="button" class="linkish" data-select-none ${n ? '' : 'disabled'}>Clear</button>
+    <span class="bulk-hint">Narrow the canvas with the filters, tick the posts, then delete them together.</span>
+    <button type="button" class="btn small danger" data-bulk-delete ${n ? '' : 'disabled'}>Delete ${n ? n + ' ' : ''}post${n === 1 ? '' : 's'}</button>`;
 }
 function countText(st) {
   const shown = st.posts.filter(p => matches(p, st.f)).length, total = st.posts.length;
@@ -124,8 +142,9 @@ function filtersHtml(st) {
     <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('industry', 'Industry', fx.industries, f.industry, 'All industries')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${st.modules.size > 1 || fx.modules.length > 1 || f.module ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
     ${fx.tags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}`;
 }
+const shownPosts = st => sorted(st.posts.filter(p => matches(p, st.f)), st.f.sort);
 function gridHtml(st) {
-  const shown = sorted(st.posts.filter(p => matches(p, st.f)), st.f.sort);
+  const shown = shownPosts(st);
   if (!shown.length) return `<div class="canvas-empty"><p>No posts match these filters.</p><button type="button" class="btn small" data-clear>Clear filters</button></div>`;
   return `<div class="canvas">${shown.map(p => card(p, st)).join('')}</div>`;
 }
@@ -134,7 +153,9 @@ export function card(p, st = current || {f: parseFilters(''), base: '/posts', ca
   const img = p.featuredImage ? `<a href="${postPath(p)}" tabindex="-1"><img class="thumb" src="${esc(p.featuredImage)}" alt="" loading="lazy"></a>` : '';
   const org = String(p.organisation || '').trim(), words = p.wordCount ?? wordCount(p.body), module = st.modules?.get(p.moduleId);
   const kicker = [org ? `<a href="${link({org})}" data-set="org" data-v="${esc(org)}" title="All posts about ${esc(org)}">${esc(org)}</a>` : '', p.category ? `<a href="${link({trends: [p.category]})}" data-trend="${esc(p.category)}" data-only="1" class="trend" title="All posts in this ${esc(catLabel(st).toLowerCase())}">${esc(catName(st, p.category, p))}</a>` : '', ...(p.industries || []).map(s => `<a href="${link({industry: s})}" data-set="industry" data-v="${esc(s)}" class="industry" title="All posts in ${esc(industryName(s))}">${esc(industryName(s))}</a>`)].filter(Boolean).join('');
-  return `<article class="card ${img ? '' : 'noimage'}">${img}
+  const pickable = st.selecting && st.bulk?.canDelete(p), on = pickable && st.selected.has(p.id);
+  const pick = !st.selecting ? '' : pickable ? `<label class="pick"><input type="checkbox" data-pick="${esc(p.id)}" ${on ? 'checked' : ''} aria-label="Select ${esc(p.title)}">${on ? 'Selected' : 'Select'}</label>` : `<span class="pick locked" title="Not in a module or on a blog you teach">Not yours to moderate</span>`;
+  return `<article class="card ${img ? '' : 'noimage'}${st.selecting ? (pickable ? ' selectable' : ' locked') : ''}${on ? ' selected' : ''}" ${pickable ? `data-card="${esc(p.id)}"` : ''}>${pick}${img}
     ${kicker ? `<div class="kicker">${kicker}</div>` : ''}
     <h2>${st.opts?.showStatus && p.status !== 'published' ? `<span class="badge ${esc(p.status)}">${esc(p.status)}</span>` : ''}<a href="${postPath(p)}">${esc(p.title)}</a></h2>
     <p>${esc(p.excerpt || excerptOf(p.body))}</p>
@@ -148,13 +169,48 @@ function apply(r, patch) {
   current.f = {...current.f, ...patch};
   rewrite(current.base + filterQuery(current.f));
   r.querySelector('.canvas-filters').innerHTML = filtersHtml(current);
+  if (current.selecting) { const keep = new Set(shownPosts(current).map(p => p.id)); for (const id of [...current.selected]) if (!keep.has(id)) current.selected.delete(id); }
   r.querySelector('.canvas-grid').innerHTML = gridHtml(current);
+  r.querySelector('.canvas-bulk').innerHTML = bulkHtml(current);
   r.querySelector('.canvas-count').textContent = countText(current);
   r.querySelector('.canvas-search .clear').hidden = !current.f.q;
   if (!current.f.q) r.querySelector('.canvas-search input').value = '';
 }
+// Select mode: the Select/Done button, the bar's buttons, and a click on a card (off its links) ticks it.
+function redrawSelection(r) {
+  const b = r.querySelector('[data-select-mode]'); if (b) { b.textContent = current.selecting ? 'Done' : 'Select'; b.setAttribute('aria-pressed', String(current.selecting)); }
+  r.querySelector('.canvas-grid').innerHTML = gridHtml(current);
+  r.querySelector('.canvas-bulk').innerHTML = bulkHtml(current);
+}
+function tick(r, id, on) {
+  if (on) current.selected.add(id); else current.selected.delete(id);
+  const card = r.querySelector(`[data-card="${CSS.escape(id)}"]`);
+  if (card) { card.classList.toggle('selected', on); const box = card.querySelector('[data-pick]'); if (box) { box.checked = on; box.parentNode.lastChild.textContent = on ? 'Selected' : 'Select'; } }
+  r.querySelector('.canvas-bulk').innerHTML = bulkHtml(current);
+}
+async function bulkDelete(r, btn) {
+  const st = current, posts = shownPosts(st).filter(p => st.selected.has(p.id) && st.bulk.canDelete(p));
+  if (!posts.length) return;
+  const list = posts.slice(0, 8).map(p => '• ' + p.title).join('\n') + (posts.length > 8 ? `\n… and ${posts.length - 8} more` : '');
+  if (!confirm(`${posts.length === 1 ? 'Delete this post permanently? Its comments, likes and poll votes go with it.' : `Delete these ${posts.length} posts permanently? Their comments, likes and poll votes go with them.`}\n\n${list}`)) return;
+  btn.disabled = true; btn.textContent = 'Deleting…'; st.carry = true;
+  let failed;
+  try { failed = (await st.bulk.deletePosts(posts.map(p => p.id))) || []; } catch (err) { failed = posts.map(p => ({id: p.id, error: err.message})); }
+  const bad = new Set(failed.map(f => f.id)), gone = posts.filter(p => !bad.has(p.id)), goneIds = new Set(gone.map(p => p.id));
+  if (current === st) { st.posts = st.posts.filter(p => !goneIds.has(p.id)); for (const id of goneIds) st.selected.delete(id); redrawSelection(r); }
+  if (gone.length) toast(gone.length === 1 ? `“${gone[0].title}” deleted.` : `${gone.length} posts deleted.`);
+  if (failed.length) toast(`${failed.length === 1 ? 'One post was' : failed.length + ' posts were'} not deleted: ${failed[0].error}`, 'error');
+}
 document.addEventListener('click', e => {
   const r = root(e.target); if (!r) return;
+  if (e.target.closest('[data-select-mode]')) { if (!current.bulk) return; current.selecting = !current.selecting; current.selected.clear(); redrawSelection(r); return; }
+  if (current.selecting) {
+    if (e.target.closest('[data-select-all]')) { for (const p of shownPosts(current)) if (current.bulk.canDelete(p)) current.selected.add(p.id); redrawSelection(r); return; }
+    if (e.target.closest('[data-select-none]')) { current.selected.clear(); redrawSelection(r); return; }
+    const del = e.target.closest('[data-bulk-delete]'); if (del) { bulkDelete(r, del); return; }
+    const card = e.target.closest('[data-card]');
+    if (card && !e.target.closest('a, input, label, button')) { tick(r, card.dataset.card, !current.selected.has(card.dataset.card)); return; }
+  }
   const set = e.target.closest('[data-set]'), tag = e.target.closest('[data-tag]'), trend = e.target.closest('[data-trend]'), rm = e.target.closest('[data-remove]');
   if (set && set.tagName !== 'SELECT') { e.preventDefault(); apply(r, {[set.dataset.set]: set.dataset.v}); }
   else if (trend) { e.preventDefault(); const v = trend.dataset.trend, on = current.f.trends.includes(v); apply(r, {trends: !v ? [] : trend.dataset.only ? [v] : on ? current.f.trends.filter(t => t !== v) : [...current.f.trends, v]}); }
@@ -165,7 +221,11 @@ document.addEventListener('click', e => {
   else return;
   if (set || tag || trend || rm) r.querySelector('.canvas-grid').scrollIntoView({block: 'nearest'});
 });
-document.addEventListener('change', e => { const r = root(e.target); if (r && e.target.matches('select[data-set]')) apply(r, {[e.target.dataset.set]: e.target.value}); });
+document.addEventListener('change', e => {
+  const r = root(e.target); if (!r) return;
+  if (e.target.matches('select[data-set]')) apply(r, {[e.target.dataset.set]: e.target.value});
+  else if (e.target.matches('input[data-pick]') && current.selecting) tick(r, e.target.dataset.pick, e.target.checked);
+});
 let typing;
 document.addEventListener('input', e => { const r = root(e.target); if (!r || !e.target.matches('.canvas-search input')) return; clearTimeout(typing); typing = setTimeout(() => apply(r, {q: e.target.value.trim()}), 160); });
 document.addEventListener('keydown', e => { const r = root(e.target); if (r && e.key === 'Escape' && e.target.matches('.canvas-search input')) { e.target.value = ''; apply(r, {q: ''}); } });

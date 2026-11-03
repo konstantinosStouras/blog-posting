@@ -168,6 +168,15 @@ test('teachers moderate posts in their modules and on the blogs they own, and re
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'posts/guest-draft'),post('guest','someone','draft','pm')));
  await assertSucceeds(getDoc(doc(d,'posts/guest-draft')));
  await assertSucceeds(updateDoc(doc(d,'posts/guest-draft'),{status:'published'}));
+ // staff delete the posts they moderate together with the likes and votes under them (one batch, as the app does); nothing elsewhere
+ await env.withSecurityRulesDisabled(async c=>{const f=c.firestore();await setDoc(doc(f,'posts/published/likes/peer'),{t:time});await setDoc(doc(f,'posts/published/votes/poll-a_peer'),{pollId:'poll-a',uid:'peer',option:0,t:time});});
+ const wipe=writeBatch(d);wipe.delete(doc(d,'posts/published/likes/peer'));wipe.delete(doc(d,'posts/published/votes/poll-a_peer'));wipe.delete(doc(d,'posts/published'));
+ await assertSucceeds(wipe.commit());
+ await assertSucceeds(deleteDoc(doc(d,'posts/guest-draft')));
+ await assertFails(deleteDoc(doc(d,'posts/other-draft')));
+ await assertFails(deleteDoc(doc(db('student'),'posts/peer-published')));
+ await assertFails(deleteDoc(doc(db('peer','peer@ucd.ie'),'posts/peer-published')));
+ await assertSucceeds(deleteDoc(doc(db('student'),'posts/draft')));
 });
 test('teachers create blogs and modules on their own blogs only; nobody appoints other teachers',async()=>{
  const d=db('teacher-one');

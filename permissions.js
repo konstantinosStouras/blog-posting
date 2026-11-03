@@ -19,7 +19,7 @@ export function can(user, action, post, settings = {}) {
     // The rules refuse student updates once submissions close. A student's post that is published
     // after the module deadline stays as it is: the deadline closes editing for published posts.
     case 'edit':         return !!post && (staff || (own && settings.submissionsOpen !== false && !(post.status === 'published' && pastDeadline(settings))));
-    case 'delete':       return !!post && ((own && post.status !== 'published') || r >= 2); // students: own drafts; admin: anything
+    case 'delete':       return !!post && ((own && post.status !== 'published') || staff); // students: own drafts; staff: the posts they moderate; admin: anything
     case 'publish':      return !post ? true : (own && !settings.requireApproval) || staff;
     case 'approve':      return staff;
     case 'comment':      return settings.allowComments !== false;

@@ -3,10 +3,20 @@ import assert from 'node:assert/strict';
 import {can} from '../permissions.js';
 const teacher={uid:'teacher',role:'lecturer',managedModuleIds:['one']};
 test('teachers can moderate only their assigned modules',()=>{
-  for(const action of ['edit','publish','approve','deleteComment']){
+  for(const action of ['edit','publish','approve','delete','deleteComment']){
     assert.equal(can(teacher,action,{moduleId:'one',authorId:'student'}),true,action);
     assert.equal(can(teacher,action,{moduleId:'two',authorId:'other'}),false,action);
   }
+});
+test('students delete their own drafts only; staff delete any post they moderate',()=>{
+  const student={uid:'s',role:'student',managedModuleIds:[]};
+  assert.equal(can(student,'delete',{authorId:'s',moduleId:'one',status:'draft'}),true);
+  assert.equal(can(student,'delete',{authorId:'s',moduleId:'one',status:'published'}),false);
+  assert.equal(can(student,'delete',{authorId:'other',moduleId:'one',status:'draft'}),false);
+  assert.equal(can(teacher,'delete',{authorId:'other',moduleId:'one',status:'published'}),true);
+  assert.equal(can({...teacher,managedModuleIds:[],managedBlogIds:['pm']},'delete',{authorId:'other',moduleId:'two',blogId:'pm',status:'published'}),true);
+  assert.equal(can(teacher,'delete',{authorId:'other',moduleId:'two',blogId:'ops',status:'published'}),false);
+  assert.equal(can({uid:'a',role:'admin'},'delete',{authorId:'other',moduleId:'two',status:'published'}),true);
 });
 test('students edit their own posts but cannot bypass module approval',()=>{
   const student={uid:'s',role:'student',managedModuleIds:[]},post={authorId:'s',moduleId:'one',status:'draft'};

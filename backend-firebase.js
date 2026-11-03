@@ -101,6 +101,18 @@ const remember = (key, fn) => {
 const forget = () => memo.clear();
 const MEMOED = ['listModules', 'getModule', 'listBlogs', 'getBlog', 'listMyModules', 'listPosts', 'listAllPosts', 'getPostBySlug', 'listComments', 'recentComments'];
 
+// A student deletes only their own drafts, which carry no comments, likes or votes. Staff clear those
+// too (the rules let a module's or blog's staff delete them); a batch holds 500 writes, so a busy post
+// goes in several, with the post itself in the last one.
+async function removePost(id) {
+  if (role === 'student') { await F.deleteDoc(F.doc(db, 'posts', id)); return; }
+  const [cs, ls, vs] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes')), F.getDocs(F.collection(db, 'posts', id, 'votes'))]);
+  const refs = [...cs.docs, ...ls.docs, ...vs.docs].map(d => d.ref);
+  let b = F.writeBatch(db), n = 0;
+  for (const r of refs) { b.delete(r); if (++n === 450) { await b.commit(); b = F.writeBatch(db); n = 0; } }
+  b.delete(F.doc(db, 'posts', id)); await b.commit();
+}
+
 export const firebase = {
   mode: 'firebase',
   async init() {
@@ -357,10 +369,13 @@ export const firebase = {
     await F.setDoc(F.doc(db, 'posts', id), doc);
     notify(); return {id, ...doc};
   },
-  async deletePost(id) {
-    if (role !== 'admin') { await F.deleteDoc(F.doc(db, 'posts', id)); notify(); return; }   // students may only delete their own drafts; nothing else to clear
-    const [cs, ls, vs] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes')), F.getDocs(F.collection(db, 'posts', id, 'votes'))]);
-    const b = F.writeBatch(db); cs.forEach(c => b.delete(c.ref)); ls.forEach(l => b.delete(l.ref)); vs.forEach(v => b.delete(v.ref)); b.delete(F.doc(db, 'posts', id)); await b.commit(); notify();
+  async deletePost(id) { await removePost(id); notify(); },
+  // Several posts in one go (the canvas's select mode), one refresh at the end. Resolves to the posts
+  // that could not be deleted, each with the reason, so the caller can say which ones stayed.
+  async deletePosts(ids) {
+    const failed = [];
+    for (const id of ids) { try { await removePost(id); } catch (e) { failed.push({id, error: e.message}); } }
+    notify(); return failed;
   },
   async pollVotes(postId, pollId, u) {
     const s = await F.getDocs(F.query(F.collection(db, 'posts', postId, 'votes'), F.where('pollId', '==', pollId)));

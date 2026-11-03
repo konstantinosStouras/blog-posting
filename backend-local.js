@@ -126,7 +126,8 @@ export const local = {
     if (existing) Object.assign(existing, doc); else state.posts.unshift(doc);
     save(); return structuredClone(doc);
   },
-  async deletePost(id) { state.posts = state.posts.filter(p => p.id !== id); state.comments = state.comments.filter(c => c.postId !== id); state.likes = (state.likes || []).filter(l => l.postId !== id); save(); },
+  async deletePost(id) { return this.deletePosts([id]); },
+  async deletePosts(ids) { const gone = new Set(ids); state.posts = state.posts.filter(p => !gone.has(p.id)); state.comments = state.comments.filter(c => !gone.has(c.postId)); state.likes = (state.likes || []).filter(l => !gone.has(l.postId)); state.votes = (state.votes || []).filter(v => !gone.has(v.postId)); save(); return []; },
   async pollVotes(postId, pollId, u) {
     const rows = (state.votes || []).filter(v => v.postId === postId && v.pollId === pollId), counts = {};
     for (const v of rows) counts[v.option] = (counts[v.option] || 0) + 1;

@@ -12,6 +12,9 @@ service cloud.firestore {
     // A blog is the public canvas (and exercise) that one or more modules write on.
     function blogPath(id) { return /databases/$(database)/documents/blogs/$(id); }
     function blogExists(id) { return id is string && exists(blogPath(id)); }
+    // The staff of a post's module or blog clear its likes and votes when they delete it (get() sees the
+    // post as it was before the batch that removes it).
+    function postStaff(id) { let p = get(/databases/$(database)/documents/posts/$(id)).data; return staffOf(p.moduleId) || blogStaff(p.get('blogId','')); }
     function blogStaff(id) { return isAdmin() || (verified() && hasRole('lecturer') && blogExists(id) && request.auth.uid in get(blogPath(id)).data.teacherIds); }
     function blogMember(id) { return signedIn() && id is string && exists(/databases/$(database)/documents/blogs/$(id)/members/$(request.auth.uid)); }
     function moduleBlog(id) { return get(modulePath(id)).data.get('blogId', ''); }
@@ -249,7 +252,7 @@ service cloud.firestore {
             && (request.resource.data.get('publishedAt', null) == resource.data.get('publishedAt', null) || (resource.data.status != 'published' && request.resource.data.status == 'published'))
             && request.resource.data.get('featured',false) == resource.data.get('featured',false)
             && (request.resource.data.status != 'published' || !approvalRequired(resource.data.moduleId))));
-      allow delete: if isAdmin() || (verified() && own(resource.data.authorId) && resource.data.status != 'published');
+      allow delete: if staffOf(resource.data.moduleId) || blogStaff(resource.data.get('blogId','')) || (verified() && own(resource.data.authorId) && resource.data.status != 'published');
       // Poll votes: one document per poll and account; counts are changeable.
       match /votes/{voteId} {
         allow read: if signedIn();
@@ -260,7 +263,7 @@ service cloud.firestore {
           && request.resource.data.option is int && request.resource.data.option >= 0 && request.resource.data.option < 10
           && request.resource.data.t is number
           && get(/databases/$(database)/documents/posts/$(id)).data.status == 'published';
-        allow delete: if own(resource.data.uid) || isAdmin();
+        allow delete: if own(resource.data.uid) || postStaff(id);
       }
       // Likes: one per verified account on a published post.
       match /likes/{uid} {
@@ -268,7 +271,7 @@ service cloud.firestore {
         allow create: if own(uid) && verified() && request.resource.data.keys().hasOnly(['t']) && request.resource.data.t is number
           && get(/databases/$(database)/documents/posts/$(id)).data.status == 'published';
         allow update: if false;
-        allow delete: if own(uid) || isAdmin();
+        allow delete: if own(uid) || postStaff(id);
       }
     }
     match /comments/{id} {

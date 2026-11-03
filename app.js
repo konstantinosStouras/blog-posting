@@ -152,7 +152,8 @@ async function renderFooter(seq = renderSeq) {
 // ---------- cards ----------
 // Cards, facets and search live in canvas.js. Pages render the string it returns;
 // its own document-level listeners handle every filter interaction afterwards.
-const canvas = (posts, o = {}) => { const labels = [...new Set(BLOGS.filter(b => (b.categories || []).length).map(b => b.categoryLabel || 'Category'))]; return renderCanvas(posts, {categories: allCategories(), categoryLabel: labels.length === 1 ? labels[0] : 'Category', blogs: BLOGS, ...o}); };
+// Staff get the canvas's select mode: filter the canvas down, tick posts, delete them together.
+const canvas = (posts, o = {}) => { const u = user(), labels = [...new Set(BLOGS.filter(b => (b.categories || []).length).map(b => b.categoryLabel || 'Category'))]; return renderCanvas(posts, {categories: allCategories(), categoryLabel: labels.length === 1 ? labels[0] : 'Category', blogs: BLOGS, bulk: u && rank(u.role) >= 1 ? {canDelete: p => can(u, 'delete', p), deletePosts: ids => store.deletePosts(ids)} : null, ...o}); };
 configurePlatform($app,canvas);
 
 // ---------- pages ----------
