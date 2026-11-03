@@ -438,7 +438,8 @@ export const firebase = {
     if (!user?.emailVerified) throw Error('Verify your sign-in email to like comments.');
     const ref = F.doc(db, 'comments', id), had = ((await F.getDoc(ref)).data()?.likedBy || []).includes(u.uid);
     await F.updateDoc(ref, {likedBy: had ? F.arrayRemove(u.uid) : F.arrayUnion(u.uid)});
-    const n = ((await F.getDoc(ref)).data()?.likedBy || []).length; return {liked: !had, count: n};
+    const n = ((await F.getDoc(ref)).data()?.likedBy || []).length;
+    forget(); return {liked: !had, count: n};   // listComments is memoed: without this the redraw after the click shows the old likedBy (an unlike came straight back)
   },
 
   // ---- people (staff only, enforced by the rules) ----
