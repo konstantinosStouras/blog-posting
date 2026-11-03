@@ -29,8 +29,10 @@ const allCategories = () => { const seen = new Map(); for (const b of BLOGS) for
 const catName = (slug, p) => ((blogOf(p)?.categories) || allCategories()).find(c => c.slug === slug)?.name || allCategories().find(c => c.slug === slug)?.name || slug || '';
 const user = () => currentUser();
 
-// Signed out there is only the front door and an invitation link; every other page needs an account.
+// Signed out there is the front door, an invitation link and every blog's canvas with its brief
+// (the blog's own pages, checked against the blog list below); every other page needs an account.
 const PUBLIC = [/^\/?$/, /^\/blogs$/, /^\/modules$/, /^\/invite\//, /^\/join\//, /^\/[a-z0-9-]+\/join\/[a-z]+$/i];
+const isPublic = bare => PUBLIC.some(re => re.test(bare)) || BLOGS.some(b => bare === '/' + b.id || bare === '/' + b.id + '/brief');
 const routes = [
   [/^\/?$/, home],
   [/^\/blogs$/, blogDirectory],
@@ -78,8 +80,8 @@ async function doRender() {
   const path = route();   // '/x?trend=y': the app route, whatever the site is mounted at
   liveView = null; $app.onclick = null; $app.onsubmit = null;
   resetAccess();   // who may read what is decided afresh for this navigation
-  if (!user() && !PUBLIC.some(re => re.test(path.split('?')[0]))) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
   try { BLOGS = await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
+  if (!user() && !isPublic(path.split('?')[0])) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
   renderHeader(path);
   window.scrollTo(0, 0);
   const bare = path.split('?')[0];   // canvas filters live in a ?query after the route; routes that expect their own query match first
@@ -103,19 +105,23 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   // avatar menu, where everything personal lives). Under the rule: the site's public tabs on the
   // left and search on the right. On a phone the tabs fold into a drawer that slides in from the left.
   document.body.classList.remove('nav-locked');
-  // Signed out there is nothing to browse, so only the masthead and Log in are drawn. Signed in,
-  // the first tab is the person's own blog (or blogs); the admin explores them all.
+  // Signed in, the first tab is the person's own blog (or blogs; the admin explores them all),
+  // then All posts and search. A visitor on a blog gets the blog's own menu: its home and its
+  // brief, since there are no posts to list or search before signing in. On the front door
+  // (the welcome page) only the masthead and Log in are drawn.
   const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : BLOGS.length === 1 ? {href: '/' + BLOGS[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
+  const tabs = u ? `<a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
+      <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>`
+    : blog ? `<a href="/${esc(blog.id)}" class="${path.split('?')[0] === '/' + blog.id ? 'active' : ''}">Home</a>${blog.brief ? `<a href="/${esc(blog.id)}/brief" class="${active('/' + blog.id + '/brief')}">The brief</a>` : ''}` : '';
   $header.innerHTML = `<div class="brand">
-    ${u ? '<button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>' : ''}
+    ${tabs ? '<button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>' : ''}
     <div class="masthead">${blog ? `<h1><a href="/${esc(blog.id)}">${esc(blog.title)}</a></h1><p class="tagline">${esc(blog.description || S.tagline)}</p>` : `<h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p>`}</div>
     <div class="account" id="account"></div></div>
   <hr class="rule">
-  ${u ? `<div class="sub">
+  ${tabs ? `<div class="sub">
     <nav id="site-nav" class="site-nav" aria-label="Site">
       <button type="button" class="nav-close" aria-label="Close menu">×</button>
-      <a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
-      <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>
+      ${tabs}
     </nav>
     <div class="nav-backdrop" hidden></div></div><hr class="thin">` : ''}`;
   renderAccountControl($header.querySelector('#account'));   // includes "View as Instructor X" / "View as Student" when they apply
@@ -127,13 +133,14 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   nav.querySelector('.nav-close').onclick = () => { setNav(false); toggle.focus(); };
   nav.addEventListener('click', e => { if (e.target.closest('a')) setNav(false); });
   nav.addEventListener('keydown', e => { if (e.key === 'Escape') { setNav(false); toggle.focus(); } });
-  $header.querySelector('.searchbox').onsubmit = e => { e.preventDefault(); navigate('/posts' + filterQuery({q: e.target.q.value.trim()})); };
+  const search = $header.querySelector('.searchbox');
+  if (search) search.onsubmit = e => { e.preventDefault(); navigate('/posts' + filterQuery({q: e.target.q.value.trim()})); };
 }
 async function renderFooter(seq = renderSeq) {
   document.body.classList.toggle('writing', liveView === 'editor');   // lifts the Feedback button above the writer's sticky footer
   if (liveView === 'editor') { $footer.innerHTML = ''; return; }   // the writer page is full-bleed
-  const u = user(), mode = store.mode === 'firebase' ? 'live database' : 'local prototype (this browser only)';
-  if (!u) { $footer.innerHTML = `<div class="inner"><div><p class="colophon">${esc(S.title)}. Each post is visible to the students of its module and to their instructors. Mode: ${mode}.</p></div><div></div>
+  const u = user();
+  if (!u) { $footer.innerHTML = `<div class="inner"><div><p class="colophon">${esc(S.title)}. Each post is visible to the students of its module and to their instructors.</p></div><div></div>
     <div><h3>About</h3><ul><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div></div>`; return; }
   let posts, comments;
   try { [posts, comments] = await Promise.all([store.listPosts({status: 'published'}), store.recentComments(5)]); } catch (e) { console.warn('footer', e); return; }
@@ -145,7 +152,7 @@ async function renderFooter(seq = renderSeq) {
   $footer.innerHTML = `<div class="inner">
     <div><form class="widget-search" role="search"><input name="q" placeholder="Search" aria-label="Search"><button>Search</button></form>
       <h3>Recent posts</h3><ul>${posts.slice(0, 5).map(p => `<li><a href="${postPath(p)}">${esc(p.title)}</a></li>`).join('') || '<li class="muted">Nothing published yet.</li>'}</ul>
-      <p class="colophon">${esc(S.title)}. Each post is visible to the students of its module and to their instructors. Mode: ${mode}.</p></div>
+      <p class="colophon">${esc(S.title)}. Each post is visible to the students of its module and to their instructors.</p></div>
     <div><h3>Recent comments</h3><ul>${comments.filter(c => byPost[c.postId]).map(c => `<li><b>${esc(c.authorName)}</b> on <a href="${postPath(byPost[c.postId])}">${esc(byPost[c.postId].title)}</a></li>`).join('') || '<li class="muted">No comments yet.</li>'}</ul>
       <h3>Archives</h3><ul>${months.map(m => `<li><a href="/archive/${m}">${monthName(m)}</a> <span class="muted">(${perMonth[m].length})</span></li>`).join('')}</ul></div>
     <div><h3>About</h3><ul><li><a href="/blogs">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>

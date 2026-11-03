@@ -74,7 +74,11 @@ own module's posts.
   and comments with the publication date, cannot be edited by the student, and
   the rules reject any other pen name on a student profile. Instructors keep an
   editable pen name and see the real name behind each alias in the roster.
-- Visitors see a single **Log in** button; the dialog offers *Register with your
+- Each blog's canvas (`/project-management`) and its brief are public pages: a
+  visitor sees the masthead, a Home / The brief menu and a "Coming soon" note in
+  place of the posts, which only the module's members and instructors read once
+  they log in. Elsewhere visitors see a
+  single **Log in** button; the dialog offers *Register with your
   invitation code* for first-time users, and a first Google sign-in without a
   profile is asked for the code as well. Registration requires an invitation code. Instructors enter name, school or
   university, university email, and optionally Gmail. Students also enter their

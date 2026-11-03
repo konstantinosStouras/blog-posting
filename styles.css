@@ -17,6 +17,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .skip { position: absolute; left: -999px; top: 0; background: #fff; padding: .5rem; }
 .skip:focus { left: 1rem; z-index: 99; }
 .loading, .empty { text-align: center; color: var(--muted); padding: 4rem 1rem; }
+.coming-soon { text-align: center; max-width: 560px; margin: 0 auto; padding: 4rem 1rem 5rem; }
+.coming-soon h2 { font: 700 30px/1.2 var(--serif); margin: 0 0 12px; }
+.coming-soon p { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0; }
 .muted { color: var(--muted); }
 .small { font-size: .85em; }
 .tag, .tags a { color: var(--orange); font-size: 12px; text-decoration: none; }

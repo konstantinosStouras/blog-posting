@@ -59,21 +59,33 @@ export async function myModules(target = app, embedded = false) {
 }
 
 // ---------- the public blog canvas ----------
+// Anyone may open a blog's page: a visitor sees the masthead and a "coming soon" note in place
+// of the posts, which are read by the module's members and instructors once they log in (the
+// modules writing on the blog are not named: a shared canvas is the instructor's business). A
+// signed-in reader who belongs to none of the blog's modules is asked for their invitation code instead.
 export async function blogCanvas(id) {
   const u = currentUser();
   if (!(await canReadBlog(id))) { app.innerHTML = `<p class="empty">This blog is for the members of its modules and their instructors. ${u ? '<button class="btn primary" id="join-module">Enter invitation code</button>' : ''}</p>`; app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register')); return; }
   const [blog, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found. <a href="/blogs">Explore blogs</a></p>'; return; }
   const onBlog = modules.filter(m => m.blogId === id);
-  const [posts, mine] = await Promise.all([store.listPosts({status: 'published', blogId: id}), u ? store.listMyModules() : []]);
+  if (!u) {
+    app.innerHTML = `<p class="page-sub">Blog</p>
+      <p class="actions"><button class="btn primary" id="join-signin">Log in</button>${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}<button class="btn small" id="copy-blog-link">Copy link</button></p>
+      <section class="coming-soon" aria-label="Posts"><h2>Coming soon</h2>
+        <p>Posts by this blog’s students will appear here as they are published. Each post is visible to the students of its module and to their instructors, so log in to read, write and comment.</p></section>`;
+    app.querySelector('#join-signin').addEventListener('click', () => openAuthModal());
+    app.querySelector('#copy-blog-link').onclick = async () => { try { await navigator.clipboard.writeText(blogUrl(id)); toast('Link copied.'); } catch { prompt('Blog link', blogUrl(id)); } };
+    return;
+  }
+  const [posts, mine] = await Promise.all([store.listPosts({status: 'published', blogId: id}), store.listMyModules()]);
   const preview = u?.studentPreview;   // an instructor seeing the blog as a student of one module
   const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);
   app.innerHTML = `<p class="page-sub">${esc((owner ? onBlog : writing ? [writing] : []).map(m => m.code || m.title).filter(Boolean).join(' · ') || 'Blog')}</p>
-    <p class="actions">${u ? writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>' : '<button class="btn primary" id="join-signin">Log in</button>'}${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy link</button></p>
+    <p class="actions">${writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>'}${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/review?blog=${esc(id)}">Review posts</a>` : ''}<button class="btn small" id="copy-blog-link">Copy link</button></p>
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
     <p class="muted small">${owner ? 'Each module’s students see the posts of their own module; the instructors on this blog see them all.' : writing ? `You see the posts of your module, ${esc(moduleLabel(writing))}, and so do its instructors.` : 'Each post here is visible to the students of its module and to their instructors.'}</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
-  app.querySelector('#join-signin')?.addEventListener('click', () => openAuthModal());
   app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register'));
   app.querySelector('#copy-blog-link').onclick = async () => { try { await navigator.clipboard.writeText(blogUrl(id)); toast('Link copied.'); } catch { prompt('Blog link', blogUrl(id)); } };
 }
@@ -87,6 +99,8 @@ export async function moduleRedirect(id) {
 }
 
 // ---------- the brief: a blog's exercise, with the reader's own deadlines ----------
+// Public like the canvas (a visitor reads the exercise and is offered Log in); the reader's
+// own module deadlines appear once they are signed in.
 export async function briefPage(id) {
   const u = currentUser();
   if (!(await canReadBlog(id))) { app.innerHTML = '<p class="empty">This brief is for the members of its blog.</p>'; return; }
