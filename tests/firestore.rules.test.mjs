@@ -62,6 +62,13 @@ test('session history is write-only for its student and readable only by admin o
  await assertFails(setDoc(doc(d,'writingHistory/forged'),{...row,uid:'peer'}));
  await assertFails(setDoc(doc(d,'writingHistory/wrong-module'),{...row,moduleId:'two'}));
 });
+test('the admin and a module’s instructor record writing time on their own posts; other staff cannot',async()=>{
+ const row=(uid,postId)=>({uid,postId,moduleId:'one',seconds:0,startedAt:Date.now()-10000,lastActivityAt:Date.now()-10000,lastRecordedAt:Date.now()-10000});
+ await assertSucceeds(setDoc(doc(db('admin','kstouras@gmail.com'),'writingHistory/admin'),row('admin','admin-draft')));
+ await assertSucceeds(setDoc(doc(db('teacher-one'),'writingHistory/teacher'),row('teacher-one','teacher-draft')));
+ await assertFails(setDoc(doc(db('teacher-two'),'writingHistory/outsider'),row('teacher-two','outsider-draft')));
+ await assertFails(setDoc(doc(db('teacher-one'),'writingHistory/not-mine'),row('teacher-one','draft')));   // the student's post, not the instructor's
+});
 test('writing time is private, author-owned, monotonic and bounded by elapsed time',async()=>{
  const d=db('student','student@ucdconnect.ie'),row={uid:'student',postId:'draft',moduleId:'one',seconds:0,startedAt:Date.now()-10000};
  await assertFails(getDoc(doc(d,'writingSessions/new')));

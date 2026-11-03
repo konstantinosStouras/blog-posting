@@ -50,7 +50,11 @@ test('post analytics measure the window from creation to the last publication, i
  assert.equal(updated.lastPublishedAt,created+6*H);assert.equal(updated.submittedAt,created+6*H);assert.equal(updated.elapsedSeconds,21600);assert.equal(updated.utilisationLabel,'25%');
  assert.deepEqual(a.sessionLines,['1:00:00 · 2026-11-01 09:00','0:30:00 · 2026-11-01 12:00']);assert.deepEqual(a.breakLines,['2:00:00 · 2026-11-01 10:00']);assert.equal(a.sessionCount,2);assert.equal(a.untimedSessions,1);
  const draft=postAnalytics({createdAt:created,status:'draft'},[],created+2*86400000+H);
- assert.equal(draft.open,true);assert.equal(draft.submittedAt,0);assert.equal(draft.idleTime,'2 days 1:00:00');assert.equal(draft.utilisationLabel,'0%');
+ assert.equal(a.recorded,true);assert.equal(a.sessionNote,'1 older visit without timestamps');
+ // nothing recorded: the window is still measured, but idle time and utilisation stay blank rather than reading 0%
+ assert.equal(draft.open,true);assert.equal(draft.submittedAt,0);assert.equal(draft.elapsedSeconds,2*86400+3600);assert.equal(draft.recorded,false);assert.equal(draft.idleTime,'');assert.equal(draft.idleSeconds,'');assert.equal(draft.utilisation,null);assert.equal(draft.utilisationLabel,'');assert.equal(draft.sessionNote,'No session recorded');
+ const untracked=postAnalytics({createdAt:created,status:'published',publishedAt:created+H},[]);
+ assert.equal(untracked.elapsedSeconds,3600);assert.equal(untracked.utilisationLabel,'');assert.equal(untracked.idleTime,'');assert.equal(untracked.sessionNote,'No session recorded');
  const early=postAnalytics({createdAt:created+H,status:'pending',updatedAt:created+2*H},[{seconds:7200,startedAt:created,endedAt:created+2*H}]);
  assert.equal(early.windowStart,created);assert.equal(early.utilisationLabel,'100%');assert.equal(early.idleSeconds,0);assert.equal(early.lastPublishedAt,0);assert.equal(early.submittedAt,created+2*H);
  assert.equal(formatDuration(90061),'1 day 1:01:01');assert.equal(formatDuration(59),'0:00:59');assert.equal(postAnalytics({},[]).utilisationLabel,'');

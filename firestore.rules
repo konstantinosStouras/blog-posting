@@ -370,7 +370,7 @@ service cloud.firestore {
       allow read: if staffOf(resource.data.moduleId);
       function historyShape(){let d=request.resource.data;return verified()
         && d.keys().hasOnly(['uid','postId','moduleId','seconds','startedAt','lastActivityAt','lastRecordedAt','endedAt','endReason'])
-        && d.uid == request.auth.uid && d.postId is string && d.postId.size() <= 100 && memberOf(d.moduleId)
+        && d.uid == request.auth.uid && d.postId is string && d.postId.size() <= 100 && (memberOf(d.moduleId) || staffOf(d.moduleId))
         && d.startedAt is number && d.startedAt <= request.time.toMillis()+60000
         && d.lastActivityAt is number && d.lastActivityAt >= d.startedAt
         && d.lastRecordedAt is number && d.lastRecordedAt >= d.lastActivityAt && d.lastRecordedAt <= request.time.toMillis()+60000

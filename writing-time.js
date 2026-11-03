@@ -27,10 +27,14 @@ export function postAnalytics(post={},sessions=[],now=Date.now()){
  const placed=Number.isFinite(startedAt),open=!submittedAt;
  const endedAt=open?now:Math.max(submittedAt,timed.length?endOf(timed[timed.length-1]):0);
  const elapsed=placed?Math.max(0,Math.floor((endedAt-startedAt)/1000)):0;
- const idle=Math.max(0,elapsed-active),utilisation=elapsed>0?Math.min(1,active/elapsed):null;
+ // A post with no session at all (written before tracking, or by an instructor before instructors were
+ // tracked) has no idle time or utilisation to show: a 0% there would read as a measurement.
+ const recorded=active>0||timed.length>0;
+ const idle=recorded?Math.max(0,elapsed-active):null,utilisation=recorded&&elapsed>0?Math.min(1,active/elapsed):null;
  const breakLines=[];
  for(let i=1;i<timed.length;i++){const from=endOf(timed[i-1]),gap=Math.floor((timed[i].startedAt-from)/1000);if(gap>0)breakLines.push(`${formatDuration(gap)} · ${utcMinute(from)}`);}
- return {createdAt:post.createdAt||0,lastPublishedAt,submittedAt,windowStart:placed?startedAt:0,windowEnd:placed?endedAt:0,open,elapsedSeconds:elapsed,idleSeconds:idle,idleTime:formatDuration(idle),utilisation,utilisationLabel:utilisation===null?'':utilisation>0&&utilisation<0.005?'<1%':`${Math.round(utilisation*100)}%`,sessionCount:timed.length,untimedSessions:sessions.length-timed.length,sessionLines:timed.map(s=>`${formatWritingTime(s.seconds)} · ${utcMinute(s.startedAt)}`),breakLines};
+ const untimed=sessions.length-timed.length;
+ return {createdAt:post.createdAt||0,lastPublishedAt,submittedAt,windowStart:placed?startedAt:0,windowEnd:placed?endedAt:0,open,recorded,elapsedSeconds:elapsed,idleSeconds:recorded?idle:'',idleTime:recorded?formatDuration(idle):'',utilisation,utilisationLabel:utilisation===null?'':utilisation>0&&utilisation<0.005?'<1%':`${Math.round(utilisation*100)}%`,sessionCount:timed.length,untimedSessions:untimed,sessionNote:untimed?`${untimed} older visit${untimed===1?'':'s'} without timestamps`:recorded?'':'No session recorded',sessionLines:timed.map(s=>`${formatWritingTime(s.seconds)} · ${utcMinute(s.startedAt)}`),breakLines};
 }
 
 export function writingReport(posts=[],sessions=[],modules=[],users=[],now=Date.now()){

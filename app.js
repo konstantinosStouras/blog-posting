@@ -473,7 +473,9 @@ async function editorView(id, moduleId) {
   }
   p = p || {moduleId, title: '', body: '', category: '', organisation: '', industries: [], tags: [], featuredImage: '', status: 'draft', excerpt: ''};
   const draft = {...p, title: p.title === 'Untitled draft' ? '' : (p.title || ''), tags: [...(p.tags || [])], industries: (p.industries || []).filter(s => INDUSTRIES.some(i => i.slug === s))};   // the placeholder title is for the database only
-  const trackTime=store.mode==='firebase'&&rank(u.role)===0&&!u.preview&&(!p.authorId||p.authorId===u.uid);   // nothing is recorded while an instructor previews the writer
+  // Every author's own post is tracked, the admin's and an instructor's included (the rules admit a module's staff as well as its members), and so is
+  // the student preview, which writes under the admin's own account; an instructor preview signs as another account, so nothing is recorded there.
+  const trackTime=store.mode==='firebase'&&u.preview?.kind!=='instructor'&&(!p.authorId||p.authorId===u.uid);
   if(trackTime&&!p.id){p.id=newId();draft.id=p.id;}
   const previousWritingSeconds=0;
   let writingTimer;
