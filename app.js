@@ -245,7 +245,6 @@ function articleHtml(p, {blog = null, words = null, likes = [], bookmarks = [], 
       <button type="button" class="react wide" data-share ${preview ? 'disabled' : ''}>${ICON.share}<span>Share</span></button>
       <button type="button" class="react" data-pdf ${preview ? 'disabled' : ''} aria-label="Save as PDF" title="Save as PDF">${ICON.pdf}</button>
     </div></header>
-    ${p.featuredImage ? `<img class="hero" src="${esc(p.featuredImage)}" alt="">` : ''}
     <div class="body">${sanitize(p.body || '')}</div>
     ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>` : ''}`;
 }
@@ -459,7 +458,7 @@ async function editorView(id, moduleId) {
         <img class="thumb-preview" id="thumb" src="${esc(draft.featuredImage || '')}" alt="" ${draft.featuredImage ? '' : 'hidden'}>
         <div class="actions"><button type="button" class="btn small" id="pick-image">Upload image</button><button type="button" class="btn small" id="remove-image" ${draft.featuredImage ? '' : 'hidden'}>Remove</button></div>
         <input type="file" id="image-file" accept="image/*" hidden>
-        <p class="hint">Shown on the blog canvas and at the top of your post.</p>
+        <p class="hint">Shown on the blog canvas card only; it is not added to the post itself.</p>
         ${hasCats ? `<label class="field">${esc(catLabel)}<select id="category"><option value="">Choose…</option>${blog.categories.map(c => `<option value="${c.slug}" ${draft.category === c.slug ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
         ${orgLabel ? `<label class="field">${esc(orgLabel)}<input id="organisation" maxlength="120" value="${esc(draft.organisation || '')}" placeholder="e.g. Ryanair, UNICEF, the HSE"></label>` : ''}
         <div class="field industries-field"><label for="industry-pick">Industries</label><select id="industry-pick" aria-label="Add an industry"></select><div class="industry-chips" id="industry-chips" role="list" aria-label="Selected industries"></div><p class="hint">Pick up to ${MAX_INDUSTRIES} industries your post relates to. Readers can filter the blog by industry.</p></div>
