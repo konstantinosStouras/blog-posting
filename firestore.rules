@@ -106,25 +106,36 @@ service cloud.firestore {
     }
     // This index contains only code-routing metadata, never names or emails.
     // Individual codes can be resolved; listing every active code is forbidden.
-    match /registrationCodes/{code} {
-      allow get: if true;
-      allow list: if false;
-      allow create: if code.matches('^[a-z]{3,30}(-[0-9]{3})?$')
-        && request.resource.data.keys().hasOnly(['code','kind','inviteId','moduleId','expiresAt','revoked'])
-        && request.resource.data.revoked == false
-        && request.resource.data.code == code && request.resource.data.expiresAt is number
-        && ((isAdmin() && request.resource.data.kind == 'instructor'
-          && getAfter(/databases/$(database)/documents/teacherInvites/$(request.resource.data.inviteId)).data.code == code
-          && request.resource.data.moduleId == '')
-        || (request.resource.data.kind == 'student' && staffOf(request.resource.data.moduleId)
-          && getAfter(/databases/$(database)/documents/moduleInvites/$(request.resource.data.inviteId)).data.code == code
-          && getAfter(/databases/$(database)/documents/moduleInvites/$(request.resource.data.inviteId)).data.moduleId == request.resource.data.moduleId));
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked'])
+    // A student code is one of eight cities, fixed (invitation-codes.js JOIN_CITIES): the
+    // module's link is its blog's address plus the city, so the index names the blog too.
+    // A city serves one module at a time across the platform: a revoked one may be taken over.
+    function joinCity(code) { return code in ['madrid','dublin','paris','berlin','athens','seattle','singapore','milano']; }
+    function moduleInviteAfter(id) { return getAfter(/databases/$(database)/documents/moduleInvites/$(id)).data; }
+    function newCode(code) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['code','kind','inviteId','moduleId','blogId','expiresAt','revoked'])
+        && d.revoked == false && d.code == code && d.expiresAt is number
+        && ((isAdmin() && d.kind == 'instructor' && code.matches('^[a-z]{3,30}-[0-9]{3}$')
+          && getAfter(/databases/$(database)/documents/teacherInvites/$(d.inviteId)).data.code == code
+          && d.moduleId == '' && d.get('blogId','') == '')
+        || (d.kind == 'student' && joinCity(code) && staffOf(d.moduleId)
+          && moduleInviteAfter(d.inviteId).code == code
+          && moduleInviteAfter(d.inviteId).moduleId == d.moduleId
+          && d.blogId == moduleBlog(d.moduleId) && moduleInviteAfter(d.inviteId).blogId == d.blogId));
+    }
+    function revokingCode() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked'])
         && request.resource.data.revoked == true
         && ((isAdmin() && resource.data.kind == 'instructor'
           && getAfter(/databases/$(database)/documents/teacherInvites/$(resource.data.inviteId)).data.revoked == true)
         || (resource.data.kind == 'student' && staffOf(resource.data.moduleId)
-          && getAfter(/databases/$(database)/documents/moduleInvites/$(resource.data.inviteId)).data.revoked == true));
+          && moduleInviteAfter(resource.data.inviteId).revoked == true));
+    }
+    match /registrationCodes/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if newCode(code);
+      allow update: if revokingCode() || (resource.data.revoked == true && newCode(code));
       allow delete: if false;
     }
     match /moduleInvites/{inviteId} {
@@ -133,14 +144,13 @@ service cloud.firestore {
           || get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.contactEmail == resource.data.recipientEmail));
       allow list: if staffOf(resource.data.moduleId);
       allow create: if staffOf(request.resource.data.moduleId)
-        && request.resource.data.keys().hasOnly(['moduleId','code','createdBy','createdAt','expiresAt','revoked','recipientEmail'])
-        && str('recipientEmail',200)
-        && (request.resource.data.get('recipientEmail','') == '' || universityEmail(request.resource.data.recipientEmail))
-        && request.resource.data.code.matches('^[a-z]{3,30}(-[0-9]{3})?$')
+        && request.resource.data.keys().hasOnly(['moduleId','blogId','code','createdBy','createdAt','expiresAt','revoked'])
+        && joinCity(request.resource.data.code)
+        && request.resource.data.blogId == moduleBlog(request.resource.data.moduleId)
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt is number && request.resource.data.expiresAt is number
-        // Student codes are standing: valid until the instructor or the admin revokes them,
-        // so expiresAt has no cap here (instructor invitations above keep their week).
+        // Student codes are standing: valid until the instructor or the admin replaces or revokes
+        // them, so expiresAt has no cap here (instructor invitations above keep their week).
         && request.resource.data.expiresAt > request.time.toMillis()
         && request.resource.data.revoked == false;
       allow update: if staffOf(resource.data.moduleId)
@@ -152,6 +162,7 @@ service cloud.firestore {
       let path = /databases/$(database)/documents/moduleInvites/$(inviteId);
       return inviteId is string && exists(path) && get(path).data.moduleId == moduleId
         && get(path).data.revoked == false && get(path).data.expiresAt > request.time.toMillis()
+        && joinCity(get(path).data.code)   // the codes from before 3 Nov 2026 are retired
         && (get(path).data.get('recipientEmail','') == '' || get(path).data.recipientEmail == request.resource.data.contactEmail);
     }
     function moduleShape() {

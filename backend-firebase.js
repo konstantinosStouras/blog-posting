@@ -13,7 +13,7 @@ import {firebaseConfig, ADMIN_EMAIL} from './firebase-config.js';
 import {DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf, plainText, isReservedUrlName, academicYearOf} from './util.js';
 import {registrationProfile} from './registration.js';
-import {randomCode, normalizeCode, STANDING_EXPIRY} from './invitation-codes.js';
+import {randomCode, normalizeCode, STANDING_EXPIRY, JOIN_CITIES, isJoinCity, cityLabel} from './invitation-codes.js';
 import {buildPeopleReport} from './people-model.js';
 import {writingReport,sessionHistoryReport,moduleWritingTotals} from './writing-time.js';
 import {randomAlias} from './aliases.js';
@@ -286,13 +286,36 @@ export const firebase = {
     if(!/^[a-z]+(-[0-9]{3})?$/.test(key))throw Error('Enter the invitation code exactly as it was supplied to you.');
     const s=await F.getDoc(F.doc(db,'registrationCodes',key));
     if(!s.exists() || s.data().revoked || s.data().expiresAt<Date.now())throw Error('That registration code is invalid, revoked or expired.');
+    // A student code is one of the eight cities; the codes from before 3 Nov 2026 (ottawa-521) are retired.
+    if(s.data().kind==='student'&&(!isJoinCity(key)||!s.data().blogId))throw Error('That invitation code has been retired. Ask your instructor for the module’s current invitation link.');
     return s.data();
   },
-  async createModuleInvite(moduleId, recipientEmail='') {
-    recipientEmail=recipientEmail.trim().toLowerCase();
-    if(recipientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail))throw Error('Enter a valid student university email or leave it blank for a shared class link.');
-    // Standing: the code serves every year's cohort until revoked, and a newer code never cancels an older one.
-    return createCodedInvite('student',{moduleId,recipientEmail,createdBy:user.uid,createdAt:Date.now(),expiresAt:STANDING_EXPIRY,revoked:false});
+  // Which module, if any, each of the eight cities is the code of (null: free). Eight reads;
+  // the index is readable one code at a time, never listed.
+  async joinCityStatus() {
+    const docs=await Promise.all(JOIN_CITIES.map(c=>F.getDoc(F.doc(db,'registrationCodes',c))));
+    return Object.fromEntries(JOIN_CITIES.map((c,i)=>[c,docs[i].exists()&&!docs[i].data().revoked?docs[i].data():null]));
+  },
+  // The module's invitation becomes the chosen city: its earlier code(s), of any format, are
+  // revoked in the same transaction, so the module has one standing link at a time. A city
+  // in use by another module is refused; a revoked one is taken over.
+  async createModuleInvite(moduleId, city) {
+    const code=normalizeCode(city);
+    if(!isJoinCity(code))throw Error('Choose one of the invitation cities.');
+    const m=await this.getModule(moduleId); if(!m)throw Error('Module not found.');
+    const current=(await this.listModuleInvites(moduleId)).filter(i=>!i.revoked);
+    const same=current.find(i=>i.code===code); if(same)return same;
+    const inviteId=crypto.randomUUID(),codeRef=F.doc(db,'registrationCodes',code);
+    const data={moduleId,blogId:m.blogId||'',code,createdBy:user.uid,createdAt:Date.now(),expiresAt:STANDING_EXPIRY,revoked:false};
+    await F.runTransaction(db,async tx=>{
+      const taken=await tx.get(codeRef);
+      if(taken.exists()&&!taken.data().revoked)throw Error(`${cityLabel(code)} is the invitation code of another module. Choose a different city.`);
+      const codes=await Promise.all(current.map(i=>tx.get(F.doc(db,'registrationCodes',i.code))));
+      current.forEach((i,n)=>{tx.update(F.doc(db,'moduleInvites',i.id),{revoked:true});if(codes[n].exists()&&!codes[n].data().revoked)tx.update(F.doc(db,'registrationCodes',i.code),{revoked:true});});
+      tx.set(F.doc(db,'moduleInvites',inviteId),data);
+      tx.set(codeRef,{kind:'student',inviteId,moduleId,blogId:data.blogId,code,expiresAt:STANDING_EXPIRY,revoked:false});
+    });
+    return {id:inviteId,...data};
   },
   async listModuleInvites(moduleId) {const s=await F.getDocs(F.query(F.collection(db,'moduleInvites'),F.where('moduleId','==',moduleId)));return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt);},
   async revokeModuleInvite(id) {const ref=F.doc(db,'moduleInvites',id),s=await F.getDoc(ref),batch=F.writeBatch(db);batch.update(ref,{revoked:true});if(s.data()?.code)batch.update(F.doc(db,'registrationCodes',s.data().code),{revoked:true});await batch.commit();},

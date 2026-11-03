@@ -30,9 +30,15 @@ beforeEach(async()=>{
    'profiles/invited':{...profile('invited@ucd.ie'),studentId:'',registrationKind:'teacher'},
    'teacherInvites/valid':invite(),'teacherInvites/expired':invite({expiresAt:time-1000}),
    'teacherInvites/revoked':invite({revoked:true}),'teacherInvites/used':invite({acceptedBy:'someone-else'}),
-   'moduleInvites/student-valid':{moduleId:'one',code:'madrid',createdBy:'teacher-one',createdAt:time,expiresAt:time+86400000,revoked:false},
-   'moduleInvites/student-expired':{moduleId:'one',code:'rome',createdBy:'teacher-one',createdAt:time,expiresAt:time-1000,revoked:false},
-   'registrationCodes/madrid':{kind:'student',inviteId:'student-valid',moduleId:'one',code:'madrid',expiresAt:time+86400000,revoked:false},
+   'moduleInvites/student-valid':{moduleId:'one',blogId:'pm',code:'madrid',createdBy:'teacher-one',createdAt:time,expiresAt:time+86400000,revoked:false},
+   'moduleInvites/student-expired':{moduleId:'one',blogId:'pm',code:'paris',createdBy:'teacher-one',createdAt:time,expiresAt:time-1000,revoked:false},
+   // a code from before 3 Nov 2026 (random city and digits, no blog): retired, so it enrols nobody
+   'moduleInvites/student-old':{moduleId:'one',code:'ottawa-521',createdBy:'teacher-one',createdAt:time,expiresAt:Date.UTC(9999,11,31),revoked:false},
+   'registrationCodes/madrid':{kind:'student',inviteId:'student-valid',moduleId:'one',blogId:'pm',code:'madrid',expiresAt:time+86400000,revoked:false},
+   'registrationCodes/ottawa-521':{kind:'student',inviteId:'student-old',moduleId:'one',code:'ottawa-521',expiresAt:Date.UTC(9999,11,31),revoked:false},
+   // dublin was module two's code once and was revoked: free for any module to take over
+   'moduleInvites/student-dublin':{moduleId:'two',blogId:'ops',code:'dublin',createdBy:'teacher-two',createdAt:time,expiresAt:Date.UTC(9999,11,31),revoked:true},
+   'registrationCodes/dublin':{kind:'student',inviteId:'student-dublin',moduleId:'two',blogId:'ops',code:'dublin',expiresAt:Date.UTC(9999,11,31),revoked:true},
    'posts/draft':post(),'posts/published':post('one','student','published'),'posts/other-draft':post('two','other','draft','ops'),'posts/peer-published':post('three','peer','published'),
    'posts/published/content/body':{body:'<p>Test content</p>'},'posts/draft/content/body':{body:'<p>Test content</p>'},
    'comments/comment':comment()
@@ -448,6 +454,7 @@ test('students cannot self-enrol without a valid invitation for that exact modul
  const d=db('new-student','student@ucdconnect.ie');
  await assertFails(setDoc(doc(d,'modules/one/members/new-student'),{...member('new-student'),inviteId:''}));
  await assertFails(setDoc(doc(d,'modules/one/members/new-student'),{...member('new-student'),inviteId:'student-expired'}));
+ await assertFails(setDoc(doc(d,'modules/one/members/new-student'),{...member('new-student'),inviteId:'student-old'}));   // retired format
  await assertFails(setDoc(doc(d,'modules/two/members/new-student'),member('new-student')));
  await assertSucceeds(setDoc(doc(d,'modules/one/members/new-student'),member('new-student')));
 });
@@ -457,18 +464,40 @@ test('city codes resolve without exposing a list of active invitations',async()=
  await assertFails(getDocs(collection(d,'registrationCodes')));
  await assertFails(getDoc(doc(d,'moduleInvites/student-valid')));
 });
+// A module's code is one of eight fixed cities, standing until replaced or revoked; the index
+// names the module's blog (the link is /<blog>/join/<city>); a city serves one module at a time.
+const cityInvite=(code,moduleId='one',blogId='pm',uid='teacher-one',extra={})=>({moduleId,blogId,code,createdBy:uid,createdAt:time,expiresAt:Date.UTC(9999,11,31),revoked:false,...extra});
+const cityCode=(code,inviteId,moduleId='one',blogId='pm')=>({kind:'student',inviteId,moduleId,blogId,code,expiresAt:Date.UTC(9999,11,31),revoked:false});
 test('only assigned instructors can generate and revoke module city-code invitations',async()=>{
- const data={moduleId:'one',code:'tokyo',createdBy:'teacher-one',createdAt:time,expiresAt:time+86400000,revoked:false};
  const d=db('teacher-one'),b=writeBatch(d);
- b.set(doc(d,'moduleInvites/new-city'),data);
- b.set(doc(d,'registrationCodes/tokyo'),{kind:'student',inviteId:'new-city',moduleId:'one',code:'tokyo',expiresAt:time+86400000,revoked:false});
+ b.set(doc(d,'moduleInvites/new-city'),cityInvite('berlin'));
+ b.set(doc(d,'registrationCodes/berlin'),cityCode('berlin','new-city'));
  await assertSucceeds(b.commit());
- // Student codes are standing: a far-future expiry is accepted (instructor invitations stay capped).
- const standing=writeBatch(d);standing.set(doc(d,'moduleInvites/standing'),{...data,code:'lima',expiresAt:Date.UTC(9999,11,31)});standing.set(doc(d,'registrationCodes/lima'),{kind:'student',inviteId:'standing',moduleId:'one',code:'lima',expiresAt:Date.UTC(9999,11,31),revoked:false});await assertSucceeds(standing.commit());
  await assertFails(updateDoc(doc(db('teacher-two'),'moduleInvites/new-city'),{revoked:true}));
- await assertFails(setDoc(doc(db('student'),'moduleInvites/forged'),{...data,createdBy:'student'}));
- const revoke=writeBatch(d);revoke.update(doc(d,'moduleInvites/new-city'),{revoked:true});revoke.update(doc(d,'registrationCodes/tokyo'),{revoked:true});await assertSucceeds(revoke.commit());
+ await assertFails(setDoc(doc(db('student'),'moduleInvites/forged'),cityInvite('athens','one','pm','student')));
+ const revoke=writeBatch(d);revoke.update(doc(d,'moduleInvites/new-city'),{revoked:true});revoke.update(doc(d,'registrationCodes/berlin'),{revoked:true});await assertSucceeds(revoke.commit());
  await assertFails(setDoc(doc(db('new-student','student@ucdconnect.ie'),'modules/one/members/new-student'),{...member('new-student'),inviteId:'new-city'}));
+});
+test('a student code is one of the eight cities, carries the module’s own blog, and a city serves one module at a time',async()=>{
+ const d=db('teacher-one');
+ // not a city, or a city with three digits (the old format), is refused
+ for(const code of ['tokyo','madrid-483','lima']){const b=writeBatch(d);b.set(doc(d,'moduleInvites/x-'+code),cityInvite(code));b.set(doc(d,'registrationCodes/'+code),cityCode(code,'x-'+code));await assertFails(b.commit());}
+ // the blog must be the module's own
+ const wrong=writeBatch(d);wrong.set(doc(d,'moduleInvites/wrong-blog'),cityInvite('athens','one','ops'));wrong.set(doc(d,'registrationCodes/athens'),cityCode('athens','wrong-blog','one','ops'));await assertFails(wrong.commit());
+ const mismatch=writeBatch(d);mismatch.set(doc(d,'moduleInvites/mismatch'),cityInvite('athens'));mismatch.set(doc(d,'registrationCodes/athens'),cityCode('athens','mismatch','one','ops'));await assertFails(mismatch.commit());
+ // madrid is module one's live code: module two cannot take it, even by overwriting the index entry
+ const two=db('teacher-two'),steal=writeBatch(two);steal.set(doc(two,'moduleInvites/steal'),cityInvite('madrid','two','ops','teacher-two'));steal.set(doc(two,'registrationCodes/madrid'),cityCode('madrid','steal','two','ops'));await assertFails(steal.commit());
+ // dublin was revoked: module one takes it over, replacing its own code in the same batch
+ const take=writeBatch(d);
+ take.set(doc(d,'moduleInvites/take-dublin'),cityInvite('dublin'));take.set(doc(d,'registrationCodes/dublin'),cityCode('dublin','take-dublin'));
+ take.update(doc(d,'moduleInvites/student-valid'),{revoked:true});take.update(doc(d,'registrationCodes/madrid'),{revoked:true});
+ take.update(doc(d,'moduleInvites/student-old'),{revoked:true});take.update(doc(d,'registrationCodes/ottawa-521'),{revoked:true});
+ await assertSucceeds(take.commit());
+ await assertSucceeds(setDoc(doc(db('new-student','student@ucdconnect.ie'),'modules/one/members/new-student'),{...member('new-student'),inviteId:'take-dublin'}));
+ await assertFails(setDoc(doc(db('late','late@ucdconnect.ie'),'modules/one/members/late'),{...member('late'),inviteId:'student-valid'}));
+ // anyone can resolve a code, and the index still cannot be listed
+ const anon=env.unauthenticatedContext().firestore();
+ await assertSucceeds(getDoc(doc(anon,'registrationCodes/dublin')));await assertFails(getDocs(collection(anon,'registrationCodes')));
 });
 test('non-members cannot comment simply by creating a platform account',async()=>{
  await assertFails(setDoc(doc(db('outsider'),'comments/no-invitation'),comment({authorId:'outsider'})));

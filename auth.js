@@ -33,10 +33,13 @@ export const currentUser=()=>{
 };
 let activeInvitation=null;
 export const roleLabel=role=>role==='lecturer'?'instructor':role;
-export function invitationRoute(info){return `/${info.kind==='instructor'?'invite':'join'}/${info.inviteId}/${info.code}`;}
+// An instructor's invitation is /invite/<id>/<code>; a module's is its blog's own address
+// plus the city: /project-management/join/madrid.
+export function invitationRoute(info){return info.kind==='instructor'?`/invite/${info.inviteId}/${info.code}`:`/${info.blogId}/join/${info.code}`;}
+export const isInvitationRoute=r=>/^\/(?:invite\/[a-zA-Z0-9-]+\/[a-z]+-[0-9]{3}|[a-z0-9-]+\/join\/[a-z]+)$/i.test(r);
 export const teacherInviteId=()=>route().match(/^\/invite\/([a-zA-Z0-9-]+)(?:\/[a-z]+(?:-[0-9]{3})?)?$/i)?.[1]||'';
 async function routeInvitation(){
- const code=route().match(/^\/(?:invite|join)\/[a-zA-Z0-9-]+\/([a-z]+(?:-[0-9]{3})?)$/i)?.[1];
+ const code=route().match(/^\/(?:invite\/[a-zA-Z0-9-]+|[a-z0-9-]+\/join)\/([a-z]+(?:-[0-9]{3})?)$/i)?.[1];
  return code?store.resolveRegistrationCode(code):null;
 }
 export function renderAccountControl(el){
@@ -102,7 +105,7 @@ function accountMenu(u){
 });
 export async function openAuthModal(view='signin',invitation=null,opts={}){
  let m=document.getElementById('auth-modal');if(!m){m=document.createElement('dialog');m.id='auth-modal';document.body.append(m);m.addEventListener('click',e=>{if(e.target.closest('.close'))m.close();});}
- if(view==='register'&&!invitation&&!/^\/(invite|join)\//.test(route()))activeInvitation=null;
+ if(view==='register'&&!invitation&&!isInvitationRoute(route()))activeInvitation=null;
  if(invitation)activeInvitation=invitation;
  if(!activeInvitation){try{activeInvitation=await routeInvitation();}catch{}}
  const collecting=view==='register'||view==='complete',u=currentUser();

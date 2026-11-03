@@ -30,7 +30,7 @@ const catName = (slug, p) => ((blogOf(p)?.categories) || allCategories()).find(c
 const user = () => currentUser();
 
 // Signed out there is only the front door and an invitation link; every other page needs an account.
-const PUBLIC = [/^\/?$/, /^\/blogs$/, /^\/modules$/, /^\/invite\//, /^\/join\//];
+const PUBLIC = [/^\/?$/, /^\/blogs$/, /^\/modules$/, /^\/invite\//, /^\/join\//, /^\/[a-z0-9-]+\/join\/[a-z]+$/i];
 const routes = [
   [/^\/?$/, home],
   [/^\/blogs$/, blogDirectory],
@@ -45,7 +45,8 @@ const routes = [
   [/^\/modules\/invite\/([a-z0-9-]+)$/, studentInvitationsPage],
   [/^\/invitations$/, () => navigate('/admin/invite', {replace: true})],   // old address: the page lives in the admin area
   [/^\/invite\/([a-zA-Z0-9-]+)(?:\/([a-z]+(?:-[0-9]{3})?))?$/i, (id,code)=>acceptInvitationPage(id,code,'instructor')],
-  [/^\/join\/([a-zA-Z0-9-]+)\/([a-z]+(?:-[0-9]{3})?)$/i, (id,code)=>acceptInvitationPage(id,code,'student')],
+  [/^\/join\/.*$/, () => { $app.innerHTML = '<p class="empty">This invitation link has been retired. Ask your instructor for the module’s current invitation link, which ends in the name of a city.</p>'; }],   // the links before 3 Nov 2026: /join/<uuid>/<city-nnn>
+  [/^\/([a-z0-9-]+)\/join\/([a-z]+)$/i, (blogId, code) => acceptInvitationPage(blogId, code, 'student')],   // a module's standing invitation: its blog's address plus the city
   [/^\/([a-z0-9-]+)\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (blogId, y, m, slug) => postView(slug, blogId)],   // a post under its blog's canvas
   [/^\/(\d{4})\/(\d{2})\/([^/?]+)\/?$/, (y, m, slug) => postView(slug)],   // the address before 2 Nov 2026: sent on to the blog's own
   [/^\/post\/([^/?]+)$/, postView],

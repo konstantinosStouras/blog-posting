@@ -9,10 +9,15 @@ test('module report excludes other modules and preserves pending invitation deta
  const r=report();assert.equal(r.users.length,1);assert.equal(r.invitations.length,2);assert.equal(r.invitations[0].studentId,'');assert.equal(r.invitations[1].studentId,'00123');assert.equal(filterPeopleReport(r,'','pending').invitations.length,1);
 });
 test('a standing student code is an active shared link that never expires',async()=>{
- const r=buildPeopleReport({modules:[{id:'one',title:'Module one'}],studentInvites:[{id:'s',moduleId:'one',code:'lima',createdAt:1,expiresAt:STANDING_EXPIRY}]});
+ const r=buildPeopleReport({modules:[{id:'one',title:'Module one'}],studentInvites:[{id:'s',moduleId:'one',blogId:'pm',code:'madrid',createdAt:1,expiresAt:STANDING_EXPIRY}]});
  assert.equal(r.invitations[0].status,'Shared link active');assert.equal(r.invitations[0].pending,true);
  const book=createRosterWorkbook(ExcelJS,r);const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());
  assert.equal(loaded.getWorksheet('Student invitations').getCell('N2').value,'Until revoked');
+});
+test('a student code from before the city codes reads as retired, not as an active link',()=>{
+ const r=buildPeopleReport({modules:[{id:'one',title:'Module one'}],studentInvites:[{id:'old',moduleId:'one',code:'ottawa-521',createdAt:1,expiresAt:STANDING_EXPIRY},{id:'city',moduleId:'one',blogId:'pm',code:'madrid',createdAt:2,expiresAt:STANDING_EXPIRY}]});
+ assert.deepEqual(r.invitations.map(i=>[i.code,i.status,i.pending]),[['madrid','Shared link active',true],['ottawa-521','Retired',false]]);
+ assert.equal(filterPeopleReport(r,'','retired').invitations.length,1);
 });
 test('Excel download round trip keeps bold headers, normal body and text IDs',async()=>{
  const book=createRosterWorkbook(ExcelJS,report());const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());

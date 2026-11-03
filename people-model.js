@@ -1,3 +1,4 @@
+import {isRetiredStudentCode} from './invitation-codes.js';
 const emailKey=value=>String(value||'').trim().toLowerCase();
 export function buildPeopleReport({users=[],memberships=[],modules=[],instructorInvites=[],studentInvites=[],includePlatformUsers=false,now=Date.now()}){
  const byModule=new Map(modules.map(m=>[m.id,m]));
@@ -26,7 +27,8 @@ export function buildPeopleReport({users=[],memberships=[],modules=[],instructor
   const recipient=emailKey(i.recipientEmail);
   const accepted=memberships.filter(m=>m.moduleId===i.moduleId&&(m.inviteId===i.id||(recipient&&emailKey(m.contactEmail)===recipient)));
   const first=recipient?accepted[0]:null;
-  const status=i.revoked?'Revoked':i.expiresAt<now?'Expired':recipient?(accepted.length?'Registered':'Pending registration'):'Shared link active';
+  // A student code is one of the eight cities since 3 Nov 2026; the earlier random codes are retired (no longer accepted) until revoked.
+  const status=i.revoked?'Revoked':i.expiresAt<now?'Expired':isRetiredStudentCode(i)?'Retired':recipient?(accepted.length?'Registered':'Pending registration'):'Shared link active';
   inviteRows.push({...i,kind:'student',invitedBy:nameOf(i.createdBy),universityEmail:i.recipientEmail||'',googleEmail:first?.email&&emailKey(first.email)!==recipient?first.email:'',moduleTitle:byModule.get(i.moduleId).title,firstName:first?.firstName||'',lastName:first?.lastName||'',studentId:first?.studentId||'',affiliation:first?.affiliation||'',registeredCount:accepted.length,status,pending:status==='Pending registration'||status==='Shared link active'});
  }
  return {users:records,invitations:inviteRows.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)),modules,generatedAt:now};

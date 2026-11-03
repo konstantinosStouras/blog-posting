@@ -6,6 +6,7 @@
 import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, SEED_BLOGS, SEED_MODULES, SEED_MEMBERSHIPS, DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
 import {reviewId} from './peer-review-model.js';
+import {JOIN_CITIES, normalizeCode, isJoinCity, cityLabel, STANDING_EXPIRY} from './invitation-codes.js';
 
 const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
 let state, listeners = new Set();
@@ -84,7 +85,14 @@ export const local = {
     return delay(structuredClone(state.modules.filter(m => teaches(u, m) || state.memberships.some(x => x.uid === u.uid && x.moduleId === m.id)).map(m => ({...m, teaching: teaches(u, m)}))));
   },
   async joinModule(id) { const u = me(); if (!u) throw Error('Sign in to join a module.'); if (!state.memberships.some(x => x.uid === u.uid && x.moduleId === id)) { state.memberships.push({uid: u.uid, moduleId: id}); save(); } },
-  async resolveRegistrationCode() { throw Error('Invitation codes exist only on the live platform.'); },
+  // Student invitation codes (one of eight cities per module) work here too, so the invite
+  // page and the join page can be tried on the sample data; sign-in itself does not.
+  async resolveRegistrationCode(code) {
+    const key = normalizeCode(code), i = (state.moduleInvites || []).find(x => x.code === key && !x.revoked);
+    if (!i) throw Error('That registration code is invalid, revoked or expired.');
+    return delay({kind: 'student', inviteId: i.id, moduleId: i.moduleId, blogId: i.blogId, code: key, expiresAt: i.expiresAt, revoked: false});
+  },
+  async joinCityStatus() { return delay(Object.fromEntries(JOIN_CITIES.map(c => { const i = (state.moduleInvites || []).find(x => x.code === c && !x.revoked); return [c, i ? {kind: 'student', inviteId: i.id, moduleId: i.moduleId, blogId: i.blogId, code: c} : null]; }))); },
   // Sign-in exists only on the live platform; here "View as" stands in for it.
   async signIn() { throw Error('Sign-in exists only on the live platform. Use "View as" at the top right.'); },
   async register() { throw Error('Registration exists only on the live platform. Use "View as" at the top right.'); },
@@ -93,9 +101,19 @@ export const local = {
   async resendVerification() {}, async refreshVerification() { return true; },
   async signOut() { this.viewAs(''); },
   async acceptTeacherInvite() { throw Error('Invitations exist only on the live platform.'); },
-  async listModuleInvites() { return []; },
-  async createModuleInvite() { throw Error('Invitations exist only on the live platform.'); },
-  async revokeModuleInvite() {},
+  async listModuleInvites(moduleId) { return delay(structuredClone((state.moduleInvites || []).filter(i => i.moduleId === moduleId).sort((a, b) => b.createdAt - a.createdAt))); },
+  async createModuleInvite(moduleId, city) {
+    const u = me(), code = normalizeCode(city), m = state.modules.find(x => x.id === moduleId);
+    if (!m || !teaches(u, m)) throw Error('Only the module’s instructor can invite students.');
+    if (!isJoinCity(code)) throw Error('Choose one of the invitation cities.');
+    const invites = state.moduleInvites || (state.moduleInvites = []);
+    const same = invites.find(i => i.moduleId === moduleId && i.code === code && !i.revoked); if (same) return structuredClone(same);
+    if (invites.some(i => i.code === code && !i.revoked)) throw Error(`${cityLabel(code)} is the invitation code of another module. Choose a different city.`);
+    invites.filter(i => i.moduleId === moduleId).forEach(i => { i.revoked = true; });
+    const doc = {id: newId(), moduleId, blogId: m.blogId || '', code, createdBy: u.uid, createdAt: Date.now(), expiresAt: STANDING_EXPIRY, revoked: false};
+    invites.push(doc); save(); return structuredClone(doc);
+  },
+  async revokeModuleInvite(id) { const i = (state.moduleInvites || []).find(x => x.id === id); if (i) { i.revoked = true; save(); } },
   async listTeacherInvites() { return []; },
   async createTeacherInvite() { throw Error('Invitations exist only on the live platform.'); },
   async revokeTeacherInvite() {},

@@ -8,7 +8,7 @@ import {store, canReadBlog} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
 import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
-import {isStanding} from './invitation-codes.js';
+import {JOIN_CITIES, cityLabel, isRetiredStudentCode} from './invitation-codes.js';
 import {PM_EXERCISE, DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
 import {peerCardLine} from './peer-review.js';
@@ -213,9 +213,11 @@ export async function invitationsPage(target = app, embedded = false, {heading =
   target.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{try{await store.revokeTeacherInvite(b.dataset.revoke);await invitationsPage(target, embedded, {heading});}catch(e){toast(e.message,'error');}});
 }
 
-export async function acceptInvitationPage(id,code='',kind='instructor') {
+// An instructor's link carries the invitation id, a module's the blog's URL name: either must
+// agree with the code, so a city's link pasted under another blog, or a retired link, goes nowhere.
+export async function acceptInvitationPage(ref,code='',kind='instructor') {
   const u=currentUser();
-  let info;try{info=await store.resolveRegistrationCode(code);if(info.inviteId!==id||info.kind!==kind)throw Error('The invitation link and invitation code do not match.');}catch(e){app.innerHTML=`<p class="empty">${esc(e.message)} Use Register to enter your invitation code.</p>`;return;}
+  let info;try{info=await store.resolveRegistrationCode(code);if(info.kind!==kind||(kind==='instructor'?info.inviteId:info.blogId)!==ref)throw Error(kind==='student'?'This invitation link is not the one for this blog.':'The invitation link and invitation code do not match.');}catch(e){app.innerHTML=`<p class="empty">${esc(e.message)} ${kind==='student'?'Ask your instructor for the module’s current invitation link, or use Register to enter your invitation code.':'Use Register to enter your invitation code.'}</p>`;return;}
   const module=kind==='student'?await store.getModule(info.moduleId):null;
   const blog=module?.blogId?await store.getBlog(module.blogId):null;
   app.innerHTML=`<div class="guide"><h1 class="page-title">${kind==='instructor'?'Instructor invitation':esc(module?.title||'Module invitation')}</h1><p>Invitation code: <b>${esc(info.code)}</b>. ${kind==='instructor'?'Use the university email or Gmail address your admin invited.':`This invitation enrols you in ${esc(moduleLabel(module||{}))}${blog?`, which writes on the <b>${esc(blog.title)}</b> blog`:''}.`}</p>
@@ -224,15 +226,26 @@ export async function acceptInvitationPage(id,code='',kind='instructor') {
   app.querySelector('#instructor-register')?.addEventListener('click',()=>openAuthModal('register',info));
   app.querySelector('#instructor-login')?.addEventListener('click',()=>openAuthModal('signin',info));
   app.querySelector('#instructor-details')?.addEventListener('click',()=>openAuthModal('complete',info));
-  app.querySelector('#accept-invite')?.addEventListener('click',async e=>{e.target.disabled=true;try{if(kind==='instructor'){await store.acceptTeacherInvite(id);toast('Instructor access activated.');navigate('/my-modules');}else{await store.joinModule(info.moduleId,id);toast('Welcome. You can now write your blog post.');navigate(blog?'/'+blog.id:'/my-modules');}}catch(err){app.querySelector('.auth-msg').textContent=err.code==='permission-denied'?'Use the verified email address specified in your invitation.':err.message;e.target.disabled=false;}});
+  app.querySelector('#accept-invite')?.addEventListener('click',async e=>{e.target.disabled=true;try{if(kind==='instructor'){await store.acceptTeacherInvite(info.inviteId);toast('Instructor access activated.');navigate('/my-modules');}else{await store.joinModule(info.moduleId,info.inviteId);toast('Welcome. You can now write your blog post.');navigate(blog?'/'+blog.id:'/my-modules');}}catch(err){app.querySelector('.auth-msg').textContent=err.code==='permission-denied'?'Use the verified email address specified in your invitation.':err.message;e.target.disabled=false;}});
 }
 
+// A module's invitation is one of eight cities: its link is the blog's address plus the city
+// (/project-management/join/madrid) and its code the city, for every year's cohort, until the
+// instructor chooses another city. One city serves one module at a time across the platform.
 export async function studentInvitationsPage(moduleId){
  const m=await store.getModule(moduleId),u=currentUser();
  if(!m||!instructs(u,m)){app.innerHTML='<p class="empty">Only the module’s instructor or platform admin can invite students.</p>';return;}
- const invites=await store.listModuleInvites(moduleId);
- const link=i=>publicUrl(invitationRoute({kind:'student',inviteId:i.id,code:i.code.toLowerCase()}));
- app.innerHTML=`<p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">Invite students</h1><p class="page-sub">${esc(moduleLabel(m))}</p><p>Generate an invitation code and share its registration link with your students. The link prefills the code and connects students only to this module: on a blog shared by several modules, each module hands out its own code. A code stays valid every academic year until you or the admin revoke it, so one code can serve each year’s cohort, and generating another code does not cancel the earlier ones.</p><label class="field">Student university email (optional)<input id="student-invite-email" type="email" maxlength="200" placeholder="Leave blank for a shared class link"><p class="hint">Enter an email to track a named invitation as pending. Names and university IDs are collected during registration.</p></label><button class="btn primary" id="create-student-invite">Generate student invitation code</button><a class="btn" href="/review/roster?module=${esc(moduleId)}">View roster & invitations</a><p class="auth-msg" aria-live="polite"></p>${invites.map(i=>`<div class="notice"><b>Invitation code: ${esc(i.code)}</b><p>${i.recipientEmail?'Invited university email: '+esc(i.recipientEmail):'Shared class link'} · ${i.revoked?'Revoked':i.expiresAt<Date.now()?'Expired':'Active'} · ${isStanding(i)?'Valid until revoked':'Expires '+fmtDateTime(i.expiresAt)}</p><label class="field">Student registration link<input readonly value="${esc(link(i))}" onclick="this.select()"></label>${!i.revoked?`<button class="btn small" data-revoke-student="${esc(i.id)}">Revoke code</button>`:''}</div>`).join('')}<p><a href="/my-modules">Back to my modules</a></p>`;
- app.querySelector('#create-student-invite').onclick=async e=>{e.target.disabled=true;try{const email=app.querySelector('#student-invite-email');if(!email.reportValidity())return;await store.createModuleInvite(moduleId,email.value);await studentInvitationsPage(moduleId);}catch(err){app.querySelector('.auth-msg').textContent=err.message;}finally{e.target.disabled=false;}};
- app.querySelectorAll('[data-revoke-student]').forEach(b=>b.onclick=async()=>{try{await store.revokeModuleInvite(b.dataset.revokeStudent);await studentInvitationsPage(moduleId);}catch(err){toast(err.message,'error');}});
+ const [invites,cities]=await Promise.all([store.listModuleInvites(moduleId),store.joinCityStatus()]);
+ const current=invites.find(i=>!i.revoked&&!isRetiredStudentCode(i)),retired=invites.filter(i=>!i.revoked&&isRetiredStudentCode(i));
+ const link=i=>publicUrl(invitationRoute({kind:'student',blogId:i.blogId||m.blogId,code:i.code}));
+ const options=JOIN_CITIES.map(c=>{const mine=c===current?.code,taken=!mine&&cities[c]&&cities[c].moduleId!==moduleId;return `<option value="${c}" ${mine||taken?'disabled':''}>${cityLabel(c)}${mine?' (the current code)':taken?' (in use by another module)':''}</option>`;}).join('');
+ app.innerHTML=`<p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">Invite students</h1><p class="page-sub">${esc(moduleLabel(m))}</p>
+  <p>The module’s invitation is a city. Its link is the blog’s address plus the city and its code is the city: students open the link, or enter the code when they register, and land in this module only, so on a blog shared by several modules each module has its own city. The link stays the same for every year’s cohort until you choose another city here, which retires the old link at once; students already enrolled stay enrolled.</p>
+  ${!m.blogId?'<p class="notice">Give the module a blog in its settings first: the invitation link is the blog’s address.</p>':current?`<div class="notice ok"><p><b>Invitation code: ${esc(current.code)}</b></p><label class="field">Student invitation link<input readonly value="${esc(link(current))}" onclick="this.select()"></label><p class="actions"><button class="btn small" data-copy="${esc(link(current))}">Copy link</button><button class="btn small" id="revoke-student-invite">Retire the link</button></p></div>`:'<p class="notice">This module has no invitation link yet. Choose a city below.</p>'}
+  ${m.blogId?`<form id="city-form"><label class="field">${current?'Choose a different city':'City'}<select name="city"><option value="">Choose a city…</option>${options}</select><p class="hint">A city serves one module at a time across the platform; the greyed ones are taken.</p></label><p class="actions"><button class="btn primary">${current?'Switch to this city':'Create the invitation link'}</button><a class="btn" href="/review/roster?module=${esc(moduleId)}">View roster</a></p><p class="auth-msg" aria-live="polite"></p></form>`:''}
+  ${retired.length?`<p class="muted small">The codes from before 3 November 2026 (${retired.map(i=>esc(i.code)).join(', ')}) are retired and no longer accepted; choosing a city above revokes them.</p>`:''}
+  <p><a href="/my-modules">Back to my modules</a></p>`;
+ app.querySelector('#city-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button'),city=f.city.value;if(!city){f.querySelector('.auth-msg').textContent='Choose a city.';return;}b.disabled=true;try{await store.createModuleInvite(moduleId,city);toast(`The invitation code is now ${city}.`);await studentInvitationsPage(moduleId);}catch(err){f.querySelector('.auth-msg').textContent=err.message;b.disabled=false;}});
+ app.querySelector('#revoke-student-invite')?.addEventListener('click',async()=>{if(!confirm('Retire this invitation link? Nobody can join with it until you choose a city again; students already enrolled stay.'))return;try{await store.revokeModuleInvite(current.id);toast('Invitation link retired.');await studentInvitationsPage(moduleId);}catch(err){toast(err.message,'error');}});
+ app.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(b.dataset.copy);toast('Link copied.');}catch{prompt('Student invitation link',b.dataset.copy);}});
 }

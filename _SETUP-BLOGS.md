@@ -68,12 +68,16 @@ canvas simply shows no megatrend chips.
 
 ## 5. Invite the students
 
-Per module: **My modules → Invite students → Generate student invitation code**.
-Share the registration link (it prefills the code and ties the student to
-that module only). The code is the module's for good: it does not expire, so
-next year's cohort uses the same code, and generating a second code leaves the
-first working until you revoke it. The modules sharing the Project Management
-blog each hand out their own code. Students register with name, university, university email
+Per module: **My modules → Invite students**, choose a city and **Create the
+invitation link**. The link is the blog's address plus the city, for example
+`https://www.stouras.com/ucd-blog/project-management/join/madrid`, and the
+invitation code is the city, `madrid`. Share the link (it prefills the code and
+ties the student to that module only) or just the code. It is the module's for
+good: next year's cohort uses the same link, until you switch to another city,
+which retires the old link at once. There are eight cities (madrid, dublin,
+paris, berlin, athens, seattle, singapore, milano) and each serves one module at
+a time, so the modules sharing the Project Management blog each have their own
+city and the picker greys out the ones in use. Students register with name, university, university email
 and ID, verify their email, and land on the module's blog with a **Write your
 blog post** button. Students see, and comment on, the posts of their own module
 only, never another module's, even one sharing the blog; you, as the blog's
@@ -82,7 +86,7 @@ and academic year.
 
 ## Next year
 
-Keep the same modules: their invitation codes still work, and each post is
+Keep the same modules: their invitation links and cities still work, and each post is
 stamped with the academic year it is published in. Posts stay on one canvas,
 filterable by academic year; the Instructor area and the CSV export filter by
 blog, module and year.
