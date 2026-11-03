@@ -142,6 +142,7 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await assertFails(deleteDoc(doc(student,'peerReviews/'+id)));
  // reviewer notes: the admin writes; the reviewer reads theirs once released
  await assertSucceeds(setDoc(doc(admin,'peerReviewerNotes/one_student'),{moduleId:'one',reviewerUid:'student',aiScore:8,aiNote:'Good reviewing',aiPerReview:[{postId:'other-published',score:8,note:'specific'}],aiScoredAt:time,aiModel:'claude-fable-5-1',updatedAt:time}));
+ await assertSucceeds(setDoc(doc(admin,'peerReviewerNotes/one_student'),{noticeSentAt:time,noticeTo:'student@ucdconnect.ie'},{merge:true}));   // the letter was sent
  await assertFails(getDoc(doc(student,'peerReviewerNotes/one_student')));
  await assertSucceeds(setDoc(doc(admin,'peerReviewerNotes/one_student'),{grade:'A',note:'Thank you',releasedAt:time},{merge:true}));
  await assertSucceeds(getDoc(doc(student,'peerReviewerNotes/one_student')));

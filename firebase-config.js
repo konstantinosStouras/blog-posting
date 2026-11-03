@@ -17,6 +17,15 @@ export const enabledProviders = ['google.com', 'password'];
 // The maintainer. Must match isAdmin() in firestore.rules, which is the real
 // authorisation; this copy only decides whether admin screens are drawn.
 export const ADMIN_EMAIL = 'kstouras@gmail.com';
+// Sending email from the admin's own mailbox (mail.js: the peer-review letters). Google needs
+// nothing here: Firebase's own Google sign-in asks for the Gmail send scope (the Gmail API
+// must be enabled once in the Google Cloud project). Microsoft 365, i.e. the UCD address,
+// needs the site registered once as an app in Microsoft Entra (entra.microsoft.com → App
+// registrations → New: a single-page application with redirect URI
+// https://www.stouras.com/ucd-blog/, "Accounts in any organizational directory", delegated
+// Microsoft Graph permissions Mail.Send and User.Read): paste its "Application (client) ID"
+// here. While it is empty, the Microsoft option says so instead of connecting.
+export const MICROSOFT_CLIENT_ID = '';
 // On a local dev server, ?local in the page URL forces local mode so the design can be
 // checked against the sample posts without touching the live database. router.js keeps
 // the flag on every address it navigates to, so a reload stays on the sample data.

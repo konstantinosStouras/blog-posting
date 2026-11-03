@@ -225,6 +225,7 @@ export const local = {
   async listAiReviews(moduleId = '') { const u = me(); if (u?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.aiReviews || {}).filter(r => !moduleId || r.moduleId === moduleId))); },
   async saveAiReview(postId, patch) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.aiReviews = state.aiReviews || {}; state.aiReviews[postId] = {...(state.aiReviews[postId] || {}), ...patch, postId, updatedAt: Date.now()}; save(); return structuredClone(state.aiReviews[postId]); },
   // ---- peer review (study guide 5.3): rounds, assignments, the reviews written on them, notes and released summaries ----
+  async googleAccessToken() { const u = me(); if (!u) throw Error('Sign in first.'); return delay({accessToken: 'demo', email: u.email || '', name: [u.firstName, u.lastName].filter(Boolean).join(' ')}); },   // nothing is sent in the prototype
   async getPeerPrompts() { if (me()?.role !== 'admin') return null; return delay(structuredClone(state.peerPrompts || null)); },
   async savePeerPrompts(cfg) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.peerPrompts = {synthesis: String(cfg.synthesis || ''), reviewer: String(cfg.reviewer || ''), noticeSubject: String(cfg.noticeSubject || ''), noticeBody: String(cfg.noticeBody || ''), updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.peerPrompts); },
   async getPeerRound(moduleId) { return delay(structuredClone((state.peerRounds || {})[moduleId] || null)); },

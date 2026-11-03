@@ -586,6 +586,15 @@ export const firebase = {
   // peerReviews/{moduleId_postId_reviewerUid}: the assignment, filled in by the reviewer (grade,
   // assessment); the author never reads these. peerReviewerNotes/{moduleId_uid}: the AI's and the
   // admin's view of a student's reviewing. peerSummaries/{postId}: what the author is shown once released.
+  // A Google access token with extra scopes (sending mail, mail.js) from a popup on the signed-in Google account; returned, never stored.
+  async googleAccessToken(scopes=[]){
+    if(!user)throw Error('Sign in first.');
+    const p=new A.GoogleAuthProvider();scopes.forEach(s=>p.addScope(s));if(user.email)p.setCustomParameters({login_hint:user.email});
+    const viaGoogle=(user.providerData||[]).some(x=>x.providerId==='google.com');
+    const res=viaGoogle?await A.reauthenticateWithPopup(user,p):await A.linkWithPopup(user,p);
+    const token=A.GoogleAuthProvider.credentialFromResult(res)?.accessToken;if(!token)throw Error('Google gave no access token.');
+    return {accessToken:token,email:user.email||'',name:user.displayName||''};
+  },
   async getPeerPrompts(){if(role!=='admin')return null;const s=await F.getDoc(F.doc(db,'adminContent','peer'));return s.exists()?s.data():null;},
   async savePeerPrompts(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={synthesis:String(cfg.synthesis||''),reviewer:String(cfg.reviewer||''),noticeSubject:String(cfg.noticeSubject||''),noticeBody:String(cfg.noticeBody||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','peer'),doc);return doc;},
   async getPeerRound(moduleId){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerRounds',moduleId));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},

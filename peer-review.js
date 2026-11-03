@@ -12,12 +12,17 @@ import {PROVIDERS, callProvider} from './ai-providers.js';
 import {DEFAULT_GRADER, htmlToText} from './ai-grading-model.js';
 import {PER_STUDENT, GRADE_MIN, GRADE_MAX, MAX_CHARS, GUIDE_QUESTIONS, GRADE_SCALE, reviewId, newSeed, peerCohort, ASSIGNMENT_COLUMNS, assignmentSheet, DEFAULT_NOTICE, NOTICE_FIELDS, NOTICE_COLUMNS, buildNotice, noticeSheet, mailtoLink, assignPeerReviews, fillGaps, verifyAssignments, validateReview, roundOpen, words, peerPostRows, peerReviewerRows, summaryFor, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, DEFAULT_PEER_PROMPTS, PEER_PLACEHOLDERS, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment} from './peer-review-model.js';
 import {downloadExcelSheet} from './roster-export.js';
+import {SENDERS, connectSender, sendMail} from './mail.js';
 import {makeTablesSortable} from './sortable-tables.js';
 
 const KEYS = 'ucd-blog.aiKeys', PREFS = 'ucd-blog.aiPrefs';   // the model and keys chosen on the AI grading page
 const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
 const grade = v => v == null || v === '' ? '—' : Number.isInteger(Number(v)) ? String(Number(v)) : Number(v).toFixed(1);   // a student's whole-number rating reads 8, a mean 7.5
 const GRADES = Array.from({length: GRADE_MAX - GRADE_MIN + 1}, (_, i) => GRADE_MIN + i);   // whole numbers
+// The admin's mailbox connection for sending the letters (mail.js): this page load only, never stored; the chosen account and "Send as" address are remembered.
+let mailer = null, mailing = false, mailStop = false;
+const MAIL_PREFS = 'ucd-blog.mailPrefs', mailPrefs = (() => { try { return JSON.parse(localStorage.getItem(MAIL_PREFS) || '{}'); } catch { return {}; } })();
+const saveMailPrefs = p => { Object.assign(mailPrefs, p); try { localStorage.setItem(MAIL_PREFS, JSON.stringify(mailPrefs)); } catch { /* private mode */ } };
 
 // ---------- the reviewer's form (a sheet over the post) ----------
 // Opens for one assignment; on save the assignment is written back and `onSaved` redraws.
@@ -133,6 +138,12 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
         <p class="${check.ok ? 'ok' : 'warn'} small">${check.ok ? `✓ Every one of ${check.reviewers} reviewers has ${round.perStudent || PER_STUDENT} distinct posts of others, and every one of ${check.posts} posts has at least ${round.perStudent || PER_STUDENT} distinct reviewers.` : `${check.problems.length} problem${check.problems.length === 1 ? '' : 's'}: ${esc(check.problems.slice(0, 5).join(' '))}${check.problems.length > 5 ? ' …' : ''}`}</p>
         <p class="actions">${round.status === 'open' ? '<button type="button" class="btn" id="peer-close">Close the round</button>' : '<button type="button" class="btn" id="peer-reopen">Reopen the round</button>'}<button type="button" class="btn" id="peer-fill" ${check.ok ? 'disabled' : ''}>Fill the gaps</button><button type="button" class="btn" id="peer-assignments-excel">Download the assignments (Excel)</button><button type="button" class="btn danger" id="peer-reset">Delete the round</button></p>
         <p class="hint">Fill the gaps assigns reviewers to a post published after the draw and gives its author their ${PER_STUDENT} posts to review (a student reviews only once their own post is published), leaving existing assignments as they are. The assignments download as one row per reviewer: student ID, name, email, then the author's name and the link of each of their ${PER_STUDENT} posts. Deleting the round removes every assignment, review, note and released summary of this module. The review deadline is set in the <a href="/modules/edit/${esc(moduleId)}">module settings</a>; for a new academic year, delete the old round once its grades are released and assign again.</p></div>`;
+  const sendBlock = () => { const unsent = reviewerRows.filter(r => !r.notes?.noticeSentAt && r.email).length; return `<h4>Send from my own address</h4>
+      <p class="small">The letters can go out from your own mailbox, one request each, once you connect it: a sign-in popup that lets the site send email on your behalf for about an hour (nothing is stored). ${mailer ? `Connected: <b>${esc(mailer.email)}</b> (${esc(SENDERS[mailer.kind].name)}).` : 'Not connected.'}</p>
+      <p class="actions"><label class="check"><input type="radio" name="peer-mail-kind" value="microsoft" ${mailPrefs.kind === 'google' ? '' : 'checked'}> ${esc(SENDERS.microsoft.name)}</label><label class="check"><input type="radio" name="peer-mail-kind" value="google" ${mailPrefs.kind === 'google' ? 'checked' : ''}> ${esc(SENDERS.google.name)}</label><button type="button" class="btn small" id="peer-mail-connect">${mailer ? 'Reconnect' : 'Connect'}</button></p>
+      <p class="hint">${esc(SENDERS.microsoft.hint)} ${esc(SENDERS.google.hint)}</p>
+      <label class="field">Send as (optional)<input id="peer-mail-from" maxlength="320" value="${esc(mailPrefs.from || '')}" placeholder="${esc(mailer?.email || 'empty: the connected address')}"><p class="hint">Microsoft 365: a shared mailbox or alias the account may send as. Google: the account's address or a verified "Send mail as" alias (Gmail settings → Accounts). Anything else is replaced by the connected address.</p></label>
+      <p class="actions"><button type="button" class="btn primary" id="peer-mail-all" ${mailer && unsent ? '' : 'disabled'}>Send to the ${unsent} not yet sent</button><button type="button" class="btn" id="peer-mail-test" ${mailer ? '' : 'disabled'}>Send a test to myself</button><button type="button" class="btn danger" id="peer-mail-stop" hidden>Stop</button><span class="muted small" id="peer-mail-progress"></span></p>`; };
   const noticePanel = () => `<div class="panel"><h3>2. Notify the students</h3>
       <p class="small">Once the check above is green, tell each student which ${PER_STUDENT} posts are theirs. The email goes out from your own mail program: <b>Email</b> on a reviewer's row (By reviewer, below) opens it addressed and filled in, <b>Copy</b> copies the text, and the mail-merge sheet has one row per student with the merge fields of the Word letter. Assessments are entered on the site, so the letter names no form.</p>
       <details><summary>Edit the email template</summary>
@@ -140,7 +151,7 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
         <label class="field">Body<textarea id="peer-notice-body" rows="16">${esc(notice.body)}</textarea></label>
         <p class="hint">Merge fields: ${NOTICE_FIELDS.map(f => `<code>${esc(f)}</code>`).join(' ')}. The posts come in the order assigned; the deadline is the module's peer-review deadline.</p>
         <p class="actions"><button type="button" class="btn small primary" id="peer-notice-save">Save template</button><button type="button" class="btn small" id="peer-notice-reset">Restore default</button></p></details>
-      <p class="actions"><button type="button" class="btn" id="peer-notice-excel">Download mail-merge sheet (Excel)</button><button type="button" class="btn" id="peer-notice-preview">Preview the first email</button></p><pre class="peer-quote" id="peer-notice-pre" hidden></pre></div>`;
+      <p class="actions"><button type="button" class="btn" id="peer-notice-excel">Download mail-merge sheet (Excel)</button><button type="button" class="btn" id="peer-notice-preview">Preview the first email</button></p><pre class="peer-quote" id="peer-notice-pre" hidden></pre>${sendBlock()}</div>`;
   const aiPanel = () => { const s = selection(); return `<div class="panel"><h3>${round ? 3 : 2}. AI aggregation</h3>
       <p class="small">Model: <b>${esc(s.name)}</b>${s.model ? ` · ${esc(s.model)}` : ''}${s.effort ? ` · ${esc(s.effort)}` : ''}${s.provider !== 'demo' && !s.apiKey ? ' · <span class="warn">no key saved</span>' : ''}. The model, the key and the grader persona are set on <a href="/admin/grading">AI grading</a>; the persona is reused here.</p>
       <details><summary>Edit the two prompts</summary>
@@ -194,6 +205,30 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
   $('peer-notice-reset').onclick = () => { if (!confirm('Replace the subject and body with the default letter? Not saved until you click Save template.')) return; $('peer-notice-subject').value = DEFAULT_NOTICE.subject; $('peer-notice-body').value = DEFAULT_NOTICE.body; };
   $('peer-notice-excel').onclick = async e => { e.target.disabled = true; try { await downloadExcelSheet('Blog review notices', NOTICE_COLUMNS, noticeSheet(reviewerRows, noticeOpts()), `ucd-blog-peer-notices-${moduleId}-${new Date().toISOString().slice(0, 10)}.xlsx`); toast('Mail-merge sheet downloaded.'); } catch (err) { toast(err.message, 'error'); } finally { e.target.disabled = false; } };
   $('peer-notice-preview').onclick = () => { const pre = $('peer-notice-pre'); if (!pre.hidden) { pre.hidden = true; return; } const r = reviewerRows[0]; if (!r) return toast('No reviewer yet.', 'error'); const n = buildNotice({...noticeOpts(), row: r}); pre.textContent = `To: ${n.to || '(no email on the roster)'}\nSubject: ${n.subject}\n\n${n.body}`; pre.hidden = false; };
+  // ---- sending from the admin's own mailbox (mail.js) ----
+  const fromAddress = () => ($('peer-mail-from')?.value || '').trim();
+  const mailProgress = t => { const el = $('peer-mail-progress'); if (el) el.textContent = t; };
+  target.querySelectorAll('[name=peer-mail-kind]').forEach(i => i.onchange = () => saveMailPrefs({kind: i.value}));
+  $('peer-mail-from').onchange = e => saveMailPrefs({from: e.target.value.trim()});
+  $('peer-mail-connect').onclick = async e => { e.target.disabled = true; try { mailer = await connectSender(target.querySelector('[name=peer-mail-kind]:checked')?.value || 'microsoft'); toast(`Connected as ${mailer.email}.`); redraw(); } catch (err) { toast(/credential-already-in-use/.test(err.code || err.message) ? 'That Google account is another sign-in on this site: sign in to the site with it instead.' : /popup-closed|user_cancelled|closed/i.test(err.code || err.message) ? 'The sign-in popup was closed.' : (err.message || 'Could not connect.'), 'error'); e.target.disabled = false; } };
+  const sendOne = async r => { const n = noticeFor(r); const id = await sendMail(mailer, {from: fromAddress(), to: n.to, toName: [r.firstName, r.lastName].filter(Boolean).join(' '), subject: n.subject, body: n.body}); const stamp = {noticeSentAt: Date.now(), noticeTo: n.to}; await store.savePeerReviewerNote(moduleId, r.reviewerUid, stamp); r.notes = {...(r.notes || {}), ...stamp}; return id; };
+  $('peer-mail-test').onclick = async e => { if (!mailer) return; const r = reviewerRows[0]; if (!r) return toast('No reviewer yet.', 'error'); e.target.disabled = true; try { const n = noticeFor(r); await sendMail(mailer, {from: fromAddress(), to: mailer.email, subject: '[Test] ' + n.subject, body: n.body}); toast(`Test sent to ${mailer.email}: the letter of ${r.firstName || r.penName}.`); } catch (err) { toast(err.message, 'error'); } finally { e.target.disabled = false; } };
+  $('peer-mail-all').onclick = async () => {
+    if (!mailer || mailing) return;
+    const rows = reviewerRows.filter(r => !r.notes?.noticeSentAt), todo = rows.filter(r => r.email), skipped = rows.length - todo.length;
+    if (!todo.length) return toast('Every reviewer with an email has been sent their letter.');
+    if (!confirm(`Send the letter to ${todo.length} student${todo.length === 1 ? '' : 's'} from ${fromAddress() || mailer.email}?${skipped ? ` ${skipped} without an email on the roster will be skipped.` : ''}`)) return;
+    mailing = true; mailStop = false; $('peer-mail-stop').hidden = false; $('peer-mail-all').disabled = true;
+    let sent = 0, failed = 0;
+    for (const r of todo) {
+      if (mailStop) break;
+      mailProgress(`Sending ${sent + failed + 1} of ${todo.length}: ${r.firstName} ${r.lastName}…`);
+      try { await sendOne(r); sent++; } catch (err) { failed++; toast(`${r.firstName} ${r.lastName}: ${err.message}`, 'error'); if (/expired|not enabled|not registered|refused/.test(err.message)) break; }
+    }
+    mailing = false; mailProgress(''); toast(`Sent ${sent}${failed ? `, ${failed} failed` : ''}${mailStop ? ', stopped' : ''}.`); redraw();
+  };
+  $('peer-mail-stop').onclick = () => { mailStop = true; };
+
 
   // ---- the tables ----
   const byPost = new Map(postRows.map(r => [r.postId, r])), byReviewer = new Map(reviewerRows.map(r => [r.reviewerUid, r]));
@@ -209,7 +244,7 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
     <td data-sort-value="${r.aiScore ?? ''}">${r.aiScore != null ? `<span class="ai-grade">${grade(r.aiScore)}</span><br>` : ''}<div class="ai-text">${r.aiNote ? esc(r.aiNote) : '<span class="muted">Not assessed yet.</span>'}</div>${r.aiNote ? `<p class="actions small"><button type="button" class="linkish" data-use-note="${esc(r.reviewerUid)}">Use as my note</button><span class="muted small">${esc(r.aiModel)} · ${esc(fmtDateTime(r.aiScoredAt))}</span></p>` : ''}</td>
     <td data-sort-value="${esc(String(r.grade))}"><input class="final-grade" data-reviewer-grade="${esc(r.reviewerUid)}" value="${esc(String(r.grade))}" maxlength="20" aria-label="Reviewer grade"></td>
     <td><textarea class="final-text" data-reviewer-note="${esc(r.reviewerUid)}" rows="4" aria-label="Note to the reviewer" placeholder="Your note to the student about their reviewing">${esc(r.note)}</textarea><p class="actions small"><span class="muted small" data-note-status="${esc(r.reviewerUid)}"></span></p></td>
-    <td class="actions"><a class="btn small" href="${esc(mailtoLink(noticeFor(r)))}" title="${r.email ? 'Open the notice in your mail program' : 'No email on the roster: the message opens unaddressed'}">Email</a><button type="button" class="btn small" data-copy-mail="${esc(r.reviewerUid)}" title="Copy the notice as text">Copy</button><br><button type="button" class="btn small ${r.aiNote ? '' : 'primary'}" data-score="${esc(r.reviewerUid)}" ${r.done ? '' : 'disabled'}>${r.aiNote ? 'Re-assess' : 'Assess reviewing'}</button><br><button type="button" class="btn small" data-release-note="${esc(r.reviewerUid)}" ${r.grade || r.note ? '' : 'disabled'}>${r.releasedAt ? 'Release again' : 'Release to student'}</button>${r.releasedAt ? `<br><span class="ok small">Released ${esc(fmtDate(r.releasedAt))}</span>` : ''}</td></tr>`;
+    <td class="actions"><a class="btn small" href="${esc(mailtoLink(noticeFor(r)))}" title="${r.email ? 'Open the notice in your mail program' : 'No email on the roster: the message opens unaddressed'}">Email</a><button type="button" class="btn small" data-copy-mail="${esc(r.reviewerUid)}" title="Copy the notice as text">Copy</button><button type="button" class="btn small" data-send-mail="${esc(r.reviewerUid)}" ${mailer && r.email ? '' : 'disabled'} title="${mailer ? 'Send the letter from your own address' : 'Connect your mailbox in panel 2 first'}">Send</button>${r.notes?.noticeSentAt ? `<br><span class="ok small">Sent ${esc(fmtDateTime(r.notes.noticeSentAt))}</span>` : ''}<br><button type="button" class="btn small ${r.aiNote ? '' : 'primary'}" data-score="${esc(r.reviewerUid)}" ${r.done ? '' : 'disabled'}>${r.aiNote ? 'Re-assess' : 'Assess reviewing'}</button><br><button type="button" class="btn small" data-release-note="${esc(r.reviewerUid)}" ${r.grade || r.note ? '' : 'disabled'}>${r.releasedAt ? 'Release again' : 'Release to student'}</button>${r.releasedAt ? `<br><span class="ok small">Released ${esc(fmtDate(r.releasedAt))}</span>` : ''}</td></tr>`;
   function drawTable() {
     const t = $('peer-table'), a = $('peer-actions');
     if (view === 'posts') { t.innerHTML = `<table class="list"><thead><tr><th>Author</th><th>Post and reviews received</th><th>Peer grade</th><th>AI grade</th><th>4+1 aggregated feedback</th><th>Final grade</th><th>Final feedback</th><th></th></tr></thead><tbody>${postRows.map(postRow).join('') || '<tr><td colspan="8">No assignments yet.</td></tr>'}</tbody></table>`;
@@ -277,7 +312,7 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
     const rn = e.target.closest('[data-reviewer-note]'); if (rn) return saveNote(byReviewer.get(rn.dataset.reviewerNote), {note: rn.value.trim().slice(0, 20000)});
   });
   target.addEventListener('click', target._peerClick = async e => {
-    const b = e.target.closest('[data-synth],[data-use-synth],[data-release],[data-score],[data-use-note],[data-release-note],[data-copy-mail]'); if (!b) return;
+    const b = e.target.closest('[data-synth],[data-use-synth],[data-release],[data-score],[data-use-note],[data-release-note],[data-copy-mail],[data-send-mail]'); if (!b) return;
     const d = b.dataset;
     if (d.synth !== undefined || d.useSynth !== undefined || d.release !== undefined) {
       const r = byPost.get(d.synth || d.useSynth || d.release); if (!r) return;
@@ -285,7 +320,8 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
       else if (d.useSynth !== undefined) { const area = target.querySelector(`[data-final-text="${r.postId}"]`); if (area.value.trim() && !confirm('Replace your final feedback with the synthesis?')) return; area.value = r.synthesis; await saveFinal(r, {finalFeedback: r.synthesis.slice(0, 20000)}); }
       else { if (!r.finalFeedback && !r.synthesis && !confirm('No final feedback and no synthesis yet: release the average and the anonymous reviews only?')) return; try { await store.releasePeerSummaries([{...summaryFor(r), moduleId}]); toast('Released to the author.'); redraw(); } catch (err) { toast(err.message, 'error'); } }
     } else {
-      const r = byReviewer.get(d.score || d.useNote || d.releaseNote || d.copyMail); if (!r) return;
+      const r = byReviewer.get(d.score || d.useNote || d.releaseNote || d.copyMail || d.sendMail); if (!r) return;
+      if (d.sendMail !== undefined) { if (!mailer) return toast('Connect your mailbox first (panel 2).', 'error'); b.disabled = true; try { await sendOne(r); toast(`Sent to ${r.email}.`); const tr = target.querySelector(`tr[data-reviewer="${r.reviewerUid}"]`); if (tr) tr.outerHTML = reviewerRow(r); } catch (err) { toast(err.message, 'error'); b.disabled = false; } return; }
       if (d.copyMail !== undefined) { const n = noticeFor(r); try { await navigator.clipboard.writeText(`To: ${n.to}\nSubject: ${n.subject}\n\n${n.body}`); toast(`Email to ${n.to || 'the student'} copied.`); } catch { toast('Copying is blocked here; use the Email button instead.', 'error'); } return; }
       if (d.score !== undefined) { if (running) return toast('A batch is already running.', 'error'); const s = ready(); if (!s) return; b.disabled = true; try { await scoreOne(r, s); toast(`Assessed: ${grade(r.aiScore)} / 10.`); } catch (err) { toast(err.message, 'error'); } finally { b.disabled = false; } }
       else if (d.useNote !== undefined) { const area = target.querySelector(`[data-reviewer-note="${r.reviewerUid}"]`); if (area.value.trim() && !confirm('Replace your note with the AI assessment?')) return; area.value = r.aiNote; await saveNote(r, {note: r.aiNote.slice(0, 20000)}); }

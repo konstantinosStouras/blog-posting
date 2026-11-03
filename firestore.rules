@@ -445,8 +445,8 @@ service cloud.firestore {
     match /peerReviewerNotes/{id} {
       allow read: if isAdmin() || (own(resource.data.reviewerUid) && resource.data.get('releasedAt',null) != null);
       allow create, update: if isAdmin() && id == request.resource.data.moduleId + '_' + request.resource.data.reviewerUid
-        && request.resource.data.keys().hasOnly(['moduleId','reviewerUid','aiScore','aiNote','aiPerReview','aiScoredAt','aiModel','aiRaw','aiError','grade','note','releasedAt','updatedAt'])
-        && str('moduleId',100) && str('reviewerUid',100) && str('aiNote',20000) && str('aiModel',120) && str('aiRaw',40000) && str('aiError',2000) && str('grade',20) && str('note',20000)
+        && request.resource.data.keys().hasOnly(['moduleId','reviewerUid','aiScore','aiNote','aiPerReview','aiScoredAt','aiModel','aiRaw','aiError','grade','note','releasedAt','noticeSentAt','noticeTo','updatedAt'])
+        && str('moduleId',100) && str('reviewerUid',100) && str('aiNote',20000) && str('aiModel',120) && str('aiRaw',40000) && str('aiError',2000) && str('grade',20) && str('note',20000) && str('noticeTo',320)
         && (request.resource.data.get('aiScore',null) == null || request.resource.data.aiScore is number) && request.resource.data.get('aiPerReview',[]) is list;
       allow delete: if isAdmin();
     }
