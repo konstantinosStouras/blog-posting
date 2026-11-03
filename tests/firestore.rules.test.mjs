@@ -194,20 +194,26 @@ test('named student invitations can only be read and redeemed by the intended un
  await assertSucceeds(setDoc(doc(db('new','new@university.ie'),'modules/one/members/new'),ownMember));
  await assertFails(setDoc(doc(db('outsider','outsider@university.ie'),'modules/one/members/outsider'),{...member('outsider'),email:'outsider@university.ie',contactEmail:'outsider@university.ie',inviteId:'named'}));
 });
-test('signed-out visitors see blog and module titles only: no posts, comments, drafts, rosters, profiles or invites',async()=>{
+test('signed-out visitors read blog and module titles and published posts with their text: no comments, drafts, rosters, profiles or invites',async()=>{
  const d=env.unauthenticatedContext().firestore();
  await assertSucceeds(getDocs(collection(d,'blogs')));
  await assertSucceeds(getDocs(collection(d,'modules')));
- await assertFails(getDocs(query(collection(d,'posts'),where('status','==','published'))));
- await assertFails(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));
- await assertFails(getDoc(doc(d,'posts/published')));
+ await assertSucceeds(getDocs(query(collection(d,'posts'),where('status','==','published'))));
+ await assertSucceeds(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));
+ await assertSucceeds(getDoc(doc(d,'posts/published')));
+ await assertSucceeds(getDoc(doc(d,'posts/published/content/body')));
+ await assertFails(getDocs(collection(d,'posts')));   // a list that could return a draft
+ await assertFails(getDocs(query(collection(d,'posts'),where('blogId','==','pm'))));
  await assertFails(getDocs(collection(d,'comments')));
+ await assertFails(getDocs(query(collection(d,'comments'),where('moduleId','==','one'))));
  await assertFails(getDoc(doc(d,'posts/draft')));
- const member=db('peer','peer@ucd.ie');   // signed in, the published posts and comments of one's own module can be read, and a query names that module
+ await assertFails(getDoc(doc(d,'posts/draft/content/body')));
+ await assertFails(getDocs(collection(d,'posts/published/likes')));
+ const member=db('peer','peer@ucd.ie');   // signed in, the comments of one's own module can be read, and a query names that module
  await assertSucceeds(getDocs(query(collection(member,'posts'),where('moduleId','==','three'),where('status','==','published'))));
  await assertSucceeds(getDoc(doc(member,'posts/peer-published')));
  await assertSucceeds(getDocs(query(collection(member,'comments'),where('moduleId','==','three'))));
- await assertFails(getDocs(query(collection(member,'posts'),where('status','==','published'))));
+ await assertFails(getDocs(query(collection(member,'comments'),where('moduleId','==','one'))));
  await assertFails(getDocs(collection(member,'comments')));
  await assertFails(getDoc(doc(d,'profiles/student')));
  await assertFails(getDocs(collection(d,'modules/one/members')));
@@ -215,17 +221,18 @@ test('signed-out visitors see blog and module titles only: no posts, comments, d
  await assertFails(getDoc(doc(d,'teacherInvites/valid')));
  await assertFails(setDoc(doc(d,'comments/anon'),comment({authorId:'anon'})));
 });
-test('a student reads the published posts of their own module only, not those of another module on the same blog or of another instructor',async()=>{
+test('a student reads any published post (they are public) but no draft of a classmate, and the comments of their own module only',async()=>{
  const d=db('student','student@ucdconnect.ie');   // student is in module one; peer in module three, which shares the pm blog
  await assertSucceeds(getDoc(doc(d,'posts/published')));
  await assertSucceeds(getDocs(query(collection(d,'posts'),where('moduleId','==','one'),where('status','==','published'))));
  await assertSucceeds(getDocs(query(collection(d,'posts'),where('slug','==','test-post'),where('moduleId','==','one'),where('status','==','published'))));
  await assertSucceeds(getDoc(doc(d,'posts/published/content/body')));
- await assertFails(getDoc(doc(d,'posts/peer-published')));
- await assertFails(getDoc(doc(d,'posts/peer-published/content/body')));
- await assertFails(getDocs(query(collection(d,'posts'),where('moduleId','==','three'),where('status','==','published'))));
- await assertFails(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));   // the whole blog is the owner's view, not a student's
- await assertFails(getDocs(query(collection(d,'posts'),where('moduleId','==','two'),where('status','==','published'))));
+ await assertSucceeds(getDoc(doc(d,'posts/peer-published')));   // another module's published post: public, like the canvas it is on
+ await assertSucceeds(getDoc(doc(d,'posts/peer-published/content/body')));
+ await assertSucceeds(getDocs(query(collection(d,'posts'),where('moduleId','==','three'),where('status','==','published'))));
+ await assertSucceeds(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));
+ await assertFails(getDoc(doc(d,'posts/other-draft')));   // another student's draft
+ await assertFails(getDocs(query(collection(d,'posts'),where('moduleId','==','three'))));
  await assertFails(getDocs(query(collection(d,'posts'),where('moduleId','==','one'))));   // drafts of classmates stay private
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'comments/peer-comment'),comment({postId:'peer-published',moduleId:'three',authorId:'peer'})));
  await assertSucceeds(getDocs(query(collection(d,'comments'),where('postId','==','published'),where('moduleId','==','one'))));
@@ -559,7 +566,8 @@ test('a postâ€™s text lives under posts/{id}/content/body and follows the postâ€
  const d=db('student','student@ucdconnect.ie');
  await assertSucceeds(getDoc(doc(d,'posts/published/content/body')));
  await assertSucceeds(getDoc(doc(d,'posts/draft/content/body')));   // the author's own draft
- await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'posts/published/content/body')));
+ await assertSucceeds(getDoc(doc(env.unauthenticatedContext().firestore(),'posts/published/content/body')));   // a published post is public, text included
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'posts/draft/content/body')));
  await assertFails(getDoc(doc(db('peer','peer@ucd.ie'),'posts/draft/content/body')));   // another student's draft
  const split=(()=>{const p=post();delete p.body;return {...p,text:'Test content',bodyBytes:19};})();   // the record without its text, as the app now saves it
  const b=writeBatch(d);b.set(doc(d,'posts/split'),split);b.set(doc(d,'posts/split/content/body'),{body:'<p>Test content</p>'});

@@ -66,11 +66,11 @@ export async function myModules(target = app, embedded = false) {
 }
 
 // ---------- the public blog canvas ----------
-// Anyone may open a blog's page: a visitor sees the masthead and a "coming soon" note in place
-// of the posts, which are read by the module's members and instructors once they log in (the
-// modules writing on the blog are not named: a shared canvas is the instructor's business; the
-// brief, too, is for members). A signed-in reader who belongs to none of the blog's modules is
-// asked for their invitation code instead.
+// Anyone with the link may open a blog's page: a visitor sees the masthead, the Home menu and the
+// canvas of every published post on the blog, each of which they may open and read (the modules
+// writing on the blog are not named: a shared canvas is the instructor's business; the brief and
+// the comments are for members, who log in from the masthead). A signed-in reader who belongs to
+// none of the blog's modules is asked for their invitation code instead.
 export async function blogCanvas(id) {
   const u = currentUser();
   if (!(await canReadBlog(id))) { app.innerHTML = `<p class="empty">This blog is for the members of its modules and their instructors. ${u ? '<button class="btn primary" id="join-module">Enter invitation code</button>' : ''}</p>`; app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register')); return; }
@@ -78,12 +78,11 @@ export async function blogCanvas(id) {
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found. <a href="/blogs">Explore blogs</a></p>'; return; }
   const onBlog = modules.filter(m => m.blogId === id);
   if (!u) {
-    app.innerHTML = `<p class="page-sub">Blog</p>
-      <p class="actions"><button class="btn primary" id="join-signin">Log in</button><button class="btn small" id="copy-blog-link">Copy link</button></p>
-      <section class="coming-soon" aria-label="Posts"><h2>Coming soon</h2>
-        <p>Posts by this blog’s students will appear here as they are published. Each post is visible to the students of its module and to their instructors, so log in to read, write and comment.</p></section>`;
-    app.querySelector('#join-signin').addEventListener('click', () => openAuthModal());
-    app.querySelector('#copy-blog-link').onclick = async () => { try { await navigator.clipboard.writeText(blogUrl(id)); toast('Link copied.'); } catch { prompt('Blog link', blogUrl(id)); } };
+    // The posts alone, with nothing above them: no module line, no brief, no button row. Until the
+    // rules that open published posts to visitors are deployed, the read fails and the page says so.
+    const posts = await store.listPosts({status: 'published', blogId: id}).catch(e => { console.warn('visitor posts', e); return null; });
+    app.innerHTML = posts ? canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})
+      : `<section class="coming-soon" aria-label="Posts"><h2>Coming soon</h2><p>Posts by this blog’s students will appear here as they are published.</p></section>`;
     return;
   }
   const [posts, mine] = await Promise.all([store.listPosts({status: 'published', blogId: id}), store.listMyModules()]);
@@ -124,7 +123,7 @@ export async function briefPage(id) {
       <li><b>Write</b> your post in the editor: a title, a subtitle and the text, with hyperlinks to your sources, images and tables.${words ? ` The word meter follows the ${words} target (tables and captions are not counted).` : ''}</li>
       <li><b>Save a draft</b> as often as you like. Drafts are private to you and your instructor.</li>
       <li><b>Publish</b> when you are done.${cohort?.requireApproval ? ' Your instructor checks each post before it appears on the blog.' : ' Your post appears on the blog immediately and its address never changes.'}</li>
-      <li><b>Discuss.</b> Read the other posts from your module and answer the open questions they raise in the comments. Posts are visible to the students of their module and to their instructors only.</li>
+      <li><b>Discuss.</b> Read the other posts from your module and answer the open questions they raise in the comments. A published post is public, and the discussion under it is for the students of its module and their instructors.</li>
     </ol>
     ${myHere.filter(m => m.deadline || m.brightspaceUrl).map(m => `<div class="notice">${esc(moduleLabel(m))}${m.deadline ? `: deadline <b>${fmtDate(m.deadline)}</b>` : ''}${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}${m.brightspaceUrl ? ` · <a href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Module page on Brightspace</a>` : ''}</div>`).join('')}
     ${cohort ? `<p><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : ''}

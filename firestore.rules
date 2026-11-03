@@ -21,7 +21,7 @@ service cloud.firestore {
     // A published post is read by the students of its own module (and nobody from another module,
     // whether it shares the blog or belongs to another instructor), by its module's staff and by
     // the owners of its blog; a draft by its author and those staff.
-    function postReadable(p) { return own(p.authorId) || staffOf(p.moduleId) || blogStaff(p.get('blogId','')) || (p.status == 'published' && memberOf(p.moduleId)); }
+    function postReadable(p) { return p.status == 'published' || own(p.authorId) || staffOf(p.moduleId) || blogStaff(p.get('blogId','')); }
     function postWritable(p) { return staffOf(p.moduleId) || blogStaff(p.get('blogId','')) || (own(p.authorId) && memberOf(p.moduleId) && openSubmissions(p.moduleId)); }
     function moduleBlog(id) { return get(modulePath(id)).data.get('blogId', ''); }
     function own(uid) { return signedIn() && request.auth.uid == uid; }
@@ -255,10 +255,10 @@ service cloud.firestore {
     }
     match /posts/{id} {
       allow get: if signedIn() && resource == null;   // the writer checks a fresh id before its first save
-      // Signed out, there is only the front door. Signed in, a student reads the published posts of
-      // their own module(s); staff the modules they teach and the blogs they own. A list query must
-      // therefore name the module (or owned blog) it asks for, as backend-firebase.js does.
-      allow read: if signedIn() && (own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId) || (resource.data.status == 'published' && memberOf(resource.data.moduleId)));
+      // A published post is public: a blog's canvas and its posts are read by anyone with the link,
+      // signed in or not, so a list query must ask for published posts (as backend-firebase.js does).
+      // Drafts and pending posts are read by their author, the module's staff and the blog's owners.
+      allow read: if resource.data.status == 'published' || own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId);
       allow create: if verified() && postShape() && request.resource.data.authorId == request.auth.uid
         && (staffOf(request.resource.data.moduleId) || blogStaff(request.resource.data.blogId)
           || (memberOf(request.resource.data.moduleId) && openSubmissions(request.resource.data.moduleId)
@@ -279,7 +279,7 @@ service cloud.firestore {
       // The post's text, one record named body, read and written with the post it belongs to. A new
       // post and its text arrive in one batch, so the write looks at the post as it will then be.
       match /content/{part} {
-        allow read: if signedIn() && postReadable(get(/databases/$(database)/documents/posts/$(id)).data);
+        allow read: if postReadable(get(/databases/$(database)/documents/posts/$(id)).data);
         allow create, update: if verified() && part == 'body'
           && request.resource.data.keys().hasOnly(['body']) && request.resource.data.body is string && request.resource.data.body.size() <= 900000
           && postWritable(getAfter(/databases/$(database)/documents/posts/$(id)).data);
@@ -316,7 +316,8 @@ service cloud.firestore {
       }
     }
     match /comments/{id} {
-      // A comment is read with its post: by the students of the post's module, its staff and the blog's owners.
+      // A comment is read by the students of the post's module, its staff and the blog's owners;
+      // the discussion stays with the module even though the post itself is public.
       allow read: if signedIn() && (own(resource.data.authorId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId) || memberOf(resource.data.moduleId));
       allow create: if verified()
         && request.resource.data.keys().hasOnly(['postId','parentId','moduleId','blogId','body','authorId','authorName','createdAt','likedBy'])

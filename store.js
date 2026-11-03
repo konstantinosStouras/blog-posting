@@ -22,7 +22,8 @@ const WRITES = new Set(['register', 'completeRegistration', 'saveBlog', 'saveMod
   'saveWritingHistory', 'savePost', 'deletePost', 'deletePosts', 'slimPosts', 'votePoll', 'toggleLike', 'toggleCommentLike', 'toggleBookmark', 'addComment', 'deleteComment', 'saveGraderConfig', 'saveAiReview', 'savePeerRound', 'assignPeerReviews', 'submitPeerReview', 'savePeerReview', 'deletePeerRound', 'savePeerReviewerNote', 'releasePeerSummaries', 'savePeerPrompts', 'saveProfile', 'setRole', 'updateFeedback', 'deleteFeedback', 'saveSettings', 'resetDemo']);
 const scopeModules = (rows, p) => p.kind === 'student' ? rows.filter(m => m.id === p.moduleId).map(m => ({...m, teaching: false})) : rows.filter(m => (m.teacherIds || []).includes(p.uid)).map(m => ({...m, teaching: true}));
 // Who may read what. Signed out: every blog's canvas (its title, description and the modules
-// writing on it; the blogs and modules collections are public), but no post or comment. A
+// writing on it; the blogs and modules collections are public) and the published posts of any
+// blog whose link they have, but no draft, comment or brief. A
 // student: the published posts of the module(s) they belong to, and nothing from any other
 // module, whether it shares their blog or belongs to another instructor. An instructor: the
 // posts of the modules they teach and every post on the blogs they own. The admin: everything.
@@ -42,18 +43,20 @@ async function allowed() {
   for (const m of preview ? scopeModules(mine, preview) : mine) { modules.add(m.id); if (m.blogId) blogs.add(m.blogId); }
   return access = {all: false, blogs, modules, ownedBlogs};
 }
-// A blog's canvas is a public page: a visitor sees it without posts, and a signed-in reader
-// opens the blogs they belong to or teach, each seeing the posts within their reach.
+// A blog's canvas and its published posts are public: a visitor with the link reads them (never
+// a draft, a comment or the brief), and a signed-in reader opens the blogs they belong to or
+// teach, each seeing the posts within their reach.
 export const canReadBlog = async id => { const a = await allowed(); return a.all || a.visitor || a.blogs.has(id); };
 const reads = (a, x) => !!x && (a.modules.has(x.moduleId) || a.ownedBlogs.has(x.blogId));   // a post, or a comment (which carries its post's module and blog)
+const readsPost = (a, p) => !!p && (a.visitor ? p.status === 'published' : reads(a, p));
 const SCOPED = {
   listBlogs: (rows, a) => a.visitor ? rows : rows.filter(b => a.blogs.has(b.id)),
-  listPosts: (rows, a) => rows.filter(p => reads(a, p)),
-  listAllPosts: (rows, a) => rows.filter(p => reads(a, p)),
+  listPosts: (rows, a) => rows.filter(p => readsPost(a, p)),
+  listAllPosts: (rows, a) => rows.filter(p => readsPost(a, p)),
   listComments: (rows, a) => rows.filter(c => reads(a, c)),
   recentComments: (rows, a) => rows.filter(c => reads(a, c)),
-  getPost: (p, a) => reads(a, p) ? p : null,
-  getPostBySlug: (p, a) => reads(a, p) ? p : null,
+  getPost: (p, a) => readsPost(a, p) ? p : null,
+  getPostBySlug: (p, a) => readsPost(a, p) ? p : null,
 };
 export const store = new Proxy({}, {get: (_, k) => {
   const v = backend[k];

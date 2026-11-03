@@ -29,10 +29,10 @@ const allCategories = () => { const seen = new Map(); for (const b of BLOGS) for
 const catName = (slug, p) => ((blogOf(p)?.categories) || allCategories()).find(c => c.slug === slug)?.name || allCategories().find(c => c.slug === slug)?.name || slug || '';
 const user = () => currentUser();
 
-// Signed out there is the front door, an invitation link and every blog's canvas (checked
-// against the blog list below); every other page, the brief included, needs an account.
-const PUBLIC = [/^\/?$/, /^\/blogs$/, /^\/modules$/, /^\/invite\//, /^\/join\//, /^\/[a-z0-9-]+\/join\/[a-z]+$/i];
-const isPublic = bare => PUBLIC.some(re => re.test(bare)) || BLOGS.some(b => bare === '/' + b.id);
+// Signed out there is the front door, an invitation link, every blog's canvas (checked against
+// the blog list below) and its published posts; every other page, the brief included, needs an account.
+const PUBLIC = [/^\/?$/, /^\/blogs$/, /^\/modules$/, /^\/invite\//, /^\/join\//, /^\/[a-z0-9-]+\/join\/[a-z]+$/i, /^\/post\/[^/?]+$/, /^\/(\d{4})\/(\d{2})\/[^/?]+\/?$/];
+const isPublic = bare => PUBLIC.some(re => re.test(bare)) || BLOGS.some(b => bare === '/' + b.id || bare.match(/^\/([a-z0-9-]+)\/\d{4}\/\d{2}\/[^/?]+\/?$/)?.[1] === b.id);
 const routes = [
   [/^\/?$/, home],
   [/^\/blogs$/, blogDirectory],
@@ -113,8 +113,8 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   // left and search on the right. On a phone the tabs fold into a drawer that slides in from the left.
   document.body.classList.remove('nav-locked');
   // Signed in, the first tab is the person's own blog (or blogs; the admin explores them all),
-  // then All posts and search. A visitor on a blog gets the blog's own menu, its home alone,
-  // since there are no posts to list or search before signing in and the brief is for members.
+  // then All posts and search. A visitor on a blog (its canvas or one of its posts) gets the blog's
+  // own menu, its home alone: All posts and search are for readers, and the brief for members.
   // On the front door (the welcome page) only the masthead and Log in are drawn.
   const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : BLOGS.length === 1 ? {href: '/' + BLOGS[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
   const tabs = u ? `<a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
@@ -147,7 +147,7 @@ async function renderFooter(seq = renderSeq) {
   document.body.classList.toggle('writing', liveView === 'editor');   // lifts the Feedback button above the writer's sticky footer
   if (liveView === 'editor') { $footer.innerHTML = ''; return; }   // the writer page is full-bleed
   const u = user();
-  if (!u) { $footer.innerHTML = `<div class="inner"><div><p class="colophon">${esc(S.title)}. Each post is visible to the students of its module and to their instructors.</p></div><div></div>
+  if (!u) { $footer.innerHTML = `<div class="inner"><div><p class="colophon">${esc(S.title)}. Published posts are public; the discussion under each is for the students of its module and their instructors.</p></div><div></div>
     <div><h3>About</h3><ul><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div></div>`; return; }
   let posts, comments;
   try { [posts, comments] = await Promise.all([store.listPosts({status: 'published'}), store.recentComments(5)]); } catch (e) { console.warn('footer', e); return; }
@@ -159,7 +159,7 @@ async function renderFooter(seq = renderSeq) {
   $footer.innerHTML = `<div class="inner">
     <div><form class="widget-search" role="search"><input name="q" placeholder="Search" aria-label="Search"><button>Search</button></form>
       <h3>Recent posts</h3><ul>${posts.slice(0, 5).map(p => `<li><a href="${postPath(p)}">${esc(p.title)}</a></li>`).join('') || '<li class="muted">Nothing published yet.</li>'}</ul>
-      <p class="colophon">${esc(S.title)}. Each post is visible to the students of its module and to their instructors.</p></div>
+      <p class="colophon">${esc(S.title)}. Published posts are public; the discussion under each is for the students of its module and their instructors.</p></div>
     <div><h3>Recent comments</h3><ul>${comments.filter(c => byPost[c.postId]).map(c => `<li><b>${esc(c.authorName)}</b> on <a href="${postPath(byPost[c.postId])}">${esc(byPost[c.postId].title)}</a></li>`).join('') || '<li class="muted">No comments yet.</li>'}</ul>
       <h3>Archives</h3><ul>${months.map(m => `<li><a href="/archive/${m}">${monthName(m)}</a> <span class="muted">(${perMonth[m].length})</span></li>`).join('')}</ul></div>
     <div><h3>About</h3><ul><li><a href="/blogs">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</a></li><li><a href="https://www.stouras.com/" target="_blank" rel="noopener">stouras.com</a></li></ul></div>
@@ -397,7 +397,7 @@ function threadsHtml(cs, ctx) {
   const ids = new Set(cs.map(c => c.id));
   const tops = cs.filter(c => !c.parentId || !ids.has(c.parentId)).sort((a, b) => a.createdAt - b.createdAt);
   const replies = groupBy(cs.filter(c => c.parentId && ids.has(c.parentId)), c => c.parentId);
-  return tops.map(c => commentHtml(c, ctx, (replies[c.id] || []).sort((a, b) => a.createdAt - b.createdAt))).join('') || (ctx.canReply ? '' : '<p class="muted">No comments yet.</p>');
+  return tops.map(c => commentHtml(c, ctx, (replies[c.id] || []).sort((a, b) => a.createdAt - b.createdAt))).join('') || (ctx.canReply ? '' : ctx.u ? '<p class="muted">No comments yet.</p>' : '<p class="muted">The discussion is for the students of this module and their instructors. Log in to read it.</p>');
 }
 function commentHtml(c, {u, p, blog, canReply, canLike}, replies = null) {
   const likedBy = c.likedBy || [], liked = !!u && likedBy.includes(u.uid), saved = !!u && (u.bookmarkedComments || []).includes(c.id);

@@ -375,6 +375,7 @@ export const firebase = {
     let rows;
     if (f.authorId) rows = (await F.getDocs(F.query(col, F.where('authorId', '==', f.authorId)))).docs.map(norm);
     else if (role === 'admin') rows = (await F.getDocs(F.query(col, F.where('status', '==', f.status || 'published')))).docs.map(norm);
+    else if (!user) rows = f.blogId && (f.status || 'published') === 'published' ? (await F.getDocs(F.query(col, F.where('blogId', '==', f.blogId), F.where('status', '==', 'published')))).docs.map(norm) : [];   // a visitor: one blog's published posts, which the rules let anyone read
     else {
       // A student reads the published posts of their own module(s), an instructor those of the
       // modules they teach and every post on the blogs they own: one query per module or blog.
@@ -421,8 +422,7 @@ export const firebase = {
       }
       return null;
     }
-    if (!user) return null;   // signed out there is nothing to read; the page asks for a sign-in
-    const s = await F.getDocs(F.query(col, bySlug, F.limit(1)));
+    const s = await F.getDocs(user ? F.query(col, bySlug, F.limit(1)) : F.query(col, bySlug, F.where('status', '==', 'published'), F.limit(1)));   // signed out, a published post is readable; a draft reads as missing
     return s.empty ? null : norm(s.docs[0]);
   },
   async savePost(post, u) {
@@ -527,6 +527,7 @@ export const firebase = {
   // Comments follow their post's module: the rules admit a comment query that names a module the
   // account belongs to or teaches, or a blog it owns, so each read says which (the post's).
   async listComments(postId, post = null) {
+    if (!user) return [];   // the discussion is for the module: a visitor reads the post alone
     const col = F.collection(db, 'comments'), byPost = F.where('postId', '==', postId);
     let q = F.query(col, byPost);
     if (role !== 'admin' && post) {
