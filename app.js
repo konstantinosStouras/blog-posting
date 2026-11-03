@@ -29,10 +29,10 @@ const allCategories = () => { const seen = new Map(); for (const b of BLOGS) for
 const catName = (slug, p) => ((blogOf(p)?.categories) || allCategories()).find(c => c.slug === slug)?.name || allCategories().find(c => c.slug === slug)?.name || slug || '';
 const user = () => currentUser();
 
-// Signed out there is the front door, an invitation link and every blog's canvas with its brief
-// (the blog's own pages, checked against the blog list below); every other page needs an account.
+// Signed out there is the front door, an invitation link and every blog's canvas (checked
+// against the blog list below); every other page, the brief included, needs an account.
 const PUBLIC = [/^\/?$/, /^\/blogs$/, /^\/modules$/, /^\/invite\//, /^\/join\//, /^\/[a-z0-9-]+\/join\/[a-z]+$/i];
-const isPublic = bare => PUBLIC.some(re => re.test(bare)) || BLOGS.some(b => bare === '/' + b.id || bare === '/' + b.id + '/brief');
+const isPublic = bare => PUBLIC.some(re => re.test(bare)) || BLOGS.some(b => bare === '/' + b.id);
 const routes = [
   [/^\/?$/, home],
   [/^\/blogs$/, blogDirectory],
@@ -83,13 +83,20 @@ async function doRender() {
   try { BLOGS = await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
   if (!user() && !isPublic(path.split('?')[0])) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
   renderHeader(path);
-  window.scrollTo(0, 0);
+  scrollPending = true;   // to the top once the new page is drawn (pageDrawn below), not now
   const bare = path.split('?')[0];   // canvas filters live in a ?query after the route; routes that expect their own query match first
   for (const [re, fn] of routes) { const m = path.match(re) || bare.match(re); if (m) { try { await fn(...m.slice(1)); } catch (e) { console.error(e); $app.innerHTML = `<p class="empty">Something went wrong: ${esc(e.message)}</p>`; } landed(seq); return; } }
   $app.innerHTML = `<p class="empty">That page does not exist. <a href="/">Back to the blog</a></p>`; landed(seq);
 }
+// The page scrolls to the top when the new page is drawn, not when the navigation starts:
+// a page waits for the database before it draws, and scrolling first showed the old page
+// jump to its top and sit there until the new one replaced it.
+let scrollPending = false;
+const pageDrawn = new MutationObserver(() => { if (scrollPending) { scrollPending = false; window.scrollTo(0, 0); } });
+pageDrawn.observe($app, {childList: true});
 // After a page is drawn: a link that named an anchor (/2026/10/post#comments) scrolls to it.
 function landed(seq) {
+  if (scrollPending) { scrollPending = false; if (pageDrawn.takeRecords().length) window.scrollTo(0, 0); }   // drawn, but the observer has not run yet
   const id = location.hash.slice(1);
   if (id) { const go = () => document.getElementById(id)?.scrollIntoView({block: 'start'}); go(); setTimeout(go, 400); setTimeout(go, 1200); }   // repeated: images and embeds shift the layout as they load
   renderFooter(seq);
@@ -106,13 +113,13 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   // left and search on the right. On a phone the tabs fold into a drawer that slides in from the left.
   document.body.classList.remove('nav-locked');
   // Signed in, the first tab is the person's own blog (or blogs; the admin explores them all),
-  // then All posts and search. A visitor on a blog gets the blog's own menu: its home and its
-  // brief, since there are no posts to list or search before signing in. On the front door
-  // (the welcome page) only the masthead and Log in are drawn.
+  // then All posts and search. A visitor on a blog gets the blog's own menu, its home alone,
+  // since there are no posts to list or search before signing in and the brief is for members.
+  // On the front door (the welcome page) only the masthead and Log in are drawn.
   const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : BLOGS.length === 1 ? {href: '/' + BLOGS[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
   const tabs = u ? `<a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>`
-    : blog ? `<a href="/${esc(blog.id)}" class="${path.split('?')[0] === '/' + blog.id ? 'active' : ''}">Home</a>${blog.brief ? `<a href="/${esc(blog.id)}/brief" class="${active('/' + blog.id + '/brief')}">The brief</a>` : ''}` : '';
+    : blog ? `<a href="/${esc(blog.id)}" class="${path.split('?')[0] === '/' + blog.id ? 'active' : ''}">Home</a>` : '';
   $header.innerHTML = `<div class="brand">
     ${tabs ? '<button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>' : ''}
     <div class="masthead">${blog ? `<h1><a href="/${esc(blog.id)}">${esc(blog.title)}</a></h1><p class="tagline">${esc(blog.description || S.tagline)}</p>` : `<h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p>`}</div>

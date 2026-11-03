@@ -61,8 +61,9 @@ export async function myModules(target = app, embedded = false) {
 // ---------- the public blog canvas ----------
 // Anyone may open a blog's page: a visitor sees the masthead and a "coming soon" note in place
 // of the posts, which are read by the module's members and instructors once they log in (the
-// modules writing on the blog are not named: a shared canvas is the instructor's business). A
-// signed-in reader who belongs to none of the blog's modules is asked for their invitation code instead.
+// modules writing on the blog are not named: a shared canvas is the instructor's business; the
+// brief, too, is for members). A signed-in reader who belongs to none of the blog's modules is
+// asked for their invitation code instead.
 export async function blogCanvas(id) {
   const u = currentUser();
   if (!(await canReadBlog(id))) { app.innerHTML = `<p class="empty">This blog is for the members of its modules and their instructors. ${u ? '<button class="btn primary" id="join-module">Enter invitation code</button>' : ''}</p>`; app.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register')); return; }
@@ -71,7 +72,7 @@ export async function blogCanvas(id) {
   const onBlog = modules.filter(m => m.blogId === id);
   if (!u) {
     app.innerHTML = `<p class="page-sub">Blog</p>
-      <p class="actions"><button class="btn primary" id="join-signin">Log in</button>${blog.brief ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}<button class="btn small" id="copy-blog-link">Copy link</button></p>
+      <p class="actions"><button class="btn primary" id="join-signin">Log in</button><button class="btn small" id="copy-blog-link">Copy link</button></p>
       <section class="coming-soon" aria-label="Posts"><h2>Coming soon</h2>
         <p>Posts by this blog’s students will appear here as they are published. Each post is visible to the students of its module and to their instructors, so log in to read, write and comment.</p></section>`;
     app.querySelector('#join-signin').addEventListener('click', () => openAuthModal());
@@ -99,10 +100,10 @@ export async function moduleRedirect(id) {
 }
 
 // ---------- the brief: a blog's exercise, with the reader's own deadlines ----------
-// Public like the canvas (a visitor reads the exercise and is offered Log in); the reader's
-// own module deadlines appear once they are signed in.
+// For the blog's members and instructors only: unlike the canvas, a visitor is asked to log in.
 export async function briefPage(id) {
   const u = currentUser();
+  if (!u) { app.innerHTML = '<p class="empty">This brief is for the members of its blog. <button class="btn primary" id="brief-signin">Log in</button></p>'; app.querySelector('#brief-signin').addEventListener('click', () => openAuthModal()); return; }
   if (!(await canReadBlog(id))) { app.innerHTML = '<p class="empty">This brief is for the members of its blog.</p>'; return; }
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
@@ -119,9 +120,8 @@ export async function briefPage(id) {
       <li><b>Discuss.</b> Read the other posts from your module and answer the open questions they raise in the comments. Posts are visible to the students of their module and to their instructors only.</li>
     </ol>
     ${myHere.filter(m => m.deadline || m.brightspaceUrl).map(m => `<div class="notice">${esc(moduleLabel(m))}${m.deadline ? `: deadline <b>${fmtDate(m.deadline)}</b>` : ''}${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}${m.brightspaceUrl ? ` · <a href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Module page on Brightspace</a>` : ''}</div>`).join('')}
-    ${cohort ? `<p><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : u ? '' : '<p><button class="btn primary" id="brief-signin">Log in</button></p>'}
+    ${cohort ? `<p><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : ''}
     ${instructs(u, blog) || mine.some(m => m.blogId === id && isTeaching(m)) ? `<p class="muted small">Modules writing on this blog: ${esc(modules.filter(m => m.blogId === id).map(moduleLabel).join(' · ') || 'none yet')}.</p>` : ''}</div>`;
-  app.querySelector('#brief-signin')?.addEventListener('click', () => openAuthModal());
 }
 
 // ---------- module settings: cohort + which blog it writes on ----------
