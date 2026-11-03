@@ -38,8 +38,37 @@ const readScope = f => ({
   modules: [...new Set([...memberModuleIds, ...managedModuleIds])].filter(id => !f.moduleId || id === f.moduleId),
   blogs: managedBlogIds.filter(id => !f.blogId || id === f.blogId),
 });
-const gather = async qs => { const rows = (await Promise.all(qs.map(q => F.getDocs(q).then(s => s.docs.map(norm))))).flat(); return [...new Map(rows.map(r => [r.id, r])).values()]; };
-const listeners = new Set(), notify = () => { forget(); listeners.forEach(fn => fn()); };
+const gather = async qs => { const rows = (await Promise.all(qs.map(q => getDocs(q).then(s => s.docs.map(norm))))).flat(); return [...new Map(rows.map(r => [r.id, r])).values()]; };
+const listeners = new Set(), notify = why => { forget(); listeners.forEach(fn => fn(why)); };
+// The first page is drawn from the documents kept on disk. Until the first page is up (warm),
+// a read that the cache can answer is answered from it at once, and the same read goes to the
+// server behind it: when the server's answer differs from what was drawn (a post published
+// since the last visit), the page is redrawn in place once it is up (notify('refresh'), which
+// app.js draws without scrolling). A document or query the cache has never seen waits for the
+// server as before, so a first visit is unchanged. After the first page every read goes to the
+// server, as before: the cache, being local, is not narrowed by the rules, and a page drawn from
+// it must never stand for long.
+let warm = true, stale = false, refreshTimer = 0;
+const refresh = () => { if (!refreshTimer) refreshTimer = setTimeout(() => { refreshTimer = 0; notify('refresh'); }, 50); };
+const painted = () => { warm = false; if (stale) { stale = false; refresh(); } };
+setTimeout(painted, 15000);   // whatever happens to the first page
+const differs = () => { stale = true; if (!warm) painted(); };
+const shape = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(k => [k, x[k]])) : x);
+const docKey = s => s.exists() ? shape(norm(s)) : '', docsKey = s => shape(s.docs.map(norm));
+async function getDoc(ref) {
+  if (!warm) return F.getDoc(ref);
+  let hit = null; try { const s = await F.getDocFromCache(ref); if (s.exists()) hit = s; } catch {}   // rejects when the document is not on disk
+  if (!hit) return F.getDoc(ref);
+  F.getDoc(ref).then(s => { if (docKey(s) !== docKey(hit)) differs(); }).catch(() => {});
+  return hit;
+}
+async function getDocs(q) {
+  if (!warm) return F.getDocs(q);
+  let hit = null; try { const s = await F.getDocsFromCache(q); if (!s.empty) hit = s; } catch {}
+  if (!hit) return F.getDocs(q);
+  F.getDocs(q).then(s => { if (docsKey(s) !== docsKey(hit)) differs(); }).catch(() => {});
+  return hit;
+}
 const ts = v => (v && typeof v.toMillis === 'function') ? v.toMillis() : (v ?? null);
 const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['createdAt', 'updatedAt', 'publishedAt']) if (k in o) o[k] = ts(o[k]); return o; };
 // A post's text (with its inline images) lives in posts/{id}/content/body, apart from the
@@ -49,7 +78,7 @@ const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['created
 // carry body in their record until they are saved again or slimmed (slimPosts).
 const TEXT_MAX = 8000;
 const bodyRef = id => F.doc(db, 'posts', id, 'content', 'body');
-async function withBody(p) { if (!p || typeof p.body === 'string') return p; const s = await F.getDoc(bodyRef(p.id)); return {...p, body: s.exists() ? s.data().body || '' : ''}; }
+async function withBody(p) { if (!p || typeof p.body === 'string') return p; const s = await getDoc(bodyRef(p.id)); return {...p, body: s.exists() ? s.data().body || '' : ''}; }
 async function createCodedInvite(kind, data) {
   const inviteId = crypto.randomUUID();
   for (let attempt=0;attempt<60;attempt++) {
@@ -68,12 +97,12 @@ async function createCodedInvite(kind, data) {
 
 async function loadRole(uid, email, verified) {
   if (verified && email === ADMIN_EMAIL) return 'admin';
-  try { const snap = await F.getDoc(F.doc(db, 'roles', uid)); if (snap.exists() && snap.data().role) return snap.data().role; } catch {}
+  try { const snap = await getDoc(F.doc(db, 'roles', uid)); if (snap.exists() && snap.data().role) return snap.data().role; } catch {}
   return (verified && email === ADMIN_EMAIL) ? 'admin' : 'student';
 }
 async function ensureProfile(u) {
   const ref = F.doc(db, 'profiles', u.uid);
-  const snap = await F.getDoc(ref);
+  const snap = await getDoc(ref);
   if (snap.exists()) return snap.data();
   const [firstName = '', ...rest] = (u.displayName || '').split(' ');
   const p = {firstName, lastName: rest.join(' '), penName: randomAlias(), affiliation: '', studentId: '', website: '', linkedin: '', bio: '', contactEmail: '', photo: '', registrationKind: 'student'};
@@ -125,7 +154,7 @@ const MEMOED = ['listModules', 'getModule', 'listBlogs', 'getBlog', 'listMyModul
 // goes in several, with the post itself in the last one.
 async function removePost(id) {
   if (role === 'student') { const b = F.writeBatch(db); b.delete(bodyRef(id)); b.delete(F.doc(db, 'posts', id)); await b.commit(); return; }
-  const [cs, ls, vs, bs, ct] = await Promise.all([F.getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), F.getDocs(F.collection(db, 'posts', id, 'likes')), F.getDocs(F.collection(db, 'posts', id, 'votes')), F.getDocs(F.collection(db, 'posts', id, 'bookmarks')), F.getDocs(F.collection(db, 'posts', id, 'content'))]);
+  const [cs, ls, vs, bs, ct] = await Promise.all([getDocs(F.query(F.collection(db, 'comments'), F.where('postId', '==', id))), getDocs(F.collection(db, 'posts', id, 'likes')), getDocs(F.collection(db, 'posts', id, 'votes')), getDocs(F.collection(db, 'posts', id, 'bookmarks')), getDocs(F.collection(db, 'posts', id, 'content'))]);
   const refs = [...cs.docs, ...ls.docs, ...vs.docs, ...bs.docs, ...ct.docs].map(d => d.ref);
   let b = F.writeBatch(db), n = 0;
   for (const r of refs) { b.delete(r); if (++n === 450) { await b.commit(); b = F.writeBatch(db); n = 0; } }
@@ -143,7 +172,7 @@ export const firebase = {
     // posts with their inline images are downloaded once rather than on every visit.
     try { db = F.initializeFirestore(app, {localCache: F.persistentLocalCache({tabManager: F.persistentMultipleTabManager()})}); }
     catch (e) { console.warn('persistent cache', e); db = F.getFirestore(app); }
-    const site = F.getDoc(F.doc(db, 'settings', 'site')).then(s => { if (s.exists()) settings = {...DEFAULT_SETTINGS, ...s.data()}; }).catch(e => console.warn('settings', e));
+    const site = getDoc(F.doc(db, 'settings', 'site')).then(s => { if (s.exists()) settings = {...DEFAULT_SETTINGS, ...s.data()}; }).catch(e => console.warn('settings', e));
     await new Promise(resolve => {
       A.onAuthStateChanged(auth, async u => {
         user = u; forget();
@@ -156,6 +185,7 @@ export const firebase = {
   },
   settings: () => settings,
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
+  painted,   // app.js: the first page is up; reads go to the server from here on
 
   // ---- auth ----
   currentUser() { return user ? {uid: user.uid, email: user.email || '', emailVerified: user.emailVerified, displayName: user.displayName || '', photoURL: user.photoURL || profile?.photo || '', providerId: user.providerData?.[0]?.providerId || 'password', ...profile, role, managedModuleIds, managedBlogIds} : null; },
@@ -203,11 +233,11 @@ export const firebase = {
   async signOut() { await A.signOut(auth); },
 
   // Public module metadata is separate from private enrolment/roster records.
-  async listModules() { const s = await F.getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },
-  async getModule(id) { const s = await F.getDoc(F.doc(db, 'modules', id)); return s.exists() ? norm(s) : null; },
+  async listModules() { const s = await getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },
+  async getModule(id) { const s = await getDoc(F.doc(db, 'modules', id)); return s.exists() ? norm(s) : null; },
   // ---- blogs: the public canvas and the exercise written on it ----
-  async listBlogs() { const s = await F.getDocs(F.collection(db, 'blogs')); return s.docs.map(norm).sort((a, b) => a.title.localeCompare(b.title)); },
-  async getBlog(id) { if (!id) return null; const s = await F.getDoc(F.doc(db, 'blogs', id)); return s.exists() ? norm(s) : null; },
+  async listBlogs() { const s = await getDocs(F.collection(db, 'blogs')); return s.docs.map(norm).sort((a, b) => a.title.localeCompare(b.title)); },
+  async getBlog(id) { if (!id) return null; const s = await getDoc(F.doc(db, 'blogs', id)); return s.exists() ? norm(s) : null; },
   async listMyBlogs() { if (!user) return []; return (await this.listBlogs()).filter(b => role === 'admin' || b.teacherIds.includes(user.uid)); },
   async saveBlog(data) {
     if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
@@ -258,14 +288,14 @@ export const firebase = {
     if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
     const m = await this.getModule(id); if (!m) throw Error('Module not found.');
     if (!(role === 'admin' || m.teacherIds.includes(user.uid))) throw Error('You cannot manage this module.');
-    const posts = await F.getDocs(F.query(F.collection(db, 'posts'), F.where('moduleId', '==', id)));
+    const posts = await getDocs(F.query(F.collection(db, 'posts'), F.where('moduleId', '==', id)));
     if (posts.size) throw Error(`This module has ${posts.size} post${posts.size === 1 ? '' : 's'}. Delete them from Review posts first, or keep the module and reuse it next year.`);
     for (const i of await this.listModuleInvites(id)) if (!i.revoked) await this.revokeModuleInvite(i.id);
-    const members = await F.getDocs(F.collection(db, 'modules', id, 'members'));
+    const members = await getDocs(F.collection(db, 'modules', id, 'members'));
     let b = F.writeBatch(db), n = 0;
     for (const d of members.docs) {
       b.delete(d.ref);
-      if (m.blogId) { const bm = await F.getDoc(F.doc(db, 'blogs', m.blogId, 'members', d.id)).catch(() => null); if (bm?.exists() && bm.data().moduleId === id) b.delete(bm.ref); }
+      if (m.blogId) { const bm = await getDoc(F.doc(db, 'blogs', m.blogId, 'members', d.id)).catch(() => null); if (bm?.exists() && bm.data().moduleId === id) b.delete(bm.ref); }
       if ((n += 2) >= 450) { await b.commit(); b = F.writeBatch(db); n = 0; }
     }
     b.delete(F.doc(db, 'modules', id)); await b.commit();
@@ -278,7 +308,7 @@ export const firebase = {
     const modules = await this.listModules();
     const rows = (await Promise.all(modules.map(async m => {
       if (m.teacherIds.includes(user.uid) || role === 'admin') return {...m, teaching: true};
-      const member = await F.getDoc(F.doc(db, 'modules', m.id, 'members', user.uid));
+      const member = await getDoc(F.doc(db, 'modules', m.id, 'members', user.uid));
       return member.exists() ? {...m, teaching: false} : null;
     }))).filter(Boolean);
     memberModuleIds = rows.filter(m => !m.teaching).map(m => m.id);
@@ -291,11 +321,11 @@ export const firebase = {
     await A.getIdToken(user, true).catch(() => {});   // the email_verified claim may lag the account flag
     const m = await this.getModule(id); if (!m) throw Error('Module not found.');
     if (m.teacherIds.includes(user.uid) || role === 'admin') return;
-    const ref=F.doc(db,'modules',id,'members',user.uid),existing=await F.getDoc(ref);
+    const ref=F.doc(db,'modules',id,'members',user.uid),existing=await getDoc(ref);
     inviteId=existing.data()?.inviteId || inviteId || '';
     if(!inviteId)throw Error('An invitation from your instructor is required to join this module.');
     if(!existing.exists()){
-      const invite=await F.getDoc(F.doc(db,'moduleInvites',inviteId)).catch(()=>null);
+      const invite=await getDoc(F.doc(db,'moduleInvites',inviteId)).catch(()=>null);
       if(!invite?.exists() || invite.data().moduleId!==id || invite.data().revoked || invite.data().expiresAt<Date.now())throw Error('This module invitation has expired or is not valid.');
     }
     const details = registrationProfile(profile, ['teacher','instructor'].includes(profile?.registrationKind));
@@ -309,7 +339,7 @@ export const firebase = {
   async resolveRegistrationCode(code) {
     const key=normalizeCode(code);
     if(!/^[a-z]+(-[0-9]{3})?$/.test(key))throw Error('Enter the invitation code exactly as it was supplied to you.');
-    const s=await F.getDoc(F.doc(db,'registrationCodes',key));
+    const s=await getDoc(F.doc(db,'registrationCodes',key));
     if(!s.exists() || s.data().revoked || s.data().expiresAt<Date.now())throw Error('That registration code is invalid, revoked or expired.');
     // A student code is one of the eight cities; the codes from before 3 Nov 2026 (ottawa-521) are retired.
     if(s.data().kind==='student'&&(!isJoinCity(key)||!s.data().blogId))throw Error('That invitation code has been retired. Ask your instructor for the module’s current invitation link.');
@@ -318,7 +348,7 @@ export const firebase = {
   // Which module, if any, each of the eight cities is the code of (null: free). Eight reads;
   // the index is readable one code at a time, never listed.
   async joinCityStatus() {
-    const docs=await Promise.all(JOIN_CITIES.map(c=>F.getDoc(F.doc(db,'registrationCodes',c))));
+    const docs=await Promise.all(JOIN_CITIES.map(c=>getDoc(F.doc(db,'registrationCodes',c))));
     return Object.fromEntries(JOIN_CITIES.map((c,i)=>[c,docs[i].exists()&&!docs[i].data().revoked?docs[i].data():null]));
   },
   // The module's invitation becomes the chosen city: its earlier code(s), of any format, are
@@ -342,8 +372,8 @@ export const firebase = {
     });
     return {id:inviteId,...data};
   },
-  async listModuleInvites(moduleId) {const s=await F.getDocs(F.query(F.collection(db,'moduleInvites'),F.where('moduleId','==',moduleId)));return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt);},
-  async revokeModuleInvite(id) {const ref=F.doc(db,'moduleInvites',id),s=await F.getDoc(ref),batch=F.writeBatch(db);batch.update(ref,{revoked:true});if(s.data()?.code)batch.update(F.doc(db,'registrationCodes',s.data().code),{revoked:true});await batch.commit();},
+  async listModuleInvites(moduleId) {const s=await getDocs(F.query(F.collection(db,'moduleInvites'),F.where('moduleId','==',moduleId)));return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt);},
+  async revokeModuleInvite(id) {const ref=F.doc(db,'moduleInvites',id),s=await getDoc(ref),batch=F.writeBatch(db);batch.update(ref,{revoked:true});if(s.data()?.code)batch.update(F.doc(db,'registrationCodes',s.data().code),{revoked:true});await batch.commit();},
   async createTeacherInvite({universityEmail, ucdEmail, gmail}) {
     const email = String(universityEmail || ucdEmail || '').trim().toLowerCase(), googleEmail = String(gmail || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Error('Enter the instructor’s university email.');
@@ -351,12 +381,12 @@ export const firebase = {
     const doc = {ucdEmail:email, gmail:googleEmail, createdBy:user.uid, createdAt:Date.now(), expiresAt:Date.now()+7*86400000, acceptedBy:'', revoked:false};
     return createCodedInvite('instructor',doc);
   },
-  async listTeacherInvites() { const s = await F.getDocs(F.collection(db,'teacherInvites')); return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt); },
-  async revokeTeacherInvite(id) {const ref=F.doc(db,'teacherInvites',id),s=await F.getDoc(ref),batch=F.writeBatch(db);batch.update(ref,{revoked:true});if(s.data()?.code)batch.update(F.doc(db,'registrationCodes',s.data().code),{revoked:true});await batch.commit();},
+  async listTeacherInvites() { const s = await getDocs(F.collection(db,'teacherInvites')); return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt); },
+  async revokeTeacherInvite(id) {const ref=F.doc(db,'teacherInvites',id),s=await getDoc(ref),batch=F.writeBatch(db);batch.update(ref,{revoked:true});if(s.data()?.code)batch.update(F.doc(db,'registrationCodes',s.data().code),{revoked:true});await batch.commit();},
   async acceptTeacherInvite(id) {
     if (!user?.emailVerified) throw Error('Verify your sign-in email before accepting the invitation.');
     await A.getIdToken(user, true).catch(() => {});
-    const ref = F.doc(db,'teacherInvites',id), s = await F.getDoc(ref).catch(() => null);
+    const ref = F.doc(db,'teacherInvites',id), s = await getDoc(ref).catch(() => null);
     if (!s?.exists()) throw Error('Invitation not found, or it was issued to a different email address.');
     const invite = s.data();
     if (invite.revoked || invite.expiresAt < Date.now()) throw Error('This invitation has expired or was revoked. Ask the admin for a new link.');
@@ -374,8 +404,8 @@ export const firebase = {
   async listPosts(f = {}) {
     const col = F.collection(db, 'posts');
     let rows;
-    if (f.authorId) rows = (await F.getDocs(F.query(col, F.where('authorId', '==', f.authorId)))).docs.map(norm);
-    else if (role === 'admin') rows = (await F.getDocs(F.query(col, F.where('status', '==', f.status || 'published')))).docs.map(norm);
+    if (f.authorId) rows = (await getDocs(F.query(col, F.where('authorId', '==', f.authorId)))).docs.map(norm);
+    else if (role === 'admin') rows = (await getDocs(F.query(col, F.where('status', '==', f.status || 'published')))).docs.map(norm);
     else if ((f.status || 'published') === 'published') {
       // Published posts are public, whole blogs at a time: the blog asked for, or (All posts, the
       // footer) every blog of the reader's modules. A visitor must name the blog.
@@ -393,35 +423,35 @@ export const firebase = {
     return rows;
   },
   async listAllPosts() {
-    if (role === 'admin') { const snap = await F.getDocs(F.collection(db,'posts')); return snap.docs.map(norm); }
-    const byModule = managedModuleIds.map(id => F.getDocs(F.query(F.collection(db,'posts'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm)));
-    const byBlog = managedBlogIds.map(id => F.getDocs(F.query(F.collection(db,'posts'),F.where('blogId','==',id))).then(s=>s.docs.map(norm)));
+    if (role === 'admin') { const snap = await getDocs(F.collection(db,'posts')); return snap.docs.map(norm); }
+    const byModule = managedModuleIds.map(id => getDocs(F.query(F.collection(db,'posts'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm)));
+    const byBlog = managedBlogIds.map(id => getDocs(F.query(F.collection(db,'posts'),F.where('blogId','==',id))).then(s=>s.docs.map(norm)));
     const rows = (await Promise.all([...byModule, ...byBlog])).flat();
     return [...new Map(rows.map(p => [p.id, p])).values()];
   },
   async saveWritingHistory(row){const {id,...data}=row;await F.setDoc(F.doc(db,'writingHistory',id),data);},
-  async listWritingHistory(moduleId=''){if(!user?.emailVerified||!['admin','lecturer'].includes(role))throw Error('Staff access required.');if(role==='admin'&&!moduleId){const s=await F.getDocs(F.collection(db,'writingHistory'));return s.docs.map(norm);}const ids=moduleId?[moduleId]:managedModuleIds;return (await Promise.all(ids.map(id=>F.getDocs(F.query(F.collection(db,'writingHistory'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
-  async listWritingSessions(moduleId='') {const ids=moduleId?[moduleId]:managedModuleIds;if(role==='admin'&&!moduleId){const s=await F.getDocs(F.collection(db,'writingSessions'));return s.docs.map(norm);}return (await Promise.all(ids.map(id=>F.getDocs(F.query(F.collection(db,'writingSessions'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
+  async listWritingHistory(moduleId=''){if(!user?.emailVerified||!['admin','lecturer'].includes(role))throw Error('Staff access required.');if(role==='admin'&&!moduleId){const s=await getDocs(F.collection(db,'writingHistory'));return s.docs.map(norm);}const ids=moduleId?[moduleId]:managedModuleIds;return (await Promise.all(ids.map(id=>getDocs(F.query(F.collection(db,'writingHistory'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
+  async listWritingSessions(moduleId='') {const ids=moduleId?[moduleId]:managedModuleIds;if(role==='admin'&&!moduleId){const s=await getDocs(F.collection(db,'writingSessions'));return s.docs.map(norm);}return (await Promise.all(ids.map(id=>getDocs(F.query(F.collection(db,'writingSessions'),F.where('moduleId','==',id))).then(s=>s.docs.map(norm))))).flat();},
   // light: the record only (a list of titles), without the read for the text.
-  async getPost(id, {light = false} = {}) { const s = await F.getDoc(F.doc(db, 'posts', id)); const p = s.exists() ? norm(s) : null; return light ? p : withBody(p); },
+  async getPost(id, {light = false} = {}) { const s = await getDoc(F.doc(db, 'posts', id)); const p = s.exists() ? norm(s) : null; return light ? p : withBody(p); },
   async getPostBySlug(slug) { return withBody(await this.findPostBySlug(slug)); },
   async findPostBySlug(slug) {
     const col = F.collection(db, 'posts'), bySlug = F.where('slug', '==', slug);
     const staff = user && role === 'admin';
     if (user && !staff) {
-      const own = await F.getDocs(F.query(col, bySlug, F.where('authorId', '==', user.uid), F.limit(1)));
+      const own = await getDocs(F.query(col, bySlug, F.where('authorId', '==', user.uid), F.limit(1)));
       if (!own.empty) return norm(own.docs[0]);
       for (const moduleId of managedModuleIds) {
-        const taught = await F.getDocs(F.query(col,bySlug,F.where('moduleId','==',moduleId),F.limit(1)));
+        const taught = await getDocs(F.query(col,bySlug,F.where('moduleId','==',moduleId),F.limit(1)));
         if (!taught.empty) return norm(taught.docs[0]);
       }
       for (const blogId of managedBlogIds) {
-        const owned = await F.getDocs(F.query(col,bySlug,F.where('blogId','==',blogId),F.limit(1)));
+        const owned = await getDocs(F.query(col,bySlug,F.where('blogId','==',blogId),F.limit(1)));
         if (!owned.empty) return norm(owned.docs[0]);
       }
     }
     // Everyone else, signed in or not: a published post is readable; a draft reads as missing.
-    const s = await F.getDocs(F.query(col, bySlug, F.where('status', '==', 'published'), F.limit(1)));
+    const s = await getDocs(F.query(col, bySlug, F.where('status', '==', 'published'), F.limit(1)));
     return s.empty ? null : norm(s.docs[0]);
   },
   async savePost(post, u) {
@@ -459,7 +489,7 @@ export const firebase = {
   // allows 1 GiB). One read per record, so it is measured only when that page is opened.
   async storageUsage() {
     if (role !== 'admin') throw Error('Admin access required.');
-    const all = async name => (await F.getDocs(F.collection(db, name))).docs.map(d => d.data());
+    const all = async name => (await getDocs(F.collection(db, name))).docs.map(d => d.data());
     const size = rows => rows.reduce((s, d) => s + JSON.stringify(d).length + 64, 0);
     const [posts, comments, sessions, history, reviews] = await Promise.all(['posts', 'comments', 'writingSessions', 'writingHistory', 'aiReviews'].map(all));
     const bodies = posts.reduce((s, p) => s + (typeof p.body === 'string' ? 0 : p.bodyBytes || 0), 0);   // text in its own record; an unsplit post's text is in its record already
@@ -485,7 +515,7 @@ export const firebase = {
     notify(); return failed;
   },
   async pollVotes(postId, pollId, u) {
-    const s = await F.getDocs(F.query(F.collection(db, 'posts', postId, 'votes'), F.where('pollId', '==', pollId)));
+    const s = await getDocs(F.query(F.collection(db, 'posts', postId, 'votes'), F.where('pollId', '==', pollId)));
     const counts = {}; let mine = null, total = 0;
     s.forEach(d => { const v = d.data(); counts[v.option] = (counts[v.option] || 0) + 1; total++; if (u && v.uid === u.uid) mine = v.option; });
     return {counts, mine, total};
@@ -495,10 +525,10 @@ export const firebase = {
     await F.setDoc(F.doc(db, 'posts', postId, 'votes', pollId + '_' + u.uid), {pollId, uid: u.uid, option, t: Date.now()});
     return this.pollVotes(postId, pollId, u);
   },
-  async listLikes(postId) { try { const s = await F.getDocs(F.collection(db, 'posts', postId, 'likes')); return s.docs.map(d => d.id); } catch { return []; } },
+  async listLikes(postId) { try { const s = await getDocs(F.collection(db, 'posts', postId, 'likes')); return s.docs.map(d => d.id); } catch { return []; } },
   async toggleLike(postId, u) {
     if (!user?.emailVerified) throw Error('Verify your sign-in email to like posts.');
-    const ref = F.doc(db, 'posts', postId, 'likes', u.uid), had = (await F.getDoc(ref)).exists();
+    const ref = F.doc(db, 'posts', postId, 'likes', u.uid), had = (await getDoc(ref)).exists();
     if (had) await F.deleteDoc(ref); else await F.setDoc(ref, {t: Date.now()});
     const likes = await this.listLikes(postId); return {liked: !had, count: likes.length};
   },
@@ -506,7 +536,7 @@ export const firebase = {
   // ---- bookmarks: two id lists (posts, comments) on the reader's own profile, which only its owner may write.
   // A bookmarked post also carries a marker per reader (posts/{id}/bookmarks/{uid}, as likes do), so the star
   // can show how many readers kept it; the marker names nobody beyond a uid, and the app shows only the number. ----
-  async listBookmarks(postId) { try { const s = await F.getDocs(F.collection(db, 'posts', postId, 'bookmarks')); return s.docs.map(d => d.id); } catch { return []; } },
+  async listBookmarks(postId) { try { const s = await getDocs(F.collection(db, 'posts', postId, 'bookmarks')); return s.docs.map(d => d.id); } catch { return []; } },
   async toggleBookmark(kind, id) {
     if (!user) throw Error('Sign in to bookmark.');
     const key = kind === 'comment' ? 'bookmarkedComments' : 'bookmarkedPosts', had = (profile?.[key] || []).includes(id);
@@ -522,7 +552,7 @@ export const firebase = {
   },
 
   // ---- comments ----
-  async getComment(id) { try { const s = await F.getDoc(F.doc(db, 'comments', id)); return s.exists() ? norm(s) : null; } catch { return null; } },
+  async getComment(id) { try { const s = await getDoc(F.doc(db, 'comments', id)); return s.exists() ? norm(s) : null; } catch { return null; } },
   // Comments follow their post's module: the rules admit a comment query that names a module the
   // account belongs to or teaches, or a blog it owns, so each read says which (the post's).
   async listComments(postId, post = null) {
@@ -535,11 +565,11 @@ export const firebase = {
       else if (blogs.includes(post.blogId)) q = F.query(col, byPost, F.where('blogId', '==', post.blogId));
       else return [];   // a reader from outside the post's module: the post is public, its discussion is not
     }
-    const s = await F.getDocs(q); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt);
+    const s = await getDocs(q); return s.docs.map(norm).sort((a, b) => a.createdAt - b.createdAt);
   },
   async recentComments(n = 5) {
     const col = F.collection(db, 'comments');
-    if (role === 'admin') { const s = await F.getDocs(F.query(col, F.orderBy('createdAt', 'desc'), F.limit(n))); return s.docs.map(norm); }
+    if (role === 'admin') { const s = await getDocs(F.query(col, F.orderBy('createdAt', 'desc'), F.limit(n))); return s.docs.map(norm); }
     const {modules, blogs} = readScope({});   // a module's comments are few: fetched whole, sorted here, so no composite index is needed
     const rows = await gather([...modules.map(id => F.query(col, F.where('moduleId', '==', id))), ...blogs.map(id => F.query(col, F.where('blogId', '==', id)))]);
     return rows.sort((a, b) => b.createdAt - a.createdAt).slice(0, n);
@@ -550,21 +580,21 @@ export const firebase = {
   // a reply that cannot be removed is shown at the top level afterwards.
   async deleteComment(id) {
     await F.deleteDoc(F.doc(db, 'comments', id));
-    const rs = await F.getDocs(F.query(F.collection(db, 'comments'), F.where('parentId', '==', id)));
+    const rs = await getDocs(F.query(F.collection(db, 'comments'), F.where('parentId', '==', id)));
     for (const r of rs.docs) { try { await F.deleteDoc(r.ref); } catch {} }
     notify();
   },
   async editComment(id, body, u) {
     if (!user?.emailVerified) throw Error('Verify your sign-in email before editing comments.');
     const ref = F.doc(db, 'comments', id), editedAt = Date.now();
-    await F.updateDoc(ref, {body, editedAt}); notify(); return {id, ...(await F.getDoc(ref)).data()};
+    await F.updateDoc(ref, {body, editedAt}); notify(); return {id, ...(await getDoc(ref)).data()};
   },
   // Likes on a comment live on the comment (likedBy): the rules let an account add or remove only itself.
   async toggleCommentLike(id, u) {
     if (!user?.emailVerified) throw Error('Verify your sign-in email to like comments.');
-    const ref = F.doc(db, 'comments', id), had = ((await F.getDoc(ref)).data()?.likedBy || []).includes(u.uid);
+    const ref = F.doc(db, 'comments', id), had = ((await getDoc(ref)).data()?.likedBy || []).includes(u.uid);
     await F.updateDoc(ref, {likedBy: had ? F.arrayRemove(u.uid) : F.arrayUnion(u.uid)});
-    const n = ((await F.getDoc(ref)).data()?.likedBy || []).length;
+    const n = ((await getDoc(ref)).data()?.likedBy || []).length;
     forget(); return {liked: !had, count: n};   // listComments is memoed: without this the redraw after the click shows the old likedBy (an unlike came straight back)
   },
 
@@ -572,10 +602,10 @@ export const firebase = {
   async listUsers(moduleId = '') {
     if (moduleId || role !== 'admin') {
       const ids = moduleId ? [moduleId] : managedModuleIds;
-      const lists = await Promise.all(ids.map(id => F.getDocs(F.collection(db,'modules',id,'members')).then(s=>s.docs.map(d=>({uid:d.id,...d.data(),role:'student'})))));
+      const lists = await Promise.all(ids.map(id => getDocs(F.collection(db,'modules',id,'members')).then(s=>s.docs.map(d=>({uid:d.id,...d.data(),role:'student'})))));
       return [...new Map(lists.flat().map(x=>[x.uid,x])).values()];
     }
-    const [dir, roles, profiles] = await Promise.all([F.getDocs(F.collection(db, 'userDirectory')), F.getDocs(F.collection(db, 'roles')), F.getDocs(F.collection(db, 'profiles'))]);
+    const [dir, roles, profiles] = await Promise.all([getDocs(F.collection(db, 'userDirectory')), getDocs(F.collection(db, 'roles')), getDocs(F.collection(db, 'profiles'))]);
     const r = {}; roles.forEach(d => r[d.id] = d.data().role);
     const p = {}; profiles.forEach(d => p[d.id] = d.data());
     const directory=Object.fromEntries(dir.docs.map(d=>[d.id,d.data()]));
@@ -587,7 +617,7 @@ export const firebase = {
     const modules=all.filter(m=>(!moduleId || m.id===moduleId) && (role==='admin' || m.teacherIds.includes(user.uid)));
     if(moduleId&&!modules.length)throw Error('You do not have access to this module’s records.');
     const memberships=(await Promise.all(modules.map(async m=>{
-      const s=await F.getDocs(F.collection(db,'modules',m.id,'members'));
+      const s=await getDocs(F.collection(db,'modules',m.id,'members'));
       return s.docs.map(d=>({uid:d.id,...d.data(),moduleId:m.id}));
     }))).flat();
     const [users,instructorInvites,studentInvites]=await Promise.all([
@@ -600,12 +630,12 @@ export const firebase = {
     const sessions=[...legacy.map(s=>({...s,id:'legacy-'+s.id})),...history];
     report.writing=writingReport(posts,sessions,modules,report.users);report.sessions=sessionHistoryReport(posts,sessions,modules,report.users);report.moduleTotals=moduleWritingTotals(report.writing,memberships,modules,report.users);return report;
   },
-  async getAdminGuide(){const s=await F.getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
+  async getAdminGuide(){const s=await getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
   // ---- AI grading assistant (admin only; keys never reach the database) ----
-  async getGraderConfig(){const s=await F.getDoc(F.doc(db,'adminContent','grader'));return s.exists()?s.data():null;},
+  async getGraderConfig(){const s=await getDoc(F.doc(db,'adminContent','grader'));return s.exists()?s.data():null;},
   async saveGraderConfig(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={persona:String(cfg.persona||''),instructions:String(cfg.instructions||''),polish:String(cfg.polish||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','grader'),doc);return doc;},
-  async listAiReviews(moduleId=''){if(role!=='admin')return [];const col=F.collection(db,'aiReviews');const s=await F.getDocs(moduleId?F.query(col,F.where('moduleId','==',moduleId)):col);return s.docs.map(d=>({id:d.id,...d.data()}));},
-  async saveAiReview(postId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'aiReviews',postId);await F.setDoc(ref,{...patch,postId,updatedAt:Date.now()},{merge:true});const s=await F.getDoc(ref);return {id:postId,...s.data()};},
+  async listAiReviews(moduleId=''){if(role!=='admin')return [];const col=F.collection(db,'aiReviews');const s=await getDocs(moduleId?F.query(col,F.where('moduleId','==',moduleId)):col);return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async saveAiReview(postId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'aiReviews',postId);await F.setDoc(ref,{...patch,postId,updatedAt:Date.now()},{merge:true});const s=await getDoc(ref);return {id:postId,...s.data()};},
   // ---- peer review (study guide 5.3): one round per module, one record per reviewer and post ----
   // peerRounds/{moduleId}: the round's state (open/closed, deadline, seed), written by the admin.
   // peerReviews/{moduleId_postId_reviewerUid}: the assignment, filled in by the reviewer (grade,
@@ -620,29 +650,29 @@ export const firebase = {
     const token=A.GoogleAuthProvider.credentialFromResult(res)?.accessToken;if(!token)throw Error('Google gave no access token.');
     return {accessToken:token,email:user.email||'',name:user.displayName||''};
   },
-  async getPeerPrompts(){if(role!=='admin')return null;const s=await F.getDoc(F.doc(db,'adminContent','peer'));return s.exists()?s.data():null;},
+  async getPeerPrompts(){if(role!=='admin')return null;const s=await getDoc(F.doc(db,'adminContent','peer'));return s.exists()?s.data():null;},
   async savePeerPrompts(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={synthesis:String(cfg.synthesis||''),reviewer:String(cfg.reviewer||''),noticeSubject:String(cfg.noticeSubject||''),noticeBody:String(cfg.noticeBody||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','peer'),doc);return doc;},
-  async getPeerRound(moduleId){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerRounds',moduleId));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
-  async savePeerRound(moduleId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'peerRounds',moduleId);await F.setDoc(ref,{...patch,moduleId,updatedAt:Date.now(),updatedBy:user.uid},{merge:true});const s=await F.getDoc(ref);notify();return {id:moduleId,...s.data()};},
+  async getPeerRound(moduleId){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerRounds',moduleId));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
+  async savePeerRound(moduleId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'peerRounds',moduleId);await F.setDoc(ref,{...patch,moduleId,updatedAt:Date.now(),updatedBy:user.uid},{merge:true});const s=await getDoc(ref);notify();return {id:moduleId,...s.data()};},
   async assignPeerReviews(moduleId,rows){if(role!=='admin')throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;
     for(const r of rows){b.set(F.doc(db,'peerReviews',reviewId(moduleId,r.postId,r.reviewerUid)),{moduleId,blogId:r.blogId||'',postId:r.postId,authorId:r.authorId,reviewerUid:r.reviewerUid,reviewerName:r.reviewerName||'',order:r.order||0,assignedAt:now,grade:null,assessment:'',submittedAt:null,updatedAt:now});if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}
     if(n)await b.commit();notify();},
-  async listPeerReviews(moduleId){if(role!=='admin')return [];const s=await F.getDocs(F.query(F.collection(db,'peerReviews'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
-  async listMyPeerReviews(){if(!user)return [];const s=await F.getDocs(F.query(F.collection(db,'peerReviews'),F.where('reviewerUid','==',user.uid)));return s.docs.map(d=>({id:d.id,...d.data()}));},
-  async getPeerReview(id){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerReviews',id));return s.exists()?{id,...s.data()}:null;}catch{return null;}},
+  async listPeerReviews(moduleId){if(role!=='admin')return [];const s=await getDocs(F.query(F.collection(db,'peerReviews'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async listMyPeerReviews(){if(!user)return [];const s=await getDocs(F.query(F.collection(db,'peerReviews'),F.where('reviewerUid','==',user.uid)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async getPeerReview(id){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerReviews',id));return s.exists()?{id,...s.data()}:null;}catch{return null;}},
   async submitPeerReview(id,{grade,assessment}){if(!user?.emailVerified)throw Error('Verify your sign-in email before submitting a review.');const now=Date.now();await F.updateDoc(F.doc(db,'peerReviews',id),{grade,assessment,submittedAt:now,updatedAt:now});notify();return this.getPeerReview(id);},
-  async savePeerReview(id,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'peerReviews',id);await F.setDoc(ref,{...patch,updatedAt:Date.now()},{merge:true});const s=await F.getDoc(ref);return {id,...s.data()};},
+  async savePeerReview(id,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'peerReviews',id);await F.setDoc(ref,{...patch,updatedAt:Date.now()},{merge:true});const s=await getDoc(ref);return {id,...s.data()};},
   async deletePeerRound(moduleId){if(role!=='admin')throw Error('Admin access required.');
-    const lists=await Promise.all(['peerReviews','peerReviewerNotes','peerSummaries'].map(c=>F.getDocs(F.query(F.collection(db,c),F.where('moduleId','==',moduleId)))));
+    const lists=await Promise.all(['peerReviews','peerReviewerNotes','peerSummaries'].map(c=>getDocs(F.query(F.collection(db,c),F.where('moduleId','==',moduleId)))));
     let b=F.writeBatch(db),n=0;for(const d of lists.flatMap(s=>s.docs)){b.delete(d.ref);if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}
     b.delete(F.doc(db,'peerRounds',moduleId));await b.commit();notify();},
-  async savePeerReviewerNote(moduleId,reviewerUid,patch){if(role!=='admin')throw Error('Admin access required.');const id=`${moduleId}_${reviewerUid}`,ref=F.doc(db,'peerReviewerNotes',id);await F.setDoc(ref,{...patch,moduleId,reviewerUid,updatedAt:Date.now()},{merge:true});const s=await F.getDoc(ref);return {id,...s.data()};},
-  async listPeerReviewerNotes(moduleId){if(role!=='admin')return [];const s=await F.getDocs(F.query(F.collection(db,'peerReviewerNotes'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
-  async getMyPeerReviewerNote(moduleId){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerReviewerNotes',`${moduleId}_${user.uid}`));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
+  async savePeerReviewerNote(moduleId,reviewerUid,patch){if(role!=='admin')throw Error('Admin access required.');const id=`${moduleId}_${reviewerUid}`,ref=F.doc(db,'peerReviewerNotes',id);await F.setDoc(ref,{...patch,moduleId,reviewerUid,updatedAt:Date.now()},{merge:true});const s=await getDoc(ref);return {id,...s.data()};},
+  async listPeerReviewerNotes(moduleId){if(role!=='admin')return [];const s=await getDocs(F.query(F.collection(db,'peerReviewerNotes'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async getMyPeerReviewerNote(moduleId){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerReviewerNotes',`${moduleId}_${user.uid}`));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
   async releasePeerSummaries(rows){if(role!=='admin')throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;for(const r of rows){b.set(F.doc(db,'peerSummaries',r.postId),{...r,releasedAt:now,updatedAt:now});if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}if(n)await b.commit();notify();},
-  async listPeerSummaries(moduleId){if(role!=='admin')return [];const s=await F.getDocs(F.query(F.collection(db,'peerSummaries'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
-  async getPeerSummary(postId){if(!user)return null;try{const s=await F.getDoc(F.doc(db,'peerSummaries',postId));return s.exists()?{id:postId,...s.data()}:null;}catch{return null;}},
-  async getProfile(uid) { const s = await F.getDoc(F.doc(db, 'profiles', uid)); return s.exists() ? {uid, ...s.data()} : null; },
+  async listPeerSummaries(moduleId){if(role!=='admin')return [];const s=await getDocs(F.query(F.collection(db,'peerSummaries'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async getPeerSummary(postId){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerSummaries',postId));return s.exists()?{id:postId,...s.data()}:null;}catch{return null;}},
+  async getProfile(uid) { const s = await getDoc(F.doc(db, 'profiles', uid)); return s.exists() ? {uid, ...s.data()} : null; },
   async saveProfile(uid, patch) {
     await F.setDoc(F.doc(db, 'profiles', uid), patch, {merge: true});
     if (user && user.uid === uid) {
@@ -666,19 +696,19 @@ export const firebase = {
     await batch.commit();
     return {id: ref.id, ticket: doc.ticket};
   },
-  async listFeedback() { if (role !== 'admin') return []; const s = await F.getDocs(F.collection(db, 'feedback')); return s.docs.map(norm).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); },
-  async listFeedbackAttachments(id) { const s = await F.getDocs(F.collection(db, 'feedback', id, 'attachments')); return s.docs.map(d => ({id: d.id, ...d.data()})).sort((a, b) => (a.order || 0) - (b.order || 0)); },
+  async listFeedback() { if (role !== 'admin') return []; const s = await getDocs(F.collection(db, 'feedback')); return s.docs.map(norm).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); },
+  async listFeedbackAttachments(id) { const s = await getDocs(F.collection(db, 'feedback', id, 'attachments')); return s.docs.map(d => ({id: d.id, ...d.data()})).sort((a, b) => (a.order || 0) - (b.order || 0)); },
   async updateFeedback(id, patch) { if (role !== 'admin') throw Error('Admin access required.'); await F.updateDoc(F.doc(db, 'feedback', id), patch); },
   async deleteFeedback(id) {
     if (role !== 'admin') throw Error('Admin access required.');
-    const atts = await F.getDocs(F.collection(db, 'feedback', id, 'attachments')), batch = F.writeBatch(db);
+    const atts = await getDocs(F.collection(db, 'feedback', id, 'attachments')), batch = F.writeBatch(db);
     atts.docs.forEach(d => batch.delete(d.ref)); batch.delete(F.doc(db, 'feedback', id));
     await batch.commit();
   },
 
   // ---- site ----
   async saveSettings(patch) { settings = {...settings, ...patch}; await F.setDoc(F.doc(db, 'settings', 'site'), settings); notify(); return settings; },
-  async exportAll() { const [blogs, modules, posts, comments, users] = await Promise.all([this.listBlogs(), this.listModules(), this.listAllPosts(), F.getDocs(F.collection(db, 'comments')).then(s => s.docs.map(norm)), this.listUsers()]); return {settings, blogs, modules, posts, comments, users}; },
+  async exportAll() { const [blogs, modules, posts, comments, users] = await Promise.all([this.listBlogs(), this.listModules(), this.listAllPosts(), getDocs(F.collection(db, 'comments')).then(s => s.docs.map(norm)), this.listUsers()]); return {settings, blogs, modules, posts, comments, users}; },
   async resetDemo() { throw Error('Not available with Firebase; delete documents in the Firebase console.'); },
 };
 for (const k of MEMOED) { const fn = firebase[k]; firebase[k] = function (...a) { return remember(k + '|' + (user?.uid || '') + '|' + role + '|' + JSON.stringify(a), () => fn.apply(this, a)); }; }

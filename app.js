@@ -75,8 +75,8 @@ const routes = [
 // Renders run one after another: a slow page (waiting for the database) must not
 // finish AFTER a later navigation and paint over it.
 let queue = Promise.resolve();
-function render() { queue = queue.then(doRender).catch(e => console.error(e)); return queue; }
-async function doRender() {
+function render(why) { queue = queue.then(() => doRender(why === 'refresh')).catch(e => console.error(e)); return queue; }
+async function doRender(quiet = false) {   // quiet: the page is redrawn where it stands (the first page, drawn from the cache on disk, caught up with the server)
   const seq = ++renderSeq;
   const path = route();   // '/x?trend=y': the app route, whatever the site is mounted at
   liveView = null; $app.onclick = null; $app.onsubmit = null;
@@ -89,7 +89,7 @@ async function doRender() {
   if (VISITING) BLOGS = [...BLOGS, VISITING];
   if (!user() && !isPublic(path.split('?')[0])) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
   renderHeader(path);
-  scrollPending = true;   // to the top once the new page is drawn (pageDrawn below), not now
+  scrollPending = !quiet;   // to the top once the new page is drawn (pageDrawn below), not now
   const bare = path.split('?')[0];   // canvas filters live in a ?query after the route; routes that expect their own query match first
   for (const [re, fn] of routes) { const m = path.match(re) || bare.match(re); if (m) { try { await fn(...m.slice(1)); } catch (e) { console.error(e); $app.innerHTML = `<p class="empty">Something went wrong: ${esc(e.message)}</p>`; } landed(seq); return; } }
   $app.innerHTML = `<p class="empty">That page does not exist. <a href="/">Back to the blog</a></p>`; landed(seq);
@@ -98,7 +98,7 @@ async function doRender() {
 // a page waits for the database before it draws, and scrolling first showed the old page
 // jump to its top and sit there until the new one replaced it.
 let scrollPending = false;
-const pageDrawn = new MutationObserver(() => { if (scrollPending) { scrollPending = false; window.scrollTo({top: 0, behavior: 'instant'}); } });   // instant: the smooth scrolling is for in-page anchors
+const pageDrawn = new MutationObserver(() => { store.painted?.(); if (scrollPending) { scrollPending = false; window.scrollTo({top: 0, behavior: 'instant'}); } });   // instant: the smooth scrolling is for in-page anchors. painted: the first page is up, drawn from the cache on disk; the backend reads from the server from here on
 pageDrawn.observe($app, {childList: true});
 // After a page is drawn: a link that named an anchor (/2026/10/post#comments) scrolls to it.
 function landed(seq) {
@@ -873,7 +873,7 @@ async function admin(tab = 'users', moduleId = '') {
 (async () => {
   try { await initStore(); S = store.settings(); }
   catch (e) { $app.innerHTML = `<p class="empty">The blog could not start: ${esc(e.message)}</p>`; return; }
-  store.onChange(() => { S = store.settings(); renderHeader(); if (!liveView) render(); });
+  store.onChange(why => { S = store.settings(); renderHeader(); if (!liveView) render(why); });   // 'refresh': the first page caught up with the server, redrawn where it stands
   startRouter(render);
   mountFeedbackButton();
   render();

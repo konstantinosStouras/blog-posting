@@ -249,6 +249,13 @@ hash of their contents (`tools/stamp.mjs`). The pre-commit hook in `.githooks`
 workflow adds it to any commit made without the hook, so a browser that kept old
 files from a previous visit never runs them beside new ones. `npm run stamp` by hand.
 
+Firestore keeps the documents it has fetched on disk (IndexedDB). The first page of a
+visit is drawn from that copy without waiting for the network (`backend-firebase.js`
+`getDoc`/`getDocs`: the cache answers while the same read goes to the server, and when
+the server's answer differs the page is redrawn in place, `notify('refresh')`); after
+the first page every read goes to the server, as the cache is not narrowed by the
+rules. A first visit, with nothing on disk, waits for the server as before.
+
 ## First-time blog setup
 
 The one-off walkthrough for creating the Project Management and Operations
