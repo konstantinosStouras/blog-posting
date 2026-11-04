@@ -3,11 +3,11 @@ import {route, navigate, rewrite, publicUrl, startRouter} from './router.js';
 import {initStore, store, resetAccess} from './store.js';
 import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './auth.js';
 import {can, ROLES, rank, pastDeadline} from './permissions.js';
-import {mountEditor, fillOutline} from './editor.js';
+
 import {configurePlatform, blogDirectory, myModules, blogCanvas, blogActions, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
-import {renderPeople} from './people.js';
+const renderPeople = async (...args) => (await import('./people.js')).renderPeople(...args);
 import {deleteWording} from './people-model.js';
-import {renderGrading} from './ai-grading.js';
+const renderGrading = async (...args) => (await import('./ai-grading.js')).renderGrading(...args);
 import {renderPeerAdmin, myPeerReviews, peerSidePanel} from './peer-review.js';
 import {mountFeedbackButton, renderFeedbackInbox} from './feedback.js';
 import {startWritingTimer} from './writing-time.js';
@@ -83,7 +83,7 @@ async function doRender(quiet = false) {   // quiet: the page is redrawn where i
   const path = route();   // '/x?trend=y': the app route, whatever the site is mounted at
   liveView = null; $app.onclick = null; $app.onsubmit = null;
   resetAccess();   // who may read what is decided afresh for this navigation
-  try { BLOGS = await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
+  try { BLOGS = !user() && path.split('?')[0] === '/' ? [] : await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
   // A blog's canvas, brief or post opened by a reader who belongs to none of its modules: the blog
   // is fetched on its own (one memoised read; a page name such as /posts reads as no blog).
   const first = (path.split('?')[0].match(/^\/([a-z0-9-]+)(?:\/brief|\/\d{4}\/\d{2}\/[^/?]+\/?)?$/) || [])[1];
@@ -532,6 +532,7 @@ async function editorView(id, moduleId) {
     <p class="status-line" id="status-line"></p></form></dialog>`;
 
   const $ = sel => document.getElementById(sel);
+  const {mountEditor, fillOutline} = await import('./editor.js');
   const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.appendHTML(fillOutline(blog.outline, orgPhrase(draft.organisation) || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : 'the ' + (catLabel || 'topic').toLowerCase())); }}] : [];
   ed = mountEditor($('editor'), {html: draft.body, placeholder: 'Start writing…', extras, onChange: html => { draft.body = html; touched(); }});
   // Title, subtitle and byline sit between the toolbar and the text, as on Substack.

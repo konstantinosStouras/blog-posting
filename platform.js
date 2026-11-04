@@ -12,7 +12,7 @@ import {JOIN_CITIES, cityLabel, isRetiredStudentCode} from './invitation-codes.j
 import {DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
 import {peerCardLine} from './peer-review.js';
-import {editBrief} from './brief-editor.js';
+const editBrief = async options => (await import('./brief-editor.js')).editBrief(options);
 import {enhance} from './blocks.js';
 
 let app, canvas;
@@ -96,18 +96,18 @@ export async function blogActions(id, el) {
 // the blog is offered the invitation code instead of the Write button.
 export async function blogCanvas(id) {
   const u = currentUser();
-  const [blog, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
+  const [blog, modules, posts, mine] = await Promise.all([store.getBlog(id), store.listModules(),
+    store.listPosts({status: 'published', blogId: id}).catch(e => { if (u) throw e; console.warn('visitor posts', e); return null; }),
+    u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found. <a href="/blogs">Explore blogs</a></p>'; return; }
   const onBlog = modules.filter(m => m.blogId === id);
   if (!u) {
     // The posts alone, with nothing above them: no module line, no brief, no button row. Until the
     // rules that open published posts to visitors are deployed, the read fails and the page says so.
-    const posts = await store.listPosts({status: 'published', blogId: id}).catch(e => { console.warn('visitor posts', e); return null; });
     app.innerHTML = posts ? canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})
       : `<section class="coming-soon" aria-label="Posts"><h2>Coming soon</h2><p>Posts by this blog’s students will appear here as they are published.</p></section>`;
     return;
   }
-  const [posts, mine] = await Promise.all([store.listPosts({status: 'published', blogId: id}), store.listMyModules()]);
   const preview = u?.studentPreview;   // an instructor seeing the blog as a student of one module
   const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
   const owner = instructs(u, blog) || myHere.some(isTeaching);

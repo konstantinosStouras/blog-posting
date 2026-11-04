@@ -30,7 +30,7 @@
   // Hand the address to the app, as the site's 404 page does for addresses without a file:
   // the app root is 1 segment up from this page, wherever the app is mounted.
   var p = location.pathname.replace(/\/?$/, '/'), root = p.split('/').slice(0, -2).join('/') + '/';
-  location.replace(root + '?redirect=' + encodeURIComponent(p.slice(0, -1) + location.search + location.hash) + '&_=' + Date.now());
+  location.replace(root + '?redirect=' + encodeURIComponent(p.slice(0, -1) + location.search + location.hash));
 </script>
 <noscript><meta http-equiv="refresh" content="0; url=https://www.stouras.com/ucd-blog/?redirect=%2Fucd-blog%2Fproject-management"></noscript>
 </head>

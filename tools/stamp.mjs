@@ -41,8 +41,11 @@ export function stamp(html, files) {
   const v = stampOf(files), nl = html.includes('\r\n') ? '\r\n' : '\n';
   const modules = Object.keys(files).filter(f => f.endsWith('.js'));
   const map = JSON.stringify({imports: Object.fromEntries(modules.map(m => ['./' + m, `./${m}?v=${v}`]))});
+  // Preload static imports; route-only tools load when opened.
+  const eager = new Set(['app.js', 'backend-firebase.js']);
+  for (const file of eager) for (const match of files[file].matchAll(/^import\s+[^'";]*?from\s*['"]\.\/([^'"]+\.js)['"]/gm)) eager.add(match[1]);
   const block = [BEGIN, `<script type="importmap">${map}</script>`, `<link rel="stylesheet" href="styles.css?v=${v}">`,
-    ...modules.filter(m => m !== 'app.js').map(m => `<link rel="modulepreload" href="${m}?v=${v}">`), END].join(nl);
+    ...modules.filter(m => eager.has(m)).map(m => `<link rel="modulepreload" href="${m}?v=${v}">`), END].join(nl);
   const a = html.indexOf(BEGIN), b = html.indexOf(END);
   if (a < 0 || b < 0) throw Error('index.html has no cache-stamp block');
   html = html.slice(0, a) + block + html.slice(b + END.length);

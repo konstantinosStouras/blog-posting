@@ -69,7 +69,7 @@ ${MARK}
   // Hand the address to the app, as the site's 404 page does for addresses without a file:
   // the app root is ${depth} segment${depth === 1 ? '' : 's'} up from this page, wherever the app is mounted.
   var p = location.pathname.replace(/\\/?$/, '/'), root = p.split('/').slice(0, -${depth + 1}).join('/') + '/';
-  location.replace(root + '?redirect=' + encodeURIComponent(p.slice(0, -1) + location.search + location.hash) + '&_=' + Date.now());
+  location.replace(root + '?redirect=' + encodeURIComponent(p.slice(0, -1) + location.search + location.hash));
 </script>
 <noscript><meta http-equiv="refresh" content="0; url=${SITE}/?redirect=${encodeURIComponent('/ucd-blog/' + path)}"></noscript>
 </head>

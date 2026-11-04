@@ -463,7 +463,7 @@ export const firebase = {
     const col = F.collection(db, 'posts');
     let rows;
     if (f.authorId) rows = (await getDocs(F.query(col, F.where('authorId', '==', f.authorId)))).docs.map(norm);
-    else if (role === 'admin') rows = (await getDocs(F.query(col, F.where('status', '==', f.status || 'published')))).docs.map(norm);
+    else if (role === 'admin') rows = (await getDocs(F.query(col, F.where('status', '==', f.status || 'published'), ...(f.blogId ? [F.where('blogId', '==', f.blogId)] : [])))).docs.map(norm);
     else if ((f.status || 'published') === 'published') {
       // Published posts are public, whole blogs at a time: the blog asked for, or (All posts, the
       // footer) every blog of the reader's modules. A visitor must name the blog.
