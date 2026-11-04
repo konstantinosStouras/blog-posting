@@ -145,12 +145,17 @@ filtered view is a shareable link, for example
 Filtering happens in the browser on the published posts already fetched; no
 Firestore index is involved. Old `/category/…`, `/tag/…` and `/search/…`
 links redirect into `/posts?…`. Hovering a card (or tabbing into it) lifts it
-on a shadow, zooms its cover image slowly under a soft gradient, slides a
+on a white sheet edged with a blue line inside a soft blue halo, over a
+blue-tinted shadow, zooms its cover image slowly under a soft gradient, slides a
 "Read the post" ribbon up over the image and draws a blue underline under the
 title; a card without an image colours its top rule orange instead. The effect
 is CSS alone (styles.css, the card's hover), so visitors get it as well as
 members; readers who asked their system for less motion keep the colours, the
 shadow and the ribbon without the movement, and select mode keeps its outline.
+The blog cards on Explore blogs (and a student's My blogs) light up the same
+way: the whole card opens the blog, and on hover it rises with a blue border
+and halo while the title's underline draws itself (styles.css,
+`.module-card.linked`).
 
 To check the design against the sample posts without touching the live
 database, start `python dev-server.py 8787` (the `ucd-blog-local` launch
