@@ -12,6 +12,8 @@ import {JOIN_CITIES, cityLabel, isRetiredStudentCode} from './invitation-codes.j
 import {DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
 import {peerCardLine} from './peer-review.js';
+import {editBrief} from './brief-editor.js';
+import {enhance} from './blocks.js';
 
 let app, canvas;
 export function configurePlatform(target, renderCanvas) { app = target; canvas = renderCanvas; }
@@ -134,8 +136,10 @@ export async function briefPage(id) {
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
   const preview = u?.studentPreview, myHere = preview ? modules.filter(m => m.id === preview.moduleId && m.blogId === id) : mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;
   const words = blog.minWords && blog.maxWords ? `${blog.minWords}–${blog.maxWords} words` : blog.maxWords ? `up to ${blog.maxWords} words` : '';
+  const editable = instructs(u, blog);   // the blog's instructors and the admin edit the brief here, in the post editor's sheet (brief-editor.js); a student preview reads it as a student
   app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/${esc(id)}">${esc(blog.title)}</a></p><h1 class="page-title">The brief</h1>
-    ${blog.brief ? `<div class="body">${sanitize(blog.brief)}</div>` : '<p class="muted">The instructor has not written a brief for this blog yet.</p>'}
+    ${editable ? '<p class="actions brief-tools"><button type="button" class="btn small" id="brief-edit">Edit the brief</button></p>' : ''}
+    ${blog.brief ? `<div class="body brief-body">${sanitize(blog.brief)}</div>` : `<p class="muted">${editable ? 'There is no brief yet: <b>Edit the brief</b> opens the editor.' : 'The instructor has not written a brief for this blog yet.'}</p>`}
     <h2 class="page-title" style="font-size:20px;margin-top:30px">How publishing works here</h2>
     <ol class="steps">
       <li><b>Log in.</b> Your posts and comments appear under an <b>alias</b> generated at random when your account was created, with the date of publication; your instructor alone sees who is behind it.</li>
@@ -147,6 +151,9 @@ export async function briefPage(id) {
     ${myHere.filter(m => m.deadline || m.brightspaceUrl).map(m => `<div class="notice">${esc(moduleLabel(m))}${m.deadline ? `: deadline <b>${fmtDate(m.deadline)}</b>` : ''}${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}${m.brightspaceUrl ? ` · <a href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Module page on Brightspace</a>` : ''}</div>`).join('')}
     ${cohort ? `<p><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : ''}
     ${instructs(u, blog) || mine.some(m => m.blogId === id && isTeaching(m)) ? `<p class="muted small">Modules writing on this blog: ${esc(modules.filter(m => m.blogId === id).map(moduleLabel).join(' · ') || 'none yet')}.</p>` : ''}</div>`;
+  enhance(app.querySelector('.brief-body'));   // code blocks, LaTeX and the other rich blocks of the editor render as on a post
+  // Save writes the brief alone to the blog; the store's change notice then redraws this page with it.
+  app.querySelector('#brief-edit')?.addEventListener('click', () => editBrief({html: blog.brief || '', blogTitle: blog.title, save: async html => { await store.saveBlog({id, brief: html}); toast('Brief saved.'); }}));
 }
 
 // ---------- module settings: cohort + which blog it writes on ----------
@@ -206,6 +213,7 @@ export async function manageModule(id) {
 }
 
 // ---------- blog settings: the exercise ----------
+const briefPreview = html => html ? `<div class="body">${sanitize(html)}</div>` : '<p class="muted">No brief yet.</p>';
 export async function manageBlog(id) {
   const u = currentUser();
   const [b, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
@@ -215,7 +223,10 @@ export async function manageBlog(id) {
     <form id="blog-form">
     <label class="field">Blog title<input name="title" required maxlength="160" value="${esc(b.title)}"></label>
     <label class="field">Description (shown above the canvas)<textarea name="description" maxlength="1200" rows="3">${esc(b.description || '')}</textarea></label>
-    <label class="field">The brief (HTML; shown on “The brief” and linked from the editor)<textarea name="brief" rows="12">${esc(b.brief || '')}</textarea></label>
+    <div class="field brief-field"><span class="field-label">The brief (shown on “The brief” and linked from the editor)</span>
+      <div class="brief-preview" id="brief-preview">${briefPreview(b.brief)}</div>
+      <p class="actions"><button type="button" class="btn small" id="brief-edit">${b.brief ? 'Edit the brief' : 'Write the brief'}</button><span class="hint" id="brief-hint">Opens the editor. The brief is saved with the rest of the settings by <b>Save blog</b>.</span></p>
+      <input type="hidden" name="brief" value="${esc(b.brief || '')}"></div>
     <div class="two-col">
       <div><label class="field">Category label<input name="categoryLabel" maxlength="40" placeholder="e.g. Megatrend" value="${esc(b.categoryLabel || '')}"></label>
       <label class="field">Categories (one per line: <code>slug | Name</code>; leave empty for none)<textarea name="categories" rows="7">${esc((b.categories || []).map(c => c.slug + ' | ' + c.name).join('\n'))}</textarea></label>
@@ -229,8 +240,17 @@ export async function manageBlog(id) {
     <p class="actions"><button class="btn primary">Save blog</button><a class="btn" href="/${esc(id)}">Back to the blog</a></p><p class="auth-msg" aria-live="polite"></p></form>
     <h2 class="page-title" style="font-size:20px;margin-top:30px">Modules writing on this blog</h2>
     ${modules.filter(m => m.blogId === id).map(m => `<p>${esc(moduleLabel(m))}${instructs(u, m) ? ` · <a href="/modules/edit/${esc(m.id)}">Settings</a> · <a href="/modules/invite/${esc(m.id)}">Invite students</a>` : ''}</p>`).join('') || '<p class="muted">None yet. <a href="/modules/new">Create a module</a> and choose this blog.</p>'}</div>`;
+  // The brief is edited in the post editor's sheet (brief-editor.js); Done puts the HTML in the hidden
+  // field and the preview, and Save blog stores it with everything else, so a half-edited form is kept.
+  app.querySelector('#brief-edit').onclick = () => {
+    const field = app.querySelector('#blog-form').elements.brief;
+    editBrief({html: field.value, blogTitle: b.title, action: 'Done', note: 'Click Done, then Save blog to keep the new brief.', save: html => {
+      field.value = html; app.querySelector('#brief-preview').innerHTML = briefPreview(html); app.querySelector('#brief-edit').textContent = html ? 'Edit the brief' : 'Write the brief';
+      app.querySelector('#brief-hint').innerHTML = '<b>Changed.</b> Click <b>Save blog</b> below to keep it.';
+    }});
+  };
   app.querySelector('#blog-form').onsubmit = async e => {
-    e.preventDefault(); const f = e.target, d = Object.fromEntries(new FormData(f)), button = f.querySelector('button'); button.disabled = true;
+    e.preventDefault(); const f = e.target, d = Object.fromEntries(new FormData(f)), button = f.querySelector('button[type=submit], button:not([type])'); button.disabled = true;
     try {
       if (+d.minWords > +d.maxWords && +d.maxWords > 0) throw Error('The minimum word count cannot exceed the maximum.');
       await store.saveBlog({id, title: d.title.trim(), description: d.description.trim(), brief: d.brief, categoryLabel: d.categoryLabel.trim() || 'Category', organisationLabel: d.organisationLabel.trim(), minWords: +d.minWords || 0, maxWords: +d.maxWords || 0, outline: d.outline, allowComments: !!d.allowComments, replyRules: d.replyRules.trim(),
