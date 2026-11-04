@@ -258,7 +258,7 @@ function postSideHtml(p, {u, module, blog, words, context, peer = null}) {
   const row = (k, v) => v ? `<div class="fact"><dt>${k}</dt><dd>${v}</dd></div>` : '';
   const editor = u && can(u, 'edit', p, context);
   const tools = editor ? `<div class="post-actions side-tools"><div class="side-status"><span class="badge ${p.status}">${p.status}</span><span class="muted">${words} words</span></div>
-      <a class="btn small" href="/edit/${p.id}">Edit</a>
+      <a class="btn small" href="/edit/${encodeURIComponent(p.id)}">Edit</a>
       ${p.status !== 'published' && can(u, 'publish', p, context) ? `<button class="btn small primary" data-act="publish">Publish</button>` : ''}
       ${can(u, 'delete', p, S) ? `<button class="btn small danger" data-act="delete">Delete</button>` : ''}</div>` : '';
   const edited = p.updatedAt && (!p.publishedAt || p.updatedAt - p.publishedAt > 60000) ? fmtDate(p.updatedAt) : '';
@@ -516,7 +516,7 @@ async function editorView(id, moduleId) {
         <div class="actions"><button type="button" class="btn small" id="pick-image">Upload image</button><button type="button" class="btn small" id="remove-image" ${draft.featuredImage ? '' : 'hidden'}>Remove</button></div>
         <input type="file" id="image-file" accept="image/*" hidden>
         <p class="hint">Shown on the blog canvas card only; it is not added to the post itself.</p>
-        ${hasCats ? `<label class="field">${esc(catLabel)}${req}<select id="category"><option value="">Choose…</option>${blog.categories.map(c => `<option value="${c.slug}" ${draft.category === c.slug ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
+        ${hasCats ? `<label class="field">${esc(catLabel)}${req}<select id="category"><option value="">Choose…</option>${blog.categories.map(c => `<option value="${esc(c.slug)}" ${draft.category === c.slug ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
         ${orgLabel ? `<label class="field">${esc(orgLabel)}${req}<input id="organisation" maxlength="160" value="${esc(draft.organisation || '')}" placeholder="e.g. Ryanair, or Ryanair, Aer Lingus"><p class="hint">Separate several organisations with commas.</p></label>` : ''}
         <div class="field industries-field"><label for="industry-pick">Industries${req}</label><select id="industry-pick" aria-label="Add an industry"></select><div class="industry-chips" id="industry-chips" role="list" aria-label="Selected industries"></div><p class="hint">Pick up to ${MAX_INDUSTRIES} industries your post relates to. Readers can filter the blog by industry.</p></div>
         <label class="field">Tags${req}<input id="tags" value="${esc(draft.tags.join(', '))}" placeholder="Climate Action, ESG, Supply Chain"><p class="hint">Comma-separated keywords readers browse by.</p></label>
@@ -664,8 +664,8 @@ async function mine() {
   $app.innerHTML = `<h1 class="page-title">My posts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="/profile">Edit profile</a></p>
     <p class="actions"><a class="btn primary" href="/write">Write a new post</a><a class="btn" href="/my-modules">My modules</a></p>
     ${posts.length ? `<table class="list"><thead><tr><th>Title</th><th>Blog</th><th>Status</th><th>Words</th><th>Megatrend</th><th>Updated</th><th></th></tr></thead><tbody>
-      ${posts.map(p => `<tr><td><a href="/edit/${p.id}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${postWords(p)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
-        <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status === 'published' ? ` <a href="${postPath(p)}">View</a>` : ''}${can(u, 'delete', p, S) ? ` <button class="linkish danger" data-del="${p.id}">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">You have not written anything yet.</p>`}`;
+      ${posts.map(p => `<tr><td><a href="/edit/${encodeURIComponent(p.id)}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${postWords(p)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
+        <td class="actions"><a href="/edit/${encodeURIComponent(p.id)}">Edit</a>${p.status === 'published' ? ` <a href="${postPath(p)}">View</a>` : ''}${can(u, 'delete', p, S) ? ` <button class="linkish danger" data-del="${esc(p.id)}">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">You have not written anything yet.</p>`}`;
   $app.onclick = async e => { const b = e.target.closest('[data-del]'); if (b && confirm('Delete this post?')) { try { await store.deletePost(b.dataset.del); } catch (err) { return toast(err.message, 'error'); } toast('Deleted.'); mine(); } };
 }
 

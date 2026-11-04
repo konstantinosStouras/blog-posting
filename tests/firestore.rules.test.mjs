@@ -654,3 +654,16 @@ test('briefs are private to enrolled readers and staff, including on a shared ca
  await assertSucceeds(deleteDoc(doc(admin,'modules/one/members/student')));
  await assertFails(getDoc(doc(student,path)));
 });
+
+test('a verified student can run the actual first-save slug checks and atomically save a draft and body', async () => {
+ const student = db('student','student@ucdconnect.ie');
+ const slug = 'qa-student-save';
+ const posts = collection(student,'posts');
+ await assertSucceeds(getDocs(query(posts,where('slug','==',slug),where('authorId','==','student'))));
+ await assertSucceeds(getDocs(query(posts,where('slug','==',slug),where('status','==','published'))));
+ const {body, ...card} = post();
+ const batch = writeBatch(student);
+ batch.set(doc(student,'posts/qa-first-save'), {...card,slug,publishedAt:null,wordCount:2,bodyBytes:body.length,text:'Test content',excerpt:'',tags:[],industries:[],category:'',organisation:'',featuredImage:''});
+ batch.set(doc(student,'posts/qa-first-save/content/body'), {body});
+ await assertSucceeds(batch.commit());
+});

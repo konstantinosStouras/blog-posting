@@ -125,8 +125,14 @@ async function ensureProfile(u) {
   const [firstName = '', ...rest] = (u.displayName || '').split(' ');
   const p = {firstName, lastName: rest.join(' '), penName: randomAlias(), affiliation: '', studentId: '', website: '', linkedin: '', bio: '', contactEmail: '', photo: '', registrationKind: 'student'};
   if (registration && registration.email === u.email) Object.assign(p, registration.profile);
-  await F.setDoc(ref, p);
-  return p;
+  // The Google popup and the auth-state listener can both finish registration.
+  // Adopt the same alias even if another callback or tab created the profile first.
+  return F.runTransaction(db, async tx => {
+    const current = await tx.get(ref);
+    if (current.exists()) return current.data();
+    tx.set(ref, p);
+    return p;
+  });
 }
 async function touchDirectory(u, p) {
   const ref = F.doc(db, 'userDirectory', u.uid);
@@ -494,8 +500,11 @@ export const firebase = {
   async getPostBySlug(slug) { return withBody(await this.findPostBySlug(slug)); },
   async findPostBySlug(slug) {
     const col = F.collection(db, 'posts'), bySlug = F.where('slug', '==', slug);
-    const staff = user && role === 'admin';
-    if (user && !staff) {
+    if (user && role === 'admin') {
+      const result = await getDocs(F.query(col, bySlug, F.limit(1)));
+      return result.empty ? null : norm(result.docs[0]);
+    }
+    if (user) {
       const own = await getDocs(F.query(col, bySlug, F.where('authorId', '==', user.uid), F.limit(1)));
       if (!own.empty) return norm(own.docs[0]);
       for (const moduleId of managedModuleIds) {

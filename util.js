@@ -24,7 +24,7 @@ export function linkedinUrl(v) {
 export const RESERVED_URL_NAMES = new Set(['blog', 'blogs', 'module', 'modules', 'my-modules', 'posts', 'post', 'category', 'tag', 'author', 'archive', 'search', 'challenge', 'write', 'edit', 'mine', 'profile', 'review', 'instructor', 'peer-review', 'admin', 'invite', 'invitations', 'join', 'brief', 'index', 'index.html', 'local', 'redirect']);
 export const isReservedUrlName = s => RESERVED_URL_NAMES.has(String(s || '').toLowerCase());
 // A post lives under its blog's canvas: /project-management/2026/11/my-post. A post with no blog keeps the bare date address.
-export const postPath = p => `${p.blogId ? '/' + p.blogId : ''}/${monthKey(p.publishedAt || p.createdAt).replace('-', '/')}/${p.slug}`;
+export const postPath = p => `${p.blogId ? '/' + encodeURIComponent(p.blogId) : ''}/${monthKey(p.publishedAt || p.createdAt).replace('-', '/')}/${encodeURIComponent(p.slug)}`;
 
 // Everything a student writes is sanitised BOTH when saved and when rendered.
 export function sanitize(html) {

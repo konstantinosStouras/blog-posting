@@ -4,7 +4,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {routeOf, href, restoreTarget} from '../router.js';
-import {isReservedUrlName} from '../util.js';
+import {isReservedUrlName, postPath} from '../util.js';
 
 test('routeOf strips the mount point and housekeeping parameters', () => {
   assert.equal(routeOf('/ucd-blog/project-management', '', '/ucd-blog'), '/project-management');
@@ -46,4 +46,9 @@ test('malformed and off-site redirect targets cannot break startup or leave the 
   for (const target of ['https://[', 'https://example.org/private', '//example.org', '/%2fexample.org', '/%5cexample.org']) {
     assert.equal(restoreTarget('?redirect=' + encodeURIComponent(target), '', ''), null);
   }
+});
+
+test('untrusted post slugs stay inside the link attribute and path segment', () => {
+  const path = postPath({blogId:'course', slug:'a"/><img src=x>', createdAt: new Date(2026,0,15).getTime()});
+  assert.equal(path, '/course/2026/01/a%22%2F%3E%3Cimg%20src%3Dx%3E');
 });
