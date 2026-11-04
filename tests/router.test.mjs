@@ -14,7 +14,7 @@ test('routeOf strips the mount point and housekeeping parameters', () => {
   assert.equal(routeOf('/x', '?trend=sustainability&tag=ESG%2CSupply+Chain', ''), '/x?trend=sustainability&tag=ESG%2CSupply+Chain');
   assert.equal(routeOf('/posts', '?local', ''), '/posts');
   assert.equal(routeOf('/admin/people', '?module=bmgt45540&local', ''), '/admin/people?module=bmgt45540');
-  assert.equal(routeOf('/ucd-blog/review/posts', '?redirect=x&_=123&blog=pm', '/ucd-blog'), '/review/posts?blog=pm');
+  assert.equal(routeOf('/ucd-blog/instructor/posts', '?redirect=x&_=123&blog=pm', '/ucd-blog'), '/instructor/posts?blog=pm');
 });
 
 test('href mounts a route and tolerates one that is already mounted', () => {
@@ -38,6 +38,6 @@ test('restoreTarget reads the 404 hand-over and legacy hash routes', () => {
 });
 
 test('a blog may not take the name of a page of the site', () => {
-  for (const n of ['posts', 'blogs', 'admin', 'review', 'write', 'my-modules', 'invite', 'Blog']) assert.equal(isReservedUrlName(n), true, n);
+  for (const n of ['posts', 'blogs', 'admin', 'review', 'instructor', 'write', 'my-modules', 'invite', 'Blog']) assert.equal(isReservedUrlName(n), true, n);
   for (const n of ['project-management', 'operations', 'pm-2027', '']) assert.equal(isReservedUrlName(n), false, n);
 });

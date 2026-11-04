@@ -231,6 +231,11 @@ export const local = {
     save(); return structuredClone(u);
   },
   async setRole(uid, role) { const u = state.users.find(x => x.uid === uid); if (u) { u.role = role; save(); } },
+  // The Delete column of the People tables: a student leaves a module, an invitation goes, an account goes (its published posts stay).
+  async removeMember(moduleId, uid) { const u = me(), m = state.modules.find(x => x.id === moduleId); if (!m || !teaches(u, m)) throw Error('You cannot manage this module.'); state.memberships = state.memberships.filter(x => !(x.uid === uid && x.moduleId === moduleId)); save(); },
+  async deleteModuleInvite(id) { const i = (state.moduleInvites || []).find(x => x.id === id); if (!i) return; const m = state.modules.find(x => x.id === i.moduleId); if (!m || !teaches(me(), m)) throw Error('You cannot manage this module.'); state.moduleInvites = state.moduleInvites.filter(x => x.id !== id); save(); },
+  async deleteTeacherInvite() {},
+  async deleteAccount(uid) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); if (uid === u.uid) throw Error('You cannot delete your own account.'); state.users = state.users.filter(x => x.uid !== uid); state.memberships = state.memberships.filter(x => x.uid !== uid); state.posts = state.posts.filter(p => !(p.authorId === uid && p.status !== 'published')); save(); },
 
   // ---- AI grading assistant (admin only) ----
   async getGraderConfig() { return delay(structuredClone(state.grader || null)); },

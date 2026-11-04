@@ -92,7 +92,7 @@ function accountMenu(u){
  ${p?`<div class="preview-head"><b>Viewing as ${esc(as)}</b>${p.kind==='student'?`<span class="small">${esc(p.label)}</span>`:''}<button type="button" class="close-preview" data-exit-preview aria-label="Close the preview and return to your own view" title="Return to your own view">×</button></div>`:''}<div data-preview-options></div>
  ${u.role==='student'&&u.penName&&!p?`<p class="small">Your posts and comments appear as <b>${esc(u.penName)}</b>.</p>`:''}<a href="/my-modules">My modules</a><a href="/mine">My posts</a><a href="/profile#bookmarks">Bookmarks</a><a href="/profile">Edit profile</a>
  ${store.mode==='firebase'&&!u.emailVerified?'<p class="small">Verify your sign-in email before participating.</p><button id="resend-verification">Resend verification email</button><button id="refresh-verification">I have verified my email</button>':''}
- ${u.role!=='student'?`<hr><a href="/review">Instructor area</a>${u.role==='admin'?'<a href="/admin">Admin area</a>':''}`:''}${store.mode==='firebase'?'<hr><button id="signout">Sign out</button>':''}</div></details>`;}
+ ${u.role!=='student'?`<hr><a href="/instructor">Instructor area</a>${u.role==='admin'?'<a href="/admin">Admin area</a>':''}`:''}${store.mode==='firebase'?'<hr><button id="signout">Sign out</button>':''}</div></details>`;}
  document.addEventListener('click',async e=>{
  try{
   if(e.target.id==='resend-verification'){await store.resendVerification();toast('Verification email sent.');}

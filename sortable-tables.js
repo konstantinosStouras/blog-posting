@@ -11,13 +11,14 @@ export function makeTablesSortable(root){
   let active=-1,direction=0;
   const headings=[...table.querySelectorAll('thead th')];
   headings.forEach((th,column)=>{
+   if(th.hasAttribute('data-nosort'))return;   // a column of buttons (Delete) has nothing to sort by
    const label=th.textContent,button=document.createElement('button');button.type='button';button.className='sort-heading';button.textContent=label+' ↕';button.title='Sort ascending, descending, then restore original order';th.replaceChildren(button);th.setAttribute('aria-sort','none');
    button.onclick=()=>{
     direction=active===column?(direction+1)%3:1;active=column;
     const value=row=>{const cell=row.cells[column],v=cell?.dataset.sortValue;return v!==undefined?(v!==''&&Number.isFinite(Number(v))?Number(v):v):cell?.textContent.trim();};
     const sorted=direction?[...rows].sort((a,b)=>(direction===1?1:-1)*compareTableValues(value(a),value(b))||rows.indexOf(a)-rows.indexOf(b)):rows;
     if(rows[0]?.cells.length>1)body.replaceChildren(...sorted);
-    headings.forEach((h,i)=>{h.setAttribute('aria-sort',i===active&&direction?(direction===1?'ascending':'descending'):'none');h.firstElementChild.textContent=h.firstElementChild.textContent.replace(/ [↕↑↓]$/,'')+' '+(i===active&&direction?(direction===1?'↑':'↓'):'↕');});
+    headings.forEach((h,i)=>{if(!h.firstElementChild)return;h.setAttribute('aria-sort',i===active&&direction?(direction===1?'ascending':'descending'):'none');h.firstElementChild.textContent=h.firstElementChild.textContent.replace(/ [↕↑↓]$/,'')+' '+(i===active&&direction?(direction===1?'↑':'↓'):'↕');});
    };
   });
  }

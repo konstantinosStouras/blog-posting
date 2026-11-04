@@ -1,5 +1,6 @@
 import {before,after,beforeEach,test} from 'node:test';
 import {readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
 import {initializeTestEnvironment,assertSucceeds,assertFails} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,getDocs,collection,query,where,updateDoc,deleteDoc,writeBatch,arrayUnion,arrayRemove} from 'firebase/firestore';
 let env;
@@ -339,6 +340,30 @@ test('a teacher deletes their own module with its roster and the blog membership
  const b=writeBatch(d);b.delete(doc(d,'modules/one/members/student'));b.delete(doc(d,'blogs/pm/members/student'));b.delete(doc(d,'modules/one'));
  await assertSucceeds(b.commit());
  await assertSucceeds(deleteDoc(doc(db('admin','kstouras@gmail.com'),'modules/two')));
+});
+test('the People tables’ Delete: a module’s instructor deletes its invitation with its code and a student’s place; the admin an instructor invitation and a whole account; nobody else',async()=>{
+ const d=db('teacher-one'),admin=db('admin','kstouras@gmail.com');
+ // a module's instructor deletes its invitation and the city code pointing at it; another instructor or a student cannot
+ await assertFails(deleteDoc(doc(db('teacher-two'),'moduleInvites/student-valid')));
+ await assertFails(deleteDoc(doc(db('teacher-two'),'registrationCodes/madrid')));
+ await assertFails(deleteDoc(doc(db('student'),'moduleInvites/student-valid')));
+ const b=writeBatch(d);b.delete(doc(d,'moduleInvites/student-valid'));b.delete(doc(d,'registrationCodes/madrid'));await assertSucceeds(b.commit());
+ // instructor invitations and their codes are the admin's alone
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'registrationCodes/river-123'),{kind:'instructor',inviteId:'valid',moduleId:'',code:'river-123',expiresAt:time+86400000,revoked:false}));
+ await assertFails(deleteDoc(doc(d,'teacherInvites/valid')));
+ await assertFails(deleteDoc(doc(d,'registrationCodes/river-123')));
+ const t=writeBatch(admin);t.delete(doc(admin,'teacherInvites/valid'));t.delete(doc(admin,'registrationCodes/river-123'));await assertSucceeds(t.commit());
+ // a student's place in a module: its instructor removes the module and blog memberships; another instructor cannot
+ await assertFails(deleteDoc(doc(db('teacher-two'),'modules/one/members/student')));
+ const place=writeBatch(d);place.delete(doc(d,'modules/one/members/student'));place.delete(doc(d,'blogs/pm/members/student'));await assertSucceeds(place.commit());
+ // an account: its profile, directory row, registration mark, role and memberships go in one batch, by the admin alone
+ await env.withSecurityRulesDisabled(async c=>{const f=c.firestore();await setDoc(doc(f,'userDirectory/peer'),{name:'Peer Example',email:'peer@ucd.ie',first:time,seen:time});await setDoc(doc(f,'registeredUsers/peer'),{t:time});await setDoc(doc(f,'roles/peer'),{role:'student'});});
+ await assertFails(deleteDoc(doc(d,'profiles/peer')));
+ await assertFails(deleteDoc(doc(d,'userDirectory/peer')));
+ await assertFails(deleteDoc(doc(d,'roles/peer')));
+ await assertFails(deleteDoc(doc(db('peer','peer@ucd.ie'),'profiles/peer')));
+ const a=writeBatch(admin);for(const p of ['modules/three/members/peer','blogs/pm/members/peer','roles/peer','registeredUsers/peer','userDirectory/peer','profiles/peer'])a.delete(doc(admin,p));await assertSucceeds(a.commit());
+ assert.equal((await getDoc(doc(admin,'profiles/peer'))).exists(),false);
 });
 test('unverified accounts cannot post, comment, enrol or become lecturers',async()=>{
  const d=db('student','student@ucdconnect.ie',false);

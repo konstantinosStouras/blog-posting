@@ -6,6 +6,7 @@ import {can, ROLES, rank, pastDeadline} from './permissions.js';
 import {mountEditor, fillOutline} from './editor.js';
 import {configurePlatform, blogDirectory, myModules, blogCanvas, blogActions, moduleRedirect, briefPage, manageModule, manageBlog, invitationsPage, acceptInvitationPage, studentInvitationsPage} from './platform.js';
 import {renderPeople} from './people.js';
+import {deleteWording} from './people-model.js';
 import {renderGrading} from './ai-grading.js';
 import {renderPeerAdmin, myPeerReviews, peerSidePanel} from './peer-review.js';
 import {mountFeedbackButton, renderFeedbackInbox} from './feedback.js';
@@ -65,7 +66,8 @@ const routes = [
   [/^\/mine$/, mine],
   [/^\/peer-review$/, () => myPeerReviews($app)],   // a student's assigned posts (study guide 5.3)
   [/^\/profile$/, profileView],
-  [/^\/review\/?([a-z]*)(?:\?(.*))?$/, lecturer],
+  [/^\/review(?:\/[a-z]*)?(\?.*)?$/, q => navigate('/instructor' + (q || ''), {replace: true})],   // the address before 4 Nov 2026, with its tabs (/review/posts, /review/roster…)
+  [/^\/instructor\/?([a-z]*)(?:\?(.*))?$/, lecturer],
   [/^\/admin\/?([a-z]*)(?:\?module=([a-z0-9-]+))?$/, admin],
   // A blog is the site's first-level page: /project-management. Last, so every named page above wins.
   [/^\/([a-z0-9-]+)$/, blogCanvas],
@@ -725,16 +727,17 @@ async function bookmarksSection(el, u) {
 }
 
 // ---------- instructor area ----------
-// Posts, review queue, comments and roster for the modules an instructor teaches and
-// the blogs they own, narrowed by blog, module and academic year (?blog=&module=&year=).
-async function lecturer(tab = 'posts', query = '') {
+// One page at /instructor: the counts, posts by module and academic year, what the
+// blog stores (for the admin) and the roster and invitation records of the modules
+// an instructor teaches and the blogs they own, narrowed by blog, module and
+// academic year (?blog=&module=&year=). The old /review address and its tabs redirect here.
+async function lecturer(_tab = '', query = '') {
   const u = user();
   const q = new URLSearchParams(query || ''), moduleId = q.get('module') || '', blogId = q.get('blog') || '', year = q.get('year') || '';
   if (!u || rank(u.role) < 1) { $app.innerHTML = `<p class="empty">Instructor access required.</p>`; return; }
   const canRoster = !moduleId || u.role === 'admin' || (u.managedModuleIds || []).includes(moduleId);   // blog owners see posts of guest modules, not their rosters
-  tab = tab || 'posts';
-  const liveRoster = tab === 'roster' && store.mode === 'firebase';   // the live roster and invitation records (people.js) load their own data
-  let [posts, users, allModules] = await Promise.all([store.listAllPosts(), canRoster && !liveRoster ? store.listUsers(moduleId) : Promise.resolve([]), store.listModules()]);
+  const liveRoster = store.mode === 'firebase';   // the live roster and invitation records (people.js) load their own data
+  let [posts, users, allModules] = await Promise.all([store.listAllPosts(), canRoster ? store.listUsers(moduleId) : Promise.resolve([]), store.listModules()]);
   const teachingModules = allModules.filter(m => u.role === 'admin' || m.teacherIds.includes(u.uid) || (u.managedBlogIds || []).includes(m.blogId));
   const myBlogs = BLOGS.filter(b => u.role === 'admin' || b.teacherIds.includes(u.uid) || teachingModules.some(m => m.blogId === b.id));
   const modOf = id => allModules.find(m => m.id === id);
@@ -742,55 +745,38 @@ async function lecturer(tab = 'posts', query = '') {
   const scope = posts.filter(p => (!blogId || p.blogId === blogId) && (!moduleId || p.moduleId === moduleId));
   posts = scope.filter(p => !year || p.academicYear === year);
   const qs = patch => { const o = {blog: blogId, module: moduleId, year, ...patch}; const s = new URLSearchParams(Object.entries(o).filter(([, v]) => v)).toString(); return s ? '?' + s : ''; };
-  const who = Object.fromEntries(users.map(x => [x.uid, x]));
-  const real = uid => { const x = who[uid]; return x ? `${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || '—')}${x.studentId ? ` <span class="muted">${esc(x.studentId)}</span>` : ''}` : ''; };
   const pending = posts.filter(p => p.status === 'pending');
-  const tabs = `<nav class="tabs" aria-label="Instructor area"><a href="/review/posts${qs({})}" class="${tab === 'posts' ? 'active' : ''}">All posts (${posts.length})</a><a href="/review/queue${qs({})}" class="${tab === 'queue' ? 'active' : ''}">Review queue (${pending.length})</a><a href="/review/comments${qs({})}" class="${tab === 'comments' ? 'active' : ''}">Comments</a><a href="/review/roster${qs({})}" class="${tab === 'roster' ? 'active' : ''}">Roster${liveRoster ? '' : ` (${users.length})`}</a></nav>`;
   const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + postWords(p), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
   // Posts per module and academic year, for the whole scope (before the year filter).
   const cells = groupBy(scope, p => (p.moduleId || '?') + '|' + (p.academicYear || '—'));
   const summaryYears = [...new Set(scope.map(p => p.academicYear || '—'))].sort().reverse();
   const summaryModules = [...new Set(scope.map(p => p.moduleId))];
-  const summary = summaryModules.length ? `<table class="list compact"><thead><tr><th>Posts by module and year</th>${summaryYears.map(y => `<th><a href="/review/${tab}${qs({year: y === '—' ? '' : y})}">${esc(y)}</a></th>`).join('')}<th>Total</th></tr></thead><tbody>${summaryModules.map(mid => { const m = modOf(mid); return `<tr><td><a href="/review/${tab}${qs({module: mid})}">${esc(m ? [m.code, m.title].filter(Boolean).join(' ') : mid)}</a></td>${summaryYears.map(y => `<td>${(cells[mid + '|' + y] || []).filter(p => p.status === 'published').length}<span class="muted small"> / ${(cells[mid + '|' + y] || []).length}</span></td>`).join('')}<td><b>${scope.filter(p => p.moduleId === mid && p.status === 'published').length}</b><span class="muted small"> / ${scope.filter(p => p.moduleId === mid).length}</span></td></tr>`; }).join('')}</tbody></table><p class="hint">published / all posts</p>` : '';
-  let body = '';
-  const row = p => { const m = modOf(p.moduleId); return `<tr><td><a href="${p.status === 'published' ? postPath(p) : '/edit/' + p.id}">${esc(p.title)}</a><br><span class="muted small">${esc(p.organisation || '')}</span></td><td><b>${esc(p.authorName)}</b>${real(p.authorId) ? `<br><span class="small">${real(p.authorId)}</span>` : ''}</td><td>${esc(m?.code || m?.title || '')}<br><span class="muted small">${esc(p.academicYear || '')}</span></td><td><span class="badge ${p.status}">${p.status}</span></td><td>${postWords(p)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDate(p.publishedAt || p.updatedAt)}</td>
-    <td class="actions"><a href="/edit/${p.id}">Edit</a>${p.status !== 'published' ? ` <button class="linkish" data-act="publish" data-id="${p.id}">${p.status === 'pending' ? 'Approve' : 'Publish'}</button>` : ''}${rank(u.role) >= 2 ? ` <button class="linkish danger" data-act="delete" data-id="${p.id}">Delete</button>` : ''}</td></tr>`; };
-  const table = list => list.length ? `<table class="list"><thead><tr><th>Post</th><th>Pen name</th><th>Module · year</th><th>Status</th><th>Words</th><th>Megatrend</th><th>Date</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '<p class="empty">Nothing here.</p>';
-  if (tab === 'posts') body = summary + (u.role === 'admin' ? '<div id="storage" class="storage muted">Measuring what the blog stores…</div>' : '') + `<p class="actions"><button class="btn small" id="export-csv">Download CSV (posts + authors)</button><span class="muted small">For grading and for assigning peer reviews. The CSV follows the filters above.</span></p>` + table([...posts].sort(by('updatedAt')));
-  if (tab === 'queue') body = '<p class="muted">Posts submitted for review. Approval is switched on per module in its settings.</p>' + table(pending);
-  if (tab === 'comments') { const cs = (await store.recentComments(500)).filter(c=>posts.some(p=>p.id===c.postId)); const byId = Object.fromEntries(posts.map(p => [p.id, p])); body = cs.length ? cs.map(c => `<div class="comment"><div class="who"><b>${esc(c.authorName)}</b> <span class="small">(${real(c.authorId)})</span> · ${fmtDateTime(c.createdAt)} · on <a href="${byId[c.postId] ? postPath(byId[c.postId]) : '#'}">${esc(byId[c.postId]?.title || '?')}</a><button class="linkish danger small" data-del-comment="${c.id}">Delete</button></div><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'; }
-  if (tab === 'roster' && !liveRoster && blogId && !moduleId && canRoster) { const lists = await Promise.all(teachingModules.filter(m => m.blogId === blogId && (u.role === 'admin' || (u.managedModuleIds || []).includes(m.id))).map(m => store.listUsers(m.id))); users = [...new Map(lists.flat().map(x => [x.uid, x])).values()]; }
-  if (tab === 'roster' && !liveRoster) { users = users.filter(x => rank(x.role || 'student') === 0); const count = groupBy(posts, p => p.authorId); body = `<table class="list sortable"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th></tr></thead><tbody>${users.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td></tr>`).join('')}</tbody></table>`; }
+  const summary = summaryModules.length ? `<table class="list compact"><thead><tr><th>Posts by module and year</th>${summaryYears.map(y => `<th><a href="/instructor${qs({year: y === '—' ? '' : y})}">${esc(y)}</a></th>`).join('')}<th>Total</th></tr></thead><tbody>${summaryModules.map(mid => { const m = modOf(mid); return `<tr><td><a href="/instructor${qs({module: mid})}">${esc(m ? [m.code, m.title].filter(Boolean).join(' ') : mid)}</a></td>${summaryYears.map(y => `<td>${(cells[mid + '|' + y] || []).filter(p => p.status === 'published').length}<span class="muted small"> / ${(cells[mid + '|' + y] || []).length}</span></td>`).join('')}<td><b>${scope.filter(p => p.moduleId === mid && p.status === 'published').length}</b><span class="muted small"> / ${scope.filter(p => p.moduleId === mid).length}</span></td></tr>`; }).join('')}</tbody></table><p class="hint">published / all posts</p>` : '';
+  // The roster. On the live site people.js draws the roster and invitation records into #roster;
+  // the local prototype has no such records and lists the students of the scope instead.
+  let roster = '';
+  if (!liveRoster && blogId && !moduleId && canRoster) { const lists = await Promise.all(teachingModules.filter(m => m.blogId === blogId && (u.role === 'admin' || (u.managedModuleIds || []).includes(m.id))).map(m => store.listUsers(m.id))); users = [...new Map(lists.flat().map(x => [x.uid, x])).values()]; }
+  if (!liveRoster) { const students = users.filter(x => rank(x.role || 'student') === 0); const count = groupBy(posts, p => p.authorId); roster = pageHead('Module roster', 'Who is behind each pen name.', true) + `<table class="list sortable"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th><th data-nosort>Delete</th></tr></thead><tbody>${students.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td><td><button type="button" class="linkish danger" data-del-member="${esc(x.uid)}" data-label="${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || x.penName || '')}">Delete</button></td></tr>`).join('')}</tbody></table>`; }
   const sel = (id, label, rows, value, all) => `<label class="field">${label}<select id="${id}"><option value="">${all}</option>${rows.map(([v, l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
-  $app.innerHTML = `<div class="area-head"><h1 class="page-title">Instructor area</h1><p class="page-sub">Posts, review queue, comments and rosters for your modules, by blog, module and academic year.</p>
-    <div class="review-filters">${sel('review-blog', 'Blog', myBlogs.map(b => [b.id, b.title]), blogId, 'All my blogs')}${sel('review-module', 'Module', teachingModules.filter(m => !blogId || m.blogId === blogId).map(m => [m.id, [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '')]), moduleId, 'All modules')}${sel('review-year', 'Academic year', years.map(y => [y, y]), year, 'All years')}</div>
-    ${tabs}</div><div class="area-body">${liveRoster ? '' : stats + body}</div>`;
-  const go = patch => { navigate('/review/' + tab + qs(patch)); };
+  $app.innerHTML = `<div class="area-head"><h1 class="page-title">Instructor area</h1><p class="page-sub">Posts and rosters for your modules, by blog, module and academic year.</p>
+    <div class="review-filters">${sel('review-blog', 'Blog', myBlogs.map(b => [b.id, b.title]), blogId, 'All my blogs')}${sel('review-module', 'Module', teachingModules.filter(m => !blogId || m.blogId === blogId).map(m => [m.id, [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '')]), moduleId, 'All modules')}${sel('review-year', 'Academic year', years.map(y => [y, y]), year, 'All years')}</div></div>
+    <div class="area-body">${stats}${summary}${u.role === 'admin' ? '<div id="storage" class="storage muted">Measuring what the blog stores…</div>' : ''}<div id="roster">${roster}</div></div>`;
+  const go = patch => { navigate('/instructor' + qs(patch)); };
   $app.querySelector('#review-blog').onchange = e => go({blog: e.target.value, module: ''});
   $app.querySelector('#review-module').onchange = e => go({module: e.target.value});
   $app.querySelector('#review-year').onchange = e => go({year: e.target.value});
-  if (liveRoster) {   // drawn by people.js under the area head, so the tabs and filters stay in place
-    const area = $app.querySelector('.area-body');
-    if (!canRoster) { area.innerHTML = '<p class="empty">This module writes on your blog, but its roster is private to its own instructor.</p>'; return; }
-    await renderPeople(area, {moduleId, admin: false, embedded: true, moduleFilter: false}); return;
-  }
-  if (tab === 'roster') makeTablesSortable($app);
-  if (u.role === 'admin' && tab === 'posts') showStorage($app.querySelector('#storage'));
-  $app.querySelector('#export-csv')?.addEventListener('click', () => {
-    const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const rows = [['Title', 'URL', 'Pen name', 'First name', 'Last name', 'Student no.', 'E-mail', 'Blog', 'Module code', 'Module', 'Academic year', 'Status', 'Words', 'Megatrend', 'Industries', 'Organisation', 'Published']].concat(posts.map(p => { const x = who[p.authorId] || {}, m = modOf(p.moduleId); return [p.title, publicUrl(postPath(p)), p.authorName, x.firstName, x.lastName, x.studentId, x.email || x.contactEmail, blogOf(p)?.title || p.blogId, m?.code, m?.title, p.academicYear, p.status, postWords(p), catName(p.category, p), (p.industries || []).map(industryName).join('; '), p.organisation, p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : '']; }));
-    const blob = new Blob([rows.map(r => r.map(esc2).join(',')).join('\n')], {type: 'text/csv'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ucd-blog-posts${moduleId ? '-' + moduleId : ''}${year ? '-' + year.replace('/', '-') : ''}.csv`; a.click();
+  if (u.role === 'admin') showStorage($app.querySelector('#storage'));
+  const slot = $app.querySelector('#roster');
+  if (!canRoster) { slot.innerHTML = '<p class="empty">This module writes on your blog, but its roster is private to its own instructor.</p>'; return; }
+  if (liveRoster) { await renderPeople(slot, {moduleId, admin: false, embedded: true, moduleFilter: false}); return; }
+  makeTablesSortable(slot);
+  // Delete on a roster row (the prototype's table; people.js has its own): the student leaves the module(s) in view that this instructor teaches
+  slot.querySelectorAll('[data-del-member]').forEach(b => b.onclick = async () => {
+    const mods = teachingModules.filter(m => (u.role === 'admin' || (u.managedModuleIds || []).includes(m.id)) && (!moduleId || m.id === moduleId) && (!blogId || m.blogId === blogId));
+    if (!confirm(deleteWording.member(b.dataset.label, mods.map(m => m.title)))) return;
+    b.disabled = true;
+    try { for (const m of mods) await store.removeMember(m.id, b.dataset.delMember); toast('Removed from the module.'); } catch (err) { toast(err.message, 'error'); b.disabled = false; }
   });
-  $app.onclick = async e => {
-    const del = e.target.closest('[data-del-comment]'); if (del && confirm('Delete this comment?')) { try { await store.deleteComment(del.dataset.delComment); } catch (err) { return toast(err.message, 'error'); } return lecturer(tab, query); }
-    const b = e.target.closest('[data-act]'); if (!b) return;
-    const p = posts.find(x => x.id === b.dataset.id); if (!p) return;
-    try {
-      if (b.dataset.act === 'delete') { if (!confirm(`Delete "${p.title}" permanently?`)) return; try { await store.deletePost(p.id); } catch (err) { return toast(err.message, 'error'); } }
-      if (b.dataset.act === 'publish') await store.savePost({...p, status: 'published'}, u);
-      toast('Updated.'); lecturer(tab, query);
-    } catch (err) { toast(err.message, 'error'); }
-  };
 }
 
 // What the blog holds in Firestore, across every module and instructor, against the free
@@ -837,8 +823,9 @@ async function admin(tab = 'users', moduleId = '') {
     if (store.mode === 'firebase') { await renderPeople(people, {moduleId, admin: true, embedded: true, roles: true}); return; }
     const users = (await store.listUsers()).sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || ''));
     people.innerHTML = `<h2>Registered users (${users.length})</h2><p class="muted small">Invitation and sign-in records exist only on the live platform. Change a role in the Role column; you cannot change your own.</p>
-      <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option value="${r}" ${(x.role || 'student') === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
+      <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Delete</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option value="${r}" ${(x.role || 'student') === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('')}</select></td><td>${x.uid === u.uid ? '—' : `<button type="button" class="linkish danger" data-del-account="${esc(x.uid)}" data-label="${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || x.penName || x.email || '')}">Delete</button>`}</td></tr>`).join('')}</tbody></table>`;
     people.querySelectorAll('[data-role]').forEach(sel => sel.onchange = async () => { try { await store.setRole(sel.dataset.role, sel.value); toast('Role updated.'); } catch (e) { toast(e.message, 'error'); } });
+    people.querySelectorAll('[data-del-account]').forEach(b => b.onclick = async () => { if (!confirm(deleteWording.account(b.dataset.label))) return; b.disabled = true; try { await store.deleteAccount(b.dataset.delAccount); toast('Account deleted.'); } catch (e) { toast(e.message, 'error'); b.disabled = false; } });
     return;
   }
   if (tab === 'grading') { liveView = 'grading'; await renderGrading(area, {moduleId, embedded: true}); return; }

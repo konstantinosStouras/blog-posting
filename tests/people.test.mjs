@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
-import {buildPeopleReport,filterPeopleReport} from '../people-model.js';
+import {buildPeopleReport,filterPeopleReport,deleteWording} from '../people-model.js';
 import {createRosterWorkbook} from '../roster-export.js';
 import {STANDING_EXPIRY} from '../invitation-codes.js';
 const report=()=>buildPeopleReport({modules:[{id:'one',title:'Module one'}],memberships:[{uid:'student',moduleId:'one',firstName:'=Example',studentId:'00123',contactEmail:'student@university.ie',inviteId:'accepted'},{uid:'other',moduleId:'two',studentId:'private'}],studentInvites:[{id:'pending',moduleId:'one',recipientEmail:'pending@university.ie',expiresAt:9999999999999},{id:'accepted',moduleId:'one',recipientEmail:'student@university.ie',expiresAt:9999999999999},{id:'private',moduleId:'two'}]});
@@ -18,6 +18,14 @@ test('a student code from before the city codes reads as retired, not as an acti
  const r=buildPeopleReport({modules:[{id:'one',title:'Module one'}],studentInvites:[{id:'old',moduleId:'one',code:'ottawa-521',createdAt:1,expiresAt:STANDING_EXPIRY},{id:'city',moduleId:'one',blogId:'pm',code:'madrid',createdAt:2,expiresAt:STANDING_EXPIRY}]});
  assert.deepEqual(r.invitations.map(i=>[i.code,i.status,i.pending]),[['madrid','Shared link active',true],['ottawa-521','Retired',false]]);
  assert.equal(filterPeopleReport(r,'','retired').invitations.length,1);
+});
+test('the Delete button says what goes and what stays before it acts',()=>{
+ assert.match(deleteWording.account('Aoife Student'),/^Delete Aoife Student from the site\?.*published posts stay on the blog.*invitation code/);
+ assert.match(deleteWording.member('Aoife Student',['Project Management','Operations']),/^Remove Aoife Student from Project Management, Operations\?.*keep their account and their posts/);
+ assert.match(deleteWording.invite('student','madrid'),/student invitation \(madrid\)\?.*city is free/);
+ assert.match(deleteWording.invite('instructor',''),/instructor invitation\?.*keeps their role/);
+ assert.match(deleteWording.post('My post'),/^Delete “My post” permanently\?/);
+ assert.match(deleteWording.account(''),/^Delete this account/);
 });
 test('Excel download round trip keeps bold headers, normal body and text IDs',async()=>{
  const book=createRosterWorkbook(ExcelJS,report());const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());

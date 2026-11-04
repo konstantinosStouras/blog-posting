@@ -189,6 +189,17 @@ async function removePost(id) {
   b.delete(F.doc(db, 'posts', id)); await b.commit();
 }
 
+// An invitation document and, unless the city or code has since been given to another invitation,
+// its registrationCodes entry, in one batch (the Delete column of the People tables).
+async function removeInvite(collection, id) {
+  const ref = F.doc(db, collection, id), s = await getDoc(ref);
+  if (!s.exists()) return;
+  const b = F.writeBatch(db); b.delete(ref);
+  const code = s.data().code;
+  if (code) { const c = await getDoc(F.doc(db, 'registrationCodes', code)).catch(() => null); if (c?.exists() && c.data().inviteId === id) b.delete(c.ref); }
+  await b.commit();
+}
+
 export const firebase = {
   mode: 'firebase',
   async init() {
@@ -664,6 +675,38 @@ export const firebase = {
     const [posts,legacy,history,visits]=await Promise.all([this.listAllPosts(),this.listWritingSessions(moduleId),this.listWritingHistory(moduleId),this.listPresence(moduleId)]);
     const sessions=[...legacy.map(s=>({...s,id:'legacy-'+s.id})),...history];
     report.writing=writingReport(posts,sessions,modules,report.users,Date.now(),visits);report.sessions=sessionHistoryReport(posts,sessions,modules,report.users);report.moduleTotals=moduleWritingTotals(report.writing,memberships,modules,report.users);return report;
+  },
+  // ---- the Delete column of the People tables (people.js) ----
+  // A student is removed from a module by its staff: the module membership and the blog membership it
+  // brought go; the account and its posts stay, and the student writes in the module again only by
+  // entering its invitation code.
+  async removeMember(moduleId, uid) {
+    if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
+    const m = await this.getModule(moduleId); if (!m) throw Error('Module not found.');
+    if (!(role === 'admin' || m.teacherIds.includes(user.uid))) throw Error('You cannot manage this module.');
+    const b = F.writeBatch(db); b.delete(F.doc(db, 'modules', moduleId, 'members', uid));
+    if (m.blogId) { const bm = await getDoc(F.doc(db, 'blogs', m.blogId, 'members', uid)).catch(() => null); if (bm?.exists() && bm.data().moduleId === moduleId) b.delete(bm.ref); }
+    await b.commit(); notify();
+  },
+  // An invitation is deleted outright (revoking keeps its record); its code goes with it (removeInvite).
+  async deleteModuleInvite(id) { if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.'); await removeInvite('moduleInvites', id); notify(); },
+  async deleteTeacherInvite(id) { if (role !== 'admin') throw Error('Admin access required.'); await removeInvite('teacherInvites', id); notify(); },
+  // The admin deletes an account from the site: its profile, directory row, registration mark, role,
+  // every module and blog membership, and its unpublished posts. Its published posts stay on the blog,
+  // with their comments. The sign-in itself (Firebase Auth) cannot be removed from the browser: the
+  // person may sign in again and arrives as a new account, which must enter a module's invitation
+  // code before it can write.
+  async deleteAccount(uid) {
+    if (role !== 'admin') throw Error('Admin access required.');
+    if (uid === user.uid) throw Error('You cannot delete your own account.');
+    const [modules, blogs, posts] = await Promise.all([this.listModules(), this.listBlogs(), getDocs(F.query(F.collection(db, 'posts'), F.where('authorId', '==', uid)))]);
+    for (const d of posts.docs) if (d.data().status !== 'published') await removePost(d.id);
+    const places = [...modules.map(m => F.doc(db, 'modules', m.id, 'members', uid)), ...blogs.map(b => F.doc(db, 'blogs', b.id, 'members', uid))];
+    const held = (await Promise.all(places.map(r => getDoc(r).then(s => s.exists() ? r : null).catch(() => null)))).filter(Boolean);   // only rows that exist: a blog member's rule reads the row
+    const refs = [...held, F.doc(db, 'roles', uid), F.doc(db, 'registeredUsers', uid), F.doc(db, 'userDirectory', uid), F.doc(db, 'profiles', uid)];
+    let b = F.writeBatch(db), n = 0;
+    for (const r of refs) { b.delete(r); if (++n === 450) { await b.commit(); b = F.writeBatch(db); n = 0; } }
+    await b.commit(); notify();
   },
   async getAdminGuide(){const s=await getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
   // ---- AI grading assistant (admin only; keys never reach the database) ----

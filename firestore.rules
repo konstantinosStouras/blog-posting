@@ -85,7 +85,7 @@ service cloud.firestore {
           && request.resource.data.acceptedBy == request.auth.uid
           && getAfter(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'lecturer'
           && getAfter(/databases/$(database)/documents/roles/$(request.auth.uid)).data.inviteId == inviteId);
-      allow delete: if false;
+      allow delete: if isAdmin();   // the Delete column of People: the invitation and its code go together
     }
     function invitationRole(uid) {
       let id = request.resource.data.get('inviteId','');
@@ -136,7 +136,7 @@ service cloud.firestore {
       allow list: if false;
       allow create: if newCode(code);
       allow update: if revokingCode() || (resource.data.revoked == true && newCode(code));
-      allow delete: if false;
+      allow delete: if isAdmin() || (resource.data.kind == 'student' && staffOf(resource.data.moduleId));   // with its invitation (People: Delete)
     }
     match /moduleInvites/{inviteId} {
       allow get: if staffOf(resource.data.moduleId) || (verified()
@@ -156,7 +156,7 @@ service cloud.firestore {
       allow update: if staffOf(resource.data.moduleId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked'])
         && request.resource.data.revoked is bool;
-      allow delete: if false;
+      allow delete: if staffOf(resource.data.moduleId);   // the Delete column of People: the invitation and its code go together
     }
     function validModuleInvite(moduleId, inviteId) {
       let path = /databases/$(database)/documents/moduleInvites/$(inviteId);

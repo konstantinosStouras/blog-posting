@@ -21,7 +21,7 @@ export function linkedinUrl(v) {
   return m ? 'https://www.linkedin.com/in/' + m[1] : null;
 }
 // The first path segment of every named page. A blog lives at /<url-name>, so a blog may not take one of these.
-export const RESERVED_URL_NAMES = new Set(['blog', 'blogs', 'module', 'modules', 'my-modules', 'posts', 'post', 'category', 'tag', 'author', 'archive', 'search', 'challenge', 'write', 'edit', 'mine', 'profile', 'review', 'peer-review', 'admin', 'invite', 'invitations', 'join', 'brief', 'index', 'index.html', 'local', 'redirect']);
+export const RESERVED_URL_NAMES = new Set(['blog', 'blogs', 'module', 'modules', 'my-modules', 'posts', 'post', 'category', 'tag', 'author', 'archive', 'search', 'challenge', 'write', 'edit', 'mine', 'profile', 'review', 'instructor', 'peer-review', 'admin', 'invite', 'invitations', 'join', 'brief', 'index', 'index.html', 'local', 'redirect']);
 export const isReservedUrlName = s => RESERVED_URL_NAMES.has(String(s || '').toLowerCase());
 // A post lives under its blog's canvas: /project-management/2026/11/my-post. A post with no blog keeps the bare date address.
 export const postPath = p => `${p.blogId ? '/' + p.blogId : ''}/${monthKey(p.publishedAt || p.createdAt).replace('-', '/')}/${p.slug}`;

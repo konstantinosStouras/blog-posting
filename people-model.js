@@ -34,6 +34,14 @@ export function buildPeopleReport({users=[],memberships=[],modules=[],instructor
  return {users:records,invitations:inviteRows.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)),modules,generatedAt:now};
 }
 
+// What the Delete button at the end of a People row asks before it acts (people.js; app.js uses the same words for the prototype's tables).
+export const deleteWording={
+ account:name=>`Delete ${name||'this account'} from the site? The profile, role and every module place are removed and unpublished posts are deleted; published posts stay on the blog. The person can sign in again, but must enter a module’s invitation code before writing. This cannot be undone.`,
+ member:(name,modules=[])=>`Remove ${name||'this student'} from ${modules.length?modules.join(', '):'the module'}? They keep their account and their posts, but cannot write or edit in the module until they enter its invitation code again.`,
+ invite:(kind,code)=>`Delete this ${kind==='instructor'?'instructor':'student'} invitation${code?` (${code})`:''}? ${kind==='instructor'?'An instructor who already accepted it keeps their role.':'Students who already joined through it keep their place, and the city is free for another module.'} This cannot be undone.`,
+ post:title=>`Delete “${title||'this post'}” permanently? Its comments, likes, votes and bookmarks go with it.`,
+};
+
 export function filterPeopleReport(report,search='',status='all'){
  const q=search.trim().toLowerCase();
  const matches=row=>!q||[row.firstName,row.lastName,row.penName,row.email,row.contactEmail,row.studentId,row.affiliation,row.universityEmail,row.googleEmail,row.moduleTitle,row.code,...(row.moduleNames||[]),...(row.teachingModuleNames||[])].join(' ').toLowerCase().includes(q);
