@@ -443,6 +443,9 @@ table.list td.actions > * + * { margin-left:6px; }
    in the first column, and rows read left-to-right the way the filters sort them. */
 .canvas-root .canvas { columns: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 36px 28px; align-items: start; }
 .canvas-root .card { display: block; margin: 0; }
+/* Room above the first row: a hovered card's sheet rises 14px above it, its halo 4px more and the lift 6px,
+   so the grid stands 36px below the tag cloud (its 14px margin plus these 22px) and the halo clears the tags. */
+.canvas-root .canvas-grid { padding-top: 22px; }
 
 /* ---- the writer (Substack-like) and the post page ---- */
 :root { --post-serif: 'Spectral', 'Libre Baskerville', Georgia, serif; --ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; --accent: #ff6719; }

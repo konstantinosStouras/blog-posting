@@ -152,6 +152,9 @@ title; a card without an image colours its top rule orange instead. The effect
 is CSS alone (styles.css, the card's hover), so visitors get it as well as
 members; readers who asked their system for less motion keep the colours, the
 shadow and the ribbon without the movement, and select mode keeps its outline.
+The grid stands 36px below the tag cloud (`.canvas-grid`, 22px of padding over
+the cloud's margin) so a hovered card's halo, which reaches 24px above the
+card, never touches the tags.
 The blog cards on Explore blogs (and a student's My blogs) light up the same
 way: the whole card opens the blog, and on hover it rises with a blue border
 and halo while the title's underline draws itself (styles.css,
