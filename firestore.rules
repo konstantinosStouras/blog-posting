@@ -211,7 +211,7 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.keys().hasOnly(['title','description','teacherIds','createdBy','createdAt','updatedAt','brief','categoryLabel','categories','organisationLabel','minWords','maxWords','outline','checklist','allowComments','replyRules'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 160
-        && str('description',1200) && str('brief',60000) && str('categoryLabel',40) && str('organisationLabel',60) && str('outline',20000) && str('replyRules',1000)
+        && str('description',1200) && d.get('brief','') == '' && str('categoryLabel',40) && str('organisationLabel',60) && str('outline',20000) && str('replyRules',1000)
         && d.get('categories',[]) is list && d.get('categories',[]).size() <= 30
         && d.get('checklist',[]) is list && d.get('checklist',[]).size() <= 12
         && d.get('minWords',0) is number && d.get('maxWords',0) is number && d.get('allowComments',true) is bool
@@ -227,6 +227,15 @@ service cloud.firestore {
         && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
         && (isAdmin() || request.resource.data.teacherIds == resource.data.teacherIds);
       allow delete: if false;
+      match /private/brief {
+        function linkedMember() {
+          let m = get(/databases/$(database)/documents/blogs/$(blogId)/members/$(request.auth.uid)).data.moduleId;
+          return moduleBlog(m) == blogId && (memberOf(m) || staffOf(m));
+        }
+        allow get: if blogStaff(blogId) || (verified() && linkedMember());
+        allow create, update: if (blogStaff(blogId) || (verified() && hasRole('lecturer') && request.auth.uid in getAfter(blogPath(blogId)).data.teacherIds))
+          && request.resource.data.keys().hasOnly(['brief']) && request.resource.data.brief is string && str('brief',60000);
+      }
       // Who may comment across the modules sharing this canvas: written together with
       // the module membership (existsAfter), holding nothing but the link to it.
       match /members/{uid} {
@@ -340,7 +349,7 @@ service cloud.firestore {
         && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 4000
         && request.resource.data.editedAt is number;
       // Likes on a comment: the only change allowed is an account adding or removing itself from likedBy.
-      allow update: if verified()
+      allow update: if verified() && (memberOf(resource.data.moduleId) || staffOf(resource.data.moduleId) || blogStaff(resource.data.blogId))
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy'])
         && request.resource.data.likedBy is list
         && ((request.resource.data.likedBy.toSet().difference(resource.data.get('likedBy', []).toSet()) == [request.auth.uid].toSet()
@@ -418,10 +427,9 @@ service cloud.firestore {
     }
     // Peer review (study guide 5.3, "Others' blog assessment"). The admin alone runs it, never
     // another instructor: the round (peerRounds), the assignments (peerReviews), the notes on
-    // each reviewer (peerReviewerNotes) and the feedback released to authors (peerSummaries)
-    // are written by the admin. A reviewer fills in the grade and the assessment of their own
-    // assignments while the round is open and reads nothing else; an author reads only the
-    // released summary of their own post, never the reviews or who wrote them.
+    // each reviewer (peerReviewerNotes) and both kinds of release are written by the admin.
+    // Reviewers can update their own assignments while the round is open and read their
+    // released grade and note. Authors can read the anonymous summaries of their own posts.
     function peerRound(moduleId) { return get(/databases/$(database)/documents/peerRounds/$(moduleId)).data; }
     match /peerRounds/{moduleId} {
       allow read: if isAdmin() || memberOf(moduleId);
@@ -460,11 +468,19 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
     match /peerReviewerNotes/{id} {
-      allow read: if isAdmin() || (own(resource.data.reviewerUid) && resource.data.get('releasedAt',null) != null);
+      allow read: if isAdmin();
       allow create, update: if isAdmin() && id == request.resource.data.moduleId + '_' + request.resource.data.reviewerUid
         && request.resource.data.keys().hasOnly(['moduleId','reviewerUid','aiScore','aiNote','aiPerReview','aiScoredAt','aiModel','aiRaw','aiError','grade','note','releasedAt','noticeSentAt','noticeTo','updatedAt'])
         && str('moduleId',100) && str('reviewerUid',100) && str('aiNote',20000) && str('aiModel',120) && str('aiRaw',40000) && str('aiError',2000) && str('grade',20) && str('note',20000) && str('noticeTo',320)
         && (request.resource.data.get('aiScore',null) == null || request.resource.data.aiScore is number) && request.resource.data.get('aiPerReview',[]) is list;
+      allow delete: if isAdmin();
+    }
+    match /peerReviewerReleases/{id} {
+      allow read: if isAdmin() || own(resource.data.reviewerUid);
+      allow create, update: if isAdmin() && id == request.resource.data.moduleId + '_' + request.resource.data.reviewerUid
+        && request.resource.data.keys().hasOnly(['moduleId','reviewerUid','grade','note','releasedAt'])
+        && str('moduleId',100) && str('reviewerUid',100) && str('grade',20) && str('note',20000)
+        && request.resource.data.releasedAt is number;
       allow delete: if isAdmin();
     }
     match /peerSummaries/{postId} {

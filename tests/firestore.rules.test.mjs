@@ -175,7 +175,17 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await assertSucceeds(setDoc(doc(admin,'peerReviewerNotes/one_student'),{noticeSentAt:time,noticeTo:'student@ucdconnect.ie'},{merge:true}));   // the letter was sent
  await assertFails(getDoc(doc(student,'peerReviewerNotes/one_student')));
  await assertSucceeds(setDoc(doc(admin,'peerReviewerNotes/one_student'),{grade:'A',note:'Thank you',releasedAt:time},{merge:true}));
- await assertSucceeds(getDoc(doc(student,'peerReviewerNotes/one_student')));
+ await assertFails(getDoc(doc(student,'peerReviewerNotes/one_student')));
+ await assertFails(getDoc(doc(teacher,'peerReviewerNotes/one_student')));
+ const release={moduleId:'one',reviewerUid:'student',grade:'A',note:'Thank you',releasedAt:time};
+ const releasedPath='peerReviewerReleases/one_student';
+ await assertFails(setDoc(doc(admin,releasedPath),{...release,aiRaw:'private'}));
+ await assertSucceeds(setDoc(doc(admin,releasedPath),release));
+ assert.deepEqual((await assertSucceeds(getDoc(doc(student,releasedPath)))).data(),release);
+ await assertFails(getDoc(doc(author,releasedPath)));
+ await assertFails(getDoc(doc(teacher,releasedPath)));
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),releasedPath)));
+ await assertFails(setDoc(doc(student,releasedPath),release));
  await assertFails(getDoc(doc(author,'peerReviewerNotes/one_student')));
  await assertFails(setDoc(doc(student,'peerReviewerNotes/one_student'),{moduleId:'one',reviewerUid:'student',grade:'A+',updatedAt:time},{merge:true}));
  // the released summary: the admin writes it; the author reads it; the reviewer, other students and other instructors do not
@@ -401,10 +411,11 @@ test('a reply names its thread; a like is an account adding or removing only its
  const d=db('student','student@ucdconnect.ie'), peer=db('peer','peer@ucd.ie');
  await assertSucceeds(setDoc(doc(d,'comments/reply'),comment({parentId:'comment',likedBy:[]})));
  await assertFails(setDoc(doc(d,'comments/pre-liked'),comment({likedBy:['student']})));   // a comment cannot be born liked
- await assertSucceeds(updateDoc(doc(peer,'comments/comment'),{likedBy:arrayUnion('peer')}));
+ await assertFails(updateDoc(doc(peer,'comments/comment'),{likedBy:arrayUnion('peer')})); // another module on the same canvas
+ await assertSucceeds(updateDoc(doc(d,'comments/comment'),{likedBy:arrayUnion('student')}));
  await assertFails(updateDoc(doc(peer,'comments/comment'),{likedBy:arrayUnion('student')}));   // not on someone else's behalf
  await assertFails(updateDoc(doc(peer,'comments/comment'),{likedBy:['peer'],body:'edited'}));   // nothing but likedBy changes
- await assertSucceeds(updateDoc(doc(peer,'comments/comment'),{likedBy:arrayRemove('peer')}));
+ await assertSucceeds(updateDoc(doc(d,'comments/comment'),{likedBy:arrayRemove('student')}));
  await assertFails(updateDoc(doc(db('outsider','o@ucd.ie',false),'comments/comment'),{likedBy:arrayUnion('outsider')}));   // unverified
  // the author rewrites the body, nothing else; nobody else rewrites it
  await assertSucceeds(updateDoc(doc(d,'comments/comment'),{body:'Hello, revised',editedAt:time+1}));
@@ -630,4 +641,16 @@ test('a postâ€™s text lives under posts/{id}/content/body and follows the postâ€
  await assertSucceeds(setDoc(doc(db('teacher-one','teacher-one@ucd.ie'),'posts/published/content/body'),{body:'<p>Edited by staff</p>'}));
  const del=writeBatch(d);del.delete(doc(d,'posts/split/content/body'));del.delete(doc(d,'posts/split'));
  await assertSucceeds(del.commit());
+});
+
+test('briefs are private to enrolled readers and staff, including on a shared canvas', async () => {
+ const admin = db('admin','kstouras@gmail.com'), student = db('student'), teacher = db('teacher-one');
+ const path = 'blogs/pm/private/brief';
+ await assertSucceeds(setDoc(doc(teacher,path),{brief:'Member exercise'}));
+ for (const reader of [student,db('peer'),teacher,admin]) await assertSucceeds(getDoc(doc(reader,path)));
+ for (const reader of [db('outsider'),db('teacher-two'),env.unauthenticatedContext().firestore()]) await assertFails(getDoc(doc(reader,path)));
+ await assertFails(setDoc(doc(student,path),{brief:'Tampered'}));
+ await assertFails(updateDoc(doc(teacher,'blogs/pm'),{brief:'Published by mistake'}));
+ await assertSucceeds(deleteDoc(doc(admin,'modules/one/members/student')));
+ await assertFails(getDoc(doc(student,path)));
 });

@@ -1,5 +1,5 @@
 // AI grading assistant: admin-only page at /admin/grading. The admin brings
-// their own API key for each lab (kept in this browser only), picks a model and a
+// their own API key for each lab (kept only in this tab until reload or sign-out), picks a model and a
 // reasoning effort, edits the grader persona, then grades the posts of the modules
 // they teach. Each post's AI grade and feedback are stored privately (aiReviews)
 // beside the admin's own final grade and feedback, and the table downloads as Excel
@@ -9,12 +9,12 @@ import {store} from './store.js';
 import {currentUser} from './auth.js';
 import {navigate, publicUrl} from './router.js';
 import {esc, fmtDateTime, toast, postPath, wordCount, pageHead} from './util.js';
-import {PROVIDERS, callProvider} from './ai-providers.js';
+import {gradingKeys, PROVIDERS, callProvider} from './ai-providers.js';
 import {DEFAULT_GRADER, PLACEHOLDERS, buildReview, buildPolish, parseReview, gradingRows, GRADING_COLUMNS} from './ai-grading-model.js';
 import {downloadExcelSheet} from './roster-export.js';
 import {makeTablesSortable} from './sortable-tables.js';
 
-const KEYS = 'ucd-blog.aiKeys', PREFS = 'ucd-blog.aiPrefs';
+const PREFS = 'ucd-blog.aiPrefs';
 const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
 const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
@@ -35,7 +35,7 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
   const u = currentUser();
   if (!u || u.role !== 'admin') { target.innerHTML = '<p class="empty">This page is private to the platform admin.</p>'; return; }
   const providers = {...PROVIDERS, ...(store.mode === 'local' ? {demo: DEMO} : {})};
-  const keys = read(KEYS, {}), prefs = {provider: store.mode === 'local' ? 'demo' : 'anthropic', model: '', custom: '', effort: '', status: 'published', ...read(PREFS, {})};
+  const keys = gradingKeys, prefs = {provider: store.mode === 'local' ? 'demo' : 'anthropic', model: '', custom: '', effort: '', status: 'published', ...read(PREFS, {})};
   if (!providers[prefs.provider]) prefs.provider = Object.keys(providers)[0];
   const [allModules, blogs, saved] = await Promise.all([store.listModules(), store.listBlogs(), store.getGraderConfig()]);
   // The admin grades only the modules they teach themselves.
@@ -53,7 +53,7 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
 
   const providerOptions = Object.entries(providers).map(([id, p]) => `<option value="${id}" ${id === prefs.provider ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
   target.innerHTML = `${pageHead('AI grading', 'Private to the platform admin: grade and draft feedback for the posts of the modules you teach, with your own API keys.' + (embedded ? '' : ' <a href="/admin">Admin area</a>'), embedded)}
-    <div class="notice info"><b>How this works.</b> Your API keys are kept in this browser only (never in the database) and are sent only to the lab that issued them. Each review sends the post text, the blog's brief and your grader persona to that lab's API from this browser; nothing is shown to students or other instructors. Check the lab's data-use terms before grading real student work.</div>
+    <div class="notice info"><b>How this works.</b> Your API keys are kept only in this tab until reload or sign-out (never in the database) and are sent only to the lab that issued them. Each review sends the post text, the blog's brief and your grader persona to that lab's API from this browser; nothing is shown to students or other instructors. Check the lab's data-use terms before grading real student work.</div>
     <div class="grading-setup two-col">
       <div class="panel"><h3>1. Model</h3>
         <label class="field">AI lab<select id="ai-provider">${providerOptions}</select></label>
@@ -86,8 +86,8 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
   function paintProvider() {
     const id = $('ai-provider').value, p = providers[id], known = p.models.some(m => m.id === prefs.model) || !prefs.model;
     $('ai-key-wrap').hidden = id === 'demo';
-    $('ai-key').value = ''; $('ai-key').placeholder = keys[id] ? 'Key saved in this browser (enter a new one to replace it)' : p.keyHint;
-    $('ai-key-status').textContent = keys[id] ? `${p.name} key saved in this browser.` : `No ${p.name} key saved yet.`;
+    $('ai-key').value = ''; $('ai-key').placeholder = keys[id] ? 'Key saved for this tab session (enter a new one to replace it)' : p.keyHint;
+    $('ai-key-status').textContent = keys[id] ? `${p.name} key saved for this tab session.` : `No ${p.name} key saved yet.`;
     $('ai-key-link').href = p.console || '#'; $('ai-key-link').hidden = !p.console;
     $('ai-model').innerHTML = p.models.map(m => `<option value="${esc(m.id)}" ${m.id === prefs.model ? 'selected' : ''}>${esc(m.name)} <span class="muted">(${esc(m.id)})</span></option>`).join('') + (id === 'demo' ? '' : `<option value="__custom" ${!known ? 'selected' : ''}>Other model id…</option>`);
     $('ai-custom-wrap').hidden = known; $('ai-custom').value = known ? '' : prefs.model;
@@ -98,8 +98,8 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
   $('ai-provider').onchange = () => { prefs.model = ''; prefs.effort = ''; paintProvider(); remember(); };
   $('ai-model').onchange = () => { $('ai-custom-wrap').hidden = $('ai-model').value !== '__custom'; if ($('ai-model').value === '__custom') $('ai-custom').focus(); remember(); };
   $('ai-custom').onchange = remember; $('ai-effort').onchange = remember;
-  $('ai-key-save').onclick = () => { const v = $('ai-key').value.trim(); if (!v) return toast('Paste the API key first.', 'error'); keys[$('ai-provider').value] = v; write(KEYS, keys); paintProvider(); toast('Key saved in this browser.'); };
-  $('ai-key-remove').onclick = () => { delete keys[$('ai-provider').value]; write(KEYS, keys); paintProvider(); toast('Key removed from this browser.'); };
+  $('ai-key-save').onclick = () => { const v = $('ai-key').value.trim(); if (!v) return toast('Paste the API key first.', 'error'); keys[$('ai-provider').value] = v; paintProvider(); toast('Key saved for this tab session.'); };
+  $('ai-key-remove').onclick = () => { delete keys[$('ai-provider').value]; paintProvider(); toast('Key removed from this browser.'); };
 
   // ---- grader persona ----
   $('g-save').onclick = async () => { try { grader = {...grader, ...(await store.saveGraderConfig({persona: $('g-persona').value, instructions: $('g-instructions').value, polish: $('g-polish').value}))}; $('g-status').textContent = `Saved ${fmtDateTime(grader.updatedAt)}.`; toast('Grader saved.'); } catch (e) { toast(e.message, 'error'); } };

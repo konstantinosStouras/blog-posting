@@ -5,7 +5,7 @@
 // `?local` on a dev server without touching the live database.
 import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, SEED_BLOGS, SEED_MODULES, SEED_MEMBERSHIPS, DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
-import {reviewId} from './peer-review-model.js';
+import {reviewId, reviewerRelease} from './peer-review-model.js';
 import {JOIN_CITIES, normalizeCode, isJoinCity, cityLabel, STANDING_EXPIRY} from './invitation-codes.js';
 
 const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
@@ -29,7 +29,14 @@ const teaches = (u, x) => u && (u.role === 'admin' || (x.teacherIds || []).inclu
 
 export const local = {
   mode: 'local',
-  async init() { state = load(); return state.settings; },
+  async init() {
+    state = load();
+    if (!state.peerReviewerReleases) {
+      state.peerReviewerReleases = Object.fromEntries(Object.entries(state.peerReviewerNotes || {})
+        .filter(([, note]) => note.releasedAt).map(([id, note]) => [id, reviewerRelease(note)]));
+    }
+    return state.settings;
+  },
   settings: () => state.settings,
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
 
@@ -89,7 +96,7 @@ export const local = {
     for (const i of state.moduleInvites || []) if (i.moduleId === id) i.revoked = true;
     state.memberships = state.memberships.filter(x => x.moduleId !== id);
     state.modules = state.modules.filter(x => x.id !== id);
-    for (const k of ['peerReviews', 'peerReviewerNotes', 'peerSummaries']) state[k] = Object.fromEntries(Object.entries(state[k] || {}).filter(([, r]) => r.moduleId !== id));
+    for (const k of ['peerReviews', 'peerReviewerNotes', 'peerReviewerReleases', 'peerSummaries']) state[k] = Object.fromEntries(Object.entries(state[k] || {}).filter(([, r]) => r.moduleId !== id));
     delete (state.peerRounds || {})[id];
     save();
   },
@@ -221,7 +228,13 @@ export const local = {
   },
 
   // ---- people ----
-  async listUsers(moduleId = '') { return delay(structuredClone(moduleId ? state.users.filter(u => state.memberships.some(x => x.uid === u.uid && x.moduleId === moduleId)) : state.users)); },
+  async listUsers(moduleId = '') {
+    const viewer = me();
+    if (viewer?.role === 'admin' && !moduleId) return delay(structuredClone(state.users));
+    const ids = viewer?.role === 'admin' ? [moduleId] : (viewer?.managedModuleIds || []).filter(id => !moduleId || id === moduleId);
+    const members = new Set(state.memberships.filter(x => ids.includes(x.moduleId)).map(x => x.uid));
+    return delay(structuredClone(state.users.filter(u => members.has(u.uid))));
+  },
   async getProfile(uid) { return delay(structuredClone(state.users.find(u => u.uid === uid) || null)); },
   async saveProfile(uid, patch) {
     const u = state.users.find(x => x.uid === uid); if (!u) throw Error('No such user.');
@@ -254,10 +267,18 @@ export const local = {
   async getPeerReview(id) { const u = me(), r = (state.peerReviews || {})[id]; return delay(r && u && (r.reviewerUid === u.uid || u.role === 'admin') ? structuredClone(r) : null); },
   async submitPeerReview(id, {grade, assessment}) { const u = me(), r = (state.peerReviews || {})[id]; if (!u || !r || r.reviewerUid !== u.uid) throw Error('This post is not assigned to you.'); if ((state.peerRounds || {})[r.moduleId]?.status !== 'open') throw Error('The review round is closed.'); Object.assign(r, {grade, assessment, submittedAt: Date.now(), updatedAt: Date.now()}); save(); return structuredClone(r); },
   async savePeerReview(id, patch) { if (me()?.role !== 'admin') throw Error('Admin access required.'); const r = (state.peerReviews || {})[id]; if (!r) throw Error('Review not found.'); Object.assign(r, patch, {updatedAt: Date.now()}); save(); return structuredClone(r); },
-  async deletePeerRound(moduleId) { if (me()?.role !== 'admin') throw Error('Admin access required.'); for (const k of ['peerReviews', 'peerReviewerNotes', 'peerSummaries']) state[k] = Object.fromEntries(Object.entries(state[k] || {}).filter(([, r]) => r.moduleId !== moduleId)); delete (state.peerRounds || {})[moduleId]; save(); },
-  async savePeerReviewerNote(moduleId, reviewerUid, patch) { if (me()?.role !== 'admin') throw Error('Admin access required.'); state.peerReviewerNotes = state.peerReviewerNotes || {}; const id = `${moduleId}_${reviewerUid}`; state.peerReviewerNotes[id] = {...(state.peerReviewerNotes[id] || {}), ...patch, id, moduleId, reviewerUid, updatedAt: Date.now()}; save(); return structuredClone(state.peerReviewerNotes[id]); },
+  async deletePeerRound(moduleId) { if (me()?.role !== 'admin') throw Error('Admin access required.'); for (const k of ['peerReviews', 'peerReviewerNotes', 'peerReviewerReleases', 'peerSummaries']) state[k] = Object.fromEntries(Object.entries(state[k] || {}).filter(([, r]) => r.moduleId !== moduleId)); delete (state.peerRounds || {})[moduleId]; save(); },
+  async savePeerReviewerNote(moduleId, reviewerUid, patch) {
+    if (me()?.role !== 'admin') throw Error('Admin access required.');
+    const notes = state.peerReviewerNotes ||= {}, id = `${moduleId}_${reviewerUid}`;
+    if (patch.releasedAt && !notes[id]) throw Error('Save a grade or note before releasing it.');
+    notes[id] = {...notes[id], ...patch, id, moduleId, reviewerUid, updatedAt: Date.now()};
+    if (patch.releasedAt) (state.peerReviewerReleases ||= {})[id] = reviewerRelease(notes[id]);
+    save();
+    return structuredClone(notes[id]);
+  },
   async listPeerReviewerNotes(moduleId) { if (me()?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.peerReviewerNotes || {}).filter(n => n.moduleId === moduleId))); },
-  async getMyPeerReviewerNote(moduleId) { const u = me(); if (!u) return null; return delay(structuredClone((state.peerReviewerNotes || {})[`${moduleId}_${u.uid}`] || null)); },
+  async getMyPeerReviewerNote(moduleId) { const u = me(); if (!u) return null; return delay(structuredClone((state.peerReviewerReleases || {})[`${moduleId}_${u.uid}`] || null)); },
   async releasePeerSummaries(rows) { if (me()?.role !== 'admin') throw Error('Admin access required.'); state.peerSummaries = state.peerSummaries || {}; const now = Date.now(); for (const r of rows) state.peerSummaries[r.postId] = {...r, id: r.postId, releasedAt: now, updatedAt: now}; save(); },
   async listPeerSummaries(moduleId) { if (me()?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.peerSummaries || {}).filter(s => s.moduleId === moduleId))); },
   async getPeerSummary(postId) { const u = me(), s = (state.peerSummaries || {})[postId]; return delay(s && u && (s.authorId === u.uid || u.role === 'admin') ? structuredClone(s) : null); },

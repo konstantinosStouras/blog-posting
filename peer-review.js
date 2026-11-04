@@ -8,14 +8,14 @@ import {store} from './store.js';
 import {currentUser} from './auth.js';
 import {navigate, publicUrl} from './router.js';
 import {esc, fmtDate, fmtDateTime, toast, postPath, pageHead, academicYearOf} from './util.js';
-import {PROVIDERS, callProvider} from './ai-providers.js';
+import {gradingKeys, PROVIDERS, callProvider} from './ai-providers.js';
 import {DEFAULT_GRADER, htmlToText} from './ai-grading-model.js';
 import {PER_STUDENT, GRADE_MIN, GRADE_MAX, MAX_CHARS, GUIDE_QUESTIONS, GRADE_SCALE, reviewId, newSeed, peerCohort, ASSIGNMENT_COLUMNS, assignmentSheet, DEFAULT_NOTICE, NOTICE_FIELDS, NOTICE_COLUMNS, buildNotice, noticeSheet, mailtoLink, assignPeerReviews, fillGaps, verifyAssignments, validateReview, roundOpen, words, peerPostRows, peerReviewerRows, summaryFor, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, DEFAULT_PEER_PROMPTS, PEER_PLACEHOLDERS, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment} from './peer-review-model.js';
 import {downloadExcelSheet} from './roster-export.js';
 import {SENDERS, connectSender, sendMail} from './mail.js';
 import {makeTablesSortable} from './sortable-tables.js';
 
-const KEYS = 'ucd-blog.aiKeys', PREFS = 'ucd-blog.aiPrefs';   // the model and keys chosen on the AI grading page
+const PREFS = 'ucd-blog.aiPrefs';   // the model and keys chosen on the AI grading page
 const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
 const grade = v => v == null || v === '' ? '—' : Number.isInteger(Number(v)) ? String(Number(v)) : Number(v).toFixed(1);   // a student's whole-number rating reads 8, a mean 7.5
 const GRADES = Array.from({length: GRADE_MAX - GRADE_MIN + 1}, (_, i) => GRADE_MIN + i);   // whole numbers
@@ -122,7 +122,7 @@ export async function renderPeerAdmin(target, {moduleId = '', embedded = false} 
   const noticeFor = r => buildNotice({template: notice, row: r, module, postUrl, reviewPage: publicUrl('/peer-review'), deadline: module.peerDeadline ? fmtDate(module.peerDeadline) : ''});
   const postRows = peerPostRows({reviews, posts, users: students, aiReviews, summaries}), reviewerRows = peerReviewerRows({reviews, posts, users: students, notes});
   const check = round ? verifyAssignments(reviews.map(r => ({postId: r.postId, authorId: r.authorId, reviewerUid: r.reviewerUid})), {perStudent: round.perStudent || PER_STUDENT, posts: pool}) : null;
-  const providers = {...PROVIDERS, ...(store.mode === 'local' ? {demo: {name: 'Demo (local prototype)'}} : {})}, prefs = {provider: store.mode === 'local' ? 'demo' : 'anthropic', model: '', effort: '', ...read(PREFS, {})}, keys = read(KEYS, {});
+  const providers = {...PROVIDERS, ...(store.mode === 'local' ? {demo: {name: 'Demo (local prototype)'}} : {})}, prefs = {provider: store.mode === 'local' ? 'demo' : 'anthropic', model: '', effort: '', ...read(PREFS, {})}, keys = gradingKeys;
   if (!providers[prefs.provider]) prefs.provider = Object.keys(providers)[0];
   const selection = () => ({provider: prefs.provider, name: providers[prefs.provider]?.name || prefs.provider, apiKey: keys[prefs.provider] || '', model: prefs.model || providers[prefs.provider]?.models?.[0]?.id || (prefs.provider === 'demo' ? 'demo' : ''), effort: prefs.effort || providers[prefs.provider]?.defaultEffort || ''});
   const submitted = reviews.filter(r => r.grade != null).length;

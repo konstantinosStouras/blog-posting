@@ -18,7 +18,7 @@ import {buildPeopleReport} from './people-model.js';
 import {writingReport,sessionHistoryReport,moduleWritingTotals} from './writing-time.js';
 import {startPresence} from './presence.js';
 import {randomAlias} from './aliases.js';
-import {reviewId} from './peer-review-model.js';
+import {reviewId, reviewerRelease} from './peer-review-model.js';
 
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
 let app, auth, db, A, F, user = null, profile = null, role = 'student', settings = {...DEFAULT_SETTINGS};
@@ -36,9 +36,22 @@ function trackPresence(self) {
   presence?.stop(); presence = null;
   if (user?.emailVerified) presence = startPresence({uid: user.uid, modules: presenceModules, save: row => self.savePresence(row)});
 }
+function selectAccount(next) {
+  const previous = user;
+  if (user !== next) {
+    profile = null;
+    role = 'student';
+    managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = [];
+    presence?.stop(); presence = null;
+  }
+  user = next;
+  if (previous && previous.uid !== next?.uid) notify(); else forget();
+}
 async function refreshManaged(self) {
   if (!user) { managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = []; return; }
+  const account = user;
   const [modules, blogs] = await Promise.all([self.listModules(), self.listBlogs()]);
+  if (user !== account) return;
   managedModuleIds = modules.filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
   managedBlogIds = blogs.filter(b => b.teacherIds.includes(user.uid)).map(b => b.id);
   await self.listMyModules();   // sets memberModuleIds
@@ -50,35 +63,9 @@ const readScope = f => ({
 });
 const gather = async qs => { const rows = (await Promise.all(qs.map(q => getDocs(q).then(s => s.docs.map(norm))))).flat(); return [...new Map(rows.map(r => [r.id, r])).values()]; };
 const listeners = new Set(), notify = why => { forget(); listeners.forEach(fn => fn(why)); };
-// The first page is drawn from the documents kept on disk. Until the first page is up (warm),
-// a read that the cache can answer is answered from it at once, and the same read goes to the
-// server behind it: when the server's answer differs from what was drawn (a post published
-// since the last visit), the page is redrawn in place once it is up (notify('refresh'), which
-// app.js draws without scrolling). A document or query the cache has never seen waits for the
-// server as before, so a first visit is unchanged. After the first page every read goes to the
-// server, as before: the cache, being local, is not narrowed by the rules, and a page drawn from
-// it must never stand for long.
-let warm = true, stale = false, refreshTimer = 0;
-const refresh = () => { if (!refreshTimer) refreshTimer = setTimeout(() => { refreshTimer = 0; notify('refresh'); }, 50); };
-const painted = () => { warm = false; if (stale) { stale = false; refresh(); } };
-setTimeout(painted, 15000);   // whatever happens to the first page
-const differs = () => { stale = true; if (!warm) painted(); };
-const shape = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(k => [k, x[k]])) : x);
-const docKey = s => s.exists() ? shape(norm(s)) : '', docsKey = s => shape(s.docs.map(norm));
-async function getDoc(ref) {
-  if (!warm) return F.getDoc(ref);
-  let hit = null; try { const s = await F.getDocFromCache(ref); if (s.exists()) hit = s; } catch {}   // rejects when the document is not on disk
-  if (!hit) return F.getDoc(ref);
-  F.getDoc(ref).then(s => { if (docKey(s) !== docKey(hit)) differs(); }).catch(() => {});
-  return hit;
-}
-async function getDocs(q) {
-  if (!warm) return F.getDocs(q);
-  let hit = null; try { const s = await F.getDocsFromCache(q); if (!s.empty) hit = s; } catch {}
-  if (!hit) return F.getDocs(q);
-  F.getDocs(q).then(s => { if (docsKey(s) !== docsKey(hit)) differs(); }).catch(() => {});
-  return hit;
-}
+// A local Firestore cache is shared across accounts and cannot enforce read permissions.
+const getDoc = ref => F.getDocFromServer(ref);
+const getDocs = query => F.getDocsFromServer(query);
 const ts = v => (v && typeof v.toMillis === 'function') ? v.toMillis() : (v ?? null);
 const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['createdAt', 'updatedAt', 'publishedAt']) if (k in o) o[k] = ts(o[k]); return o; };
 // A post's text (with its inline images) lives in posts/{id}/content/body, apart from the
@@ -89,6 +76,26 @@ const norm = d => { const o = {id: d.id, ...d.data()}; for (const k of ['created
 const TEXT_MAX = 8000;
 const bodyRef = id => F.doc(db, 'posts', id, 'content', 'body');
 async function withBody(p) { if (!p || typeof p.body === 'string') return p; const s = await getDoc(bodyRef(p.id)); return {...p, body: s.exists() ? s.data().body || '' : ''}; }
+async function withBrief(blog) {
+  if (!blog) return null;
+  const {brief: legacyBrief, ...metadata} = blog;
+  const account = user;
+  if (!account?.emailVerified) return metadata;
+  const owner = role === 'admin' || (role === 'lecturer' && blog.teacherIds.includes(account.uid));
+  if (!owner && !myBlogIds.includes(blog.id)) return metadata;
+  const ref = F.doc(db, 'blogs', blog.id, 'private', 'brief');
+  let snapshot;
+  try { snapshot = await getDoc(ref); }
+  catch (e) {
+    // A shared blog's membership link can still point to a module the reader left.
+    if (e.code !== 'permission-denied' || owner || user !== account) throw e;
+    const module = (await firebase.listMyModules()).find(m => m.blogId === blog.id);
+    if (!module || user !== account) return metadata;
+    await F.setDoc(F.doc(db, 'blogs', blog.id, 'members', account.uid), {uid: account.uid, moduleId: module.id, joinedAt: Date.now()});
+    snapshot = await getDoc(ref);
+  }
+  return {...metadata, brief: snapshot.exists() ? snapshot.data().brief : legacyBrief || ''};
+}
 async function createCodedInvite(kind, data) {
   const inviteId = crypto.randomUUID();
   for (let attempt=0;attempt<60;attempt++) {
@@ -106,7 +113,8 @@ async function createCodedInvite(kind, data) {
 }
 
 async function loadRole(uid, email, verified) {
-  if (verified && email === ADMIN_EMAIL) return 'admin';
+  if (!verified) return 'student';
+  if (email === ADMIN_EMAIL) return 'admin';
   try { const snap = await getDoc(F.doc(db, 'roles', uid)); if (snap.exists() && snap.data().role) return snap.data().role; } catch {}
   return (verified && email === ADMIN_EMAIL) ? 'admin' : 'student';
 }
@@ -122,7 +130,7 @@ async function ensureProfile(u) {
 }
 async function touchDirectory(u, p) {
   const ref = F.doc(db, 'userDirectory', u.uid);
-  const snap = await F.getDoc(ref).catch(() => null);
+  const snap = await getDoc(ref).catch(() => null);
   const now=Date.now(),signedInAt=Date.parse(u.metadata?.lastSignInTime || '') || now;
   const row = {name: [p.firstName, p.lastName].filter(Boolean).join(' ') || p.penName, firstName:p.firstName || '',lastName:p.lastName || '',studentId:p.studentId || '',penName: p.penName, affiliation: p.affiliation || '', contactEmail: p.contactEmail || '', first: snap?.exists() ? snap.data().first : now, seen:now,signedInAt,emailVerified:!!u.emailVerified};
   if (u.email) row.email = u.email;
@@ -131,7 +139,7 @@ async function touchDirectory(u, p) {
   if(u.emailVerified){
     const modules=await firebase.listModules();
     await Promise.all(modules.map(async m=>{
-      const ref=F.doc(db,'modules',m.id,'members',u.uid),member=await F.getDoc(ref);
+      const ref=F.doc(db,'modules',m.id,'members',u.uid),member=await getDoc(ref);
       if(member.exists()) try { await F.updateDoc(ref,{firstName:p.firstName || '',lastName:p.lastName || '',studentId:p.studentId || '',affiliation:p.affiliation || '',contactEmail:p.contactEmail || '',penName:p.penName,email:u.email,lastSeenAt:now,lastSignInAt:signedInAt}); } catch (e) { console.warn('roster row not updated for', m.id, e.code || e.message); }
     }));
   }
@@ -147,6 +155,7 @@ async function touchDirectory(u, p) {
 // reads did, and the load is tried again in the background (retryAccount) until it is in.
 async function loadAccount(self, u) {
   const [p, r, m] = await Promise.allSettled([ensureProfile(u), loadRole(u.uid, u.email, u.emailVerified), refreshManaged(self)]);
+  if (user !== u) return;
   if (r.status === 'fulfilled') role = r.value;
   if (p.status === 'fulfilled') profile = p.value;
   if (p.status === 'rejected' || m.status === 'rejected') throw (p.reason || m.reason);
@@ -154,6 +163,7 @@ async function loadAccount(self, u) {
 }
 const RETRY = [800, 2500, 6000];
 function accountFailed(self, u, e, i = 0) {
+  if (user !== u) return;
   console.warn('account', e?.code || e?.message || e);
   profile = profile || {penName: 'student'};
   if (i >= RETRY.length) return;
@@ -206,17 +216,13 @@ export const firebase = {
     const [appM, authM, fsM] = await Promise.all([import(cdn('app')), import(cdn('auth')), import(cdn('firestore'))]);
     A = authM; F = fsM;
     app = appM.initializeApp(firebaseConfig); auth = A.getAuth(app);
-    // Documents are kept on disk (IndexedDB, shared by the site's tabs): a query that ran
-    // before resumes where it left off, so the server sends only what changed since, and
-    // posts with their inline images are downloaded once rather than on every visit.
-    try { db = F.initializeFirestore(app, {localCache: F.persistentLocalCache({tabManager: F.persistentMultipleTabManager()})}); }
-    catch (e) { console.warn('persistent cache', e); db = F.getFirestore(app); }
+    db = F.getFirestore(app);
     const site = getDoc(F.doc(db, 'settings', 'site')).then(s => { if (s.exists()) settings = {...DEFAULT_SETTINGS, ...s.data()}; }).catch(e => console.warn('settings', e));
     await new Promise(resolve => {
       A.onAuthStateChanged(auth, async u => {
-        user = u; forget();
+        selectAccount(u);
         if (u) { try { await loadAccount(this, u); } catch (e) { accountFailed(this, u, e); } }
-        else { profile = null; role = 'student'; managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; }
+        if (user !== u) return;
         trackPresence(this);
         await site; notify(); resolve();
       });
@@ -225,7 +231,6 @@ export const firebase = {
   },
   settings: () => settings,
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
-  painted,   // app.js: the first page is up; reads go to the server from here on
 
   // ---- auth ----
   currentUser() { return user ? {uid: user.uid, email: user.email || '', emailVerified: user.emailVerified, displayName: user.displayName || '', photoURL: user.photoURL || profile?.photo || '', providerId: user.providerData?.[0]?.providerId || 'password', ...profile, role, managedModuleIds, managedBlogIds} : null; },
@@ -237,7 +242,7 @@ export const firebase = {
       cred = await A.signInWithPopup(auth, google);
     } else if (provider === 'password') cred = await A.signInWithEmailAndPassword(auth, email, password);
     else throw Error('Unknown sign-in method.');
-    user = cred.user; forget();
+    selectAccount(cred.user);
     try { await loadAccount(this, user); } catch (e) { accountFailed(this, user, e); }   // signed in all the same; the account follows
     trackPresence(this); notify(); return cred;
   },
@@ -250,7 +255,7 @@ export const firebase = {
     try {
       const cred = await A.createUserWithEmailAndPassword(auth, email, password);
       await A.updateProfile(cred.user, {displayName: details.firstName + ' ' + details.lastName});
-      user = cred.user;
+      selectAccount(cred.user);
       profile = await ensureProfile(cred.user);
       await touchDirectory(cred.user, profile);
       await A.sendEmailVerification(cred.user);
@@ -277,8 +282,8 @@ export const firebase = {
   async listModules() { const s = await getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },
   async getModule(id) { const s = await getDoc(F.doc(db, 'modules', id)); return s.exists() ? norm(s) : null; },
   // ---- blogs: the public canvas and the exercise written on it ----
-  async listBlogs() { const s = await getDocs(F.collection(db, 'blogs')); return s.docs.map(norm).sort((a, b) => a.title.localeCompare(b.title)); },
-  async getBlog(id) { if (!id) return null; const s = await getDoc(F.doc(db, 'blogs', id)); return s.exists() ? norm(s) : null; },
+  async listBlogs() { const s = await getDocs(F.collection(db, 'blogs')); const rows = s.docs.map(norm).sort((a, b) => a.title.localeCompare(b.title)); return role === 'admin' ? Promise.all(rows.map(withBrief)) : rows.map(({brief, ...metadata}) => metadata); },
+  async getBlog(id) { if (!id) return null; const s = await getDoc(F.doc(db, 'blogs', id)); return s.exists() ? withBrief(norm(s)) : null; },
   async listMyBlogs() { if (!user) return []; return (await this.listBlogs()).filter(b => role === 'admin' || b.teacherIds.includes(user.uid)); },
   async saveBlog(data) {
     if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
@@ -293,7 +298,11 @@ export const firebase = {
     doc.title = String(doc.title || '').trim(); doc.description = String(doc.description || '').trim();
     doc.teacherIds = existing?.teacherIds || [user.uid]; doc.createdBy = existing?.createdBy || user.uid; doc.createdAt = existing?.createdAt || now;
     if (!doc.title) throw Error('Enter a blog title.');
-    await F.setDoc(F.doc(db, 'blogs', id), doc);
+    const {brief, ...metadata} = doc;
+    const batch = F.writeBatch(db);
+    batch.set(F.doc(db, 'blogs', id), metadata);
+    if (brief || data.brief === '') batch.set(F.doc(db, 'blogs', id, 'private', 'brief'), {brief: brief || ''});
+    await batch.commit();
     await refreshManaged(this); notify(); return {id, ...doc};
   },
   // A module is a cohort attached to exactly one blog: an existing blog of the
@@ -346,12 +355,14 @@ export const firebase = {
   },
   async listMyModules() {
     if (!user) return [];
+    const account = user;
     const modules = await this.listModules();
     const rows = (await Promise.all(modules.map(async m => {
-      if (m.teacherIds.includes(user.uid) || role === 'admin') return {...m, teaching: true};
-      const member = await getDoc(F.doc(db, 'modules', m.id, 'members', user.uid));
+      if (m.teacherIds.includes(account.uid) || role === 'admin') return {...m, teaching: true};
+      const member = await getDoc(F.doc(db, 'modules', m.id, 'members', account.uid));
       return member.exists() ? {...m, teaching: false} : null;
     }))).filter(Boolean);
+    if (user !== account) return [];
     memberModuleIds = rows.filter(m => !m.teaching).map(m => m.id);
     myBlogIds = [...new Set([...rows.map(m => m.blogId), ...managedBlogIds].filter(Boolean))];
     return rows;
@@ -718,7 +729,8 @@ export const firebase = {
   // peerRounds/{moduleId}: the round's state (open/closed, deadline, seed), written by the admin.
   // peerReviews/{moduleId_postId_reviewerUid}: the assignment, filled in by the reviewer (grade,
   // assessment); the author never reads these. peerReviewerNotes/{moduleId_uid}: the AI's and the
-  // admin's view of a student's reviewing. peerSummaries/{postId}: what the author is shown once released.
+  // admin's private view of a student's reviewing. peerReviewerReleases holds the reviewer's
+  // released grade and note. peerSummaries/{postId} holds the author's released feedback.
   // A Google access token with extra scopes (sending mail, mail.js) from a popup on the signed-in Google account; returned, never stored.
   async googleAccessToken(scopes=[]){
     if(!user)throw Error('Sign in first.');
@@ -741,12 +753,28 @@ export const firebase = {
   async submitPeerReview(id,{grade,assessment}){if(!user?.emailVerified)throw Error('Verify your sign-in email before submitting a review.');const now=Date.now();await F.updateDoc(F.doc(db,'peerReviews',id),{grade,assessment,submittedAt:now,updatedAt:now});notify();return this.getPeerReview(id);},
   async savePeerReview(id,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'peerReviews',id);await F.setDoc(ref,{...patch,updatedAt:Date.now()},{merge:true});const s=await getDoc(ref);return {id,...s.data()};},
   async deletePeerRound(moduleId){if(role!=='admin')throw Error('Admin access required.');
-    const lists=await Promise.all(['peerReviews','peerReviewerNotes','peerSummaries'].map(c=>getDocs(F.query(F.collection(db,c),F.where('moduleId','==',moduleId)))));
+    const lists=await Promise.all(['peerReviews','peerReviewerNotes','peerReviewerReleases','peerSummaries'].map(c=>getDocs(F.query(F.collection(db,c),F.where('moduleId','==',moduleId)))));
     let b=F.writeBatch(db),n=0;for(const d of lists.flatMap(s=>s.docs)){b.delete(d.ref);if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}
     b.delete(F.doc(db,'peerRounds',moduleId));await b.commit();notify();},
-  async savePeerReviewerNote(moduleId,reviewerUid,patch){if(role!=='admin')throw Error('Admin access required.');const id=`${moduleId}_${reviewerUid}`,ref=F.doc(db,'peerReviewerNotes',id);await F.setDoc(ref,{...patch,moduleId,reviewerUid,updatedAt:Date.now()},{merge:true});const s=await getDoc(ref);return {id,...s.data()};},
+  async savePeerReviewerNote(moduleId, reviewerUid, patch) {
+    if (role !== 'admin') throw Error('Admin access required.');
+    const id = `${moduleId}_${reviewerUid}`, ref = F.doc(db, 'peerReviewerNotes', id);
+    const data = {...patch, moduleId, reviewerUid, updatedAt: Date.now()};
+    if (patch.releasedAt) {
+      return F.runTransaction(db, async tx => {
+        const previous = await tx.get(ref);
+        if (!previous.exists()) throw Error('Save a grade or note before releasing it.');
+        const next = {...previous.data(), ...data};
+        tx.update(ref, data);
+        tx.set(F.doc(db, 'peerReviewerReleases', id), reviewerRelease(next));
+        return {id, ...next};
+      });
+    }
+    await F.setDoc(ref, data, {merge: true});
+    return {id, ...(await getDoc(ref)).data()};
+  },
   async listPeerReviewerNotes(moduleId){if(role!=='admin')return [];const s=await getDocs(F.query(F.collection(db,'peerReviewerNotes'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
-  async getMyPeerReviewerNote(moduleId){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerReviewerNotes',`${moduleId}_${user.uid}`));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
+  async getMyPeerReviewerNote(moduleId){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerReviewerReleases',`${moduleId}_${user.uid}`));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
   async releasePeerSummaries(rows){if(role!=='admin')throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;for(const r of rows){b.set(F.doc(db,'peerSummaries',r.postId),{...r,releasedAt:now,updatedAt:now});if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}if(n)await b.commit();notify();},
   async listPeerSummaries(moduleId){if(role!=='admin')return [];const s=await getDocs(F.query(F.collection(db,'peerSummaries'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
   async getPeerSummary(postId){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerSummaries',postId));return s.exists()?{id:postId,...s.data()}:null;}catch{return null;}},

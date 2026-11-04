@@ -41,3 +41,9 @@ test('a blog may not take the name of a page of the site', () => {
   for (const n of ['posts', 'blogs', 'admin', 'review', 'instructor', 'write', 'my-modules', 'invite', 'Blog']) assert.equal(isReservedUrlName(n), true, n);
   for (const n of ['project-management', 'operations', 'pm-2027', '']) assert.equal(isReservedUrlName(n), false, n);
 });
+
+test('malformed and off-site redirect targets cannot break startup or leave the mount', () => {
+  for (const target of ['https://[', 'https://example.org/private', '//example.org', '/%2fexample.org', '/%5cexample.org']) {
+    assert.equal(restoreTarget('?redirect=' + encodeURIComponent(target), '', ''), null);
+  }
+});

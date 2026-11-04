@@ -53,11 +53,15 @@ export function restoreTarget(search, hash, root = ROOT, origin = 'https://examp
   const q = new URLSearchParams(search);
   const target = q.has('redirect') ? q.get('redirect') : /^#[/?]/.test(hash) ? hash.slice(1) : null;
   if (target === null) return null;
-  const u = new URL(target, origin);
+  let u;
+  try { u = new URL(target, origin); } catch { return null; }
+  if (u.origin !== origin || u.pathname.startsWith('//')) return null;
   q.delete('redirect'); q.delete('_');
   for (const [k, v] of u.searchParams) q.set(k, v);
   const s = q.toString();
-  return {route: routeOf(u.pathname, s ? '?' + s : '', root), local: q.has('local'), hash: u.hash};
+  const path = routeOf(u.pathname, s ? '?' + s : '', root);
+  if (!path.startsWith('/') || /^\/[/\\]/.test(path)) return null;
+  return {route: path, local: q.has('local'), hash: u.hash};
 }
 
 let current = null;

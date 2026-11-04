@@ -1,3 +1,6 @@
+// Grading keys last only for the current admin page session.
+export const gradingKeys = {};
+try { globalThis.localStorage?.removeItem('ucd-blog.aiKeys'); } catch {}
 // AI providers for the admin-only grading assistant. Pure request building and
 // response parsing so the shapes can be unit-tested without the network; the
 // browser calls each lab's API directly with the admin's own key (bring your own

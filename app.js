@@ -100,7 +100,7 @@ async function doRender(quiet = false) {   // quiet: the page is redrawn where i
 // a page waits for the database before it draws, and scrolling first showed the old page
 // jump to its top and sit there until the new one replaced it.
 let scrollPending = false;
-const pageDrawn = new MutationObserver(() => { store.painted?.(); if (scrollPending) { scrollPending = false; window.scrollTo({top: 0, behavior: 'instant'}); } });   // instant: the smooth scrolling is for in-page anchors. painted: the first page is up, drawn from the cache on disk; the backend reads from the server from here on
+const pageDrawn = new MutationObserver(() => { if (scrollPending) { scrollPending = false; window.scrollTo({top: 0, behavior: 'instant'}); } });   // instant: the smooth scrolling is for in-page anchors
 pageDrawn.observe($app, {childList: true});
 // After a page is drawn: a link that named an anchor (/2026/10/post#comments) scrolls to it.
 function landed(seq) {
@@ -111,6 +111,14 @@ function landed(seq) {
 }
 
 // ---------- header & footer ----------
+function setNav(open) {
+  $header.classList.toggle('nav-open', open);
+  document.body.classList.toggle('nav-locked', open);
+  $header.querySelector('.nav-toggle')?.setAttribute('aria-expanded', String(open));
+  const backdrop = $header.querySelector('.nav-backdrop');
+  if (backdrop) backdrop.hidden = !open;
+}
+matchMedia('(max-width: 700px)').addEventListener('change', e => { if (!e.matches) setNav(false); });
 // The masthead names the blog the reader is on (its title and description); elsewhere, the site.
 const blogOnPath = path => BLOGS.find(b => b.id === (path.match(/^\/([a-z0-9-]+)(?:[\/?#]|$)/) || [])[1]) || null;
 function renderHeader(path = route(), blog = blogOnPath(path)) {
@@ -122,7 +130,7 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   // pages (its canvas, its brief, each of its posts) a signed-in reader gets a third row, the
   // blog's actions (Write your blog post, The brief, and for its instructors Blog settings and
   // Review posts), filled by platform.js blogActions once it knows the reader's modules.
-  document.body.classList.remove('nav-locked');
+  setNav(false);
   // Signed in, the first tab is the person's own blog (or blogs; the admin explores them all),
   // then All posts and search. A visitor on a blog (its canvas or one of its posts) gets the blog's
   // own menu, its home alone: All posts and search are for readers, and the brief for members.
@@ -149,7 +157,6 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   if (slot) blogActions(blog.id, slot).catch(e => console.warn('blog actions', e));
   const toggle = $header.querySelector('.nav-toggle'), nav = $header.querySelector('#site-nav'), backdrop = $header.querySelector('.nav-backdrop');
   if (!nav) return;
-  const setNav = open => { $header.classList.toggle('nav-open', open); toggle.setAttribute('aria-expanded', String(open)); backdrop.hidden = !open; document.body.classList.toggle('nav-locked', open); };
   toggle.onclick = () => { const open = !$header.classList.contains('nav-open'); setNav(open); if (open) nav.querySelector('a')?.focus(); };
   backdrop.onclick = () => setNav(false);
   nav.querySelector('.nav-close').onclick = () => { setNav(false); toggle.focus(); };
@@ -528,10 +535,11 @@ async function editorView(id, moduleId) {
   const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.appendHTML(fillOutline(blog.outline, orgPhrase(draft.organisation) || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : 'the ' + (catLabel || 'topic').toLowerCase())); }}] : [];
   ed = mountEditor($('editor'), {html: draft.body, placeholder: 'Start writing…', extras, onChange: html => { draft.body = html; touched(); }});
   // Title, subtitle and byline sit between the toolbar and the text, as on Substack.
+  const authorName = draft.authorName || u.penName || 'student';
   const head = document.createElement('div'); head.className = 'writer-head';
   head.innerHTML = `<textarea class="w-title" id="title" rows="1" placeholder="Title" maxlength="160" aria-label="Title">${esc(draft.title)}</textarea>
     <textarea class="w-subtitle" id="excerpt" rows="1" placeholder="Add a subtitle…" maxlength="300" aria-label="Subtitle">${esc(draft.excerpt || '')}</textarea>
-    <div class="w-byline"><span class="avatar">${esc((u.penName || '?')[0].toUpperCase())}</span><span><b>${esc(u.penName)}</b> · ${esc(module.code || module.title)} · ${esc(blog.title)}</span></div>`;
+    <div class="w-byline"><span class="avatar">${esc(authorName[0].toUpperCase())}</span><span><b>${esc(authorName)}</b> · ${esc(module.code || module.title)} · ${esc(blog.title)}</span></div>`;
   $('editor').insertBefore(head, $('editor').querySelector('.surface'));
   const grow = t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
   for (const t of [$('title'), $('excerpt')]) { grow(t); t.addEventListener('input', () => grow(t)); t.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); (t.id === 'title' ? $('excerpt') : ed).focus(); } }); }
@@ -550,7 +558,12 @@ async function editorView(id, moduleId) {
   drawIndustries();
   $('industry-pick').onchange = e => { const s = e.target.value; if (s && !draft.industries.includes(s) && draft.industries.length < MAX_INDUSTRIES) { draft.industries = [...draft.industries, s]; touched(); } drawIndustries(); };
   $('industry-chips').onclick = e => { const b = e.target.closest('[data-drop-industry]'); if (!b) return; draft.industries = draft.industries.filter(s => s !== b.dataset.dropIndustry); touched(); drawIndustries(); };
-  $('tags').onchange = e => { const seen = new Set(); draft.tags = e.target.value.split(/[,;]/).map(t => t.trim()).filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 12); e.target.value = draft.tags.join(', '); touched(); };
+  $('tags').oninput = e => {
+    const seen = new Set();
+    draft.tags = e.target.value.split(/[,;]/).map(t => t.trim()).filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 12);
+    touched();
+  };
+  $('tags').onchange = e => { e.target.value = draft.tags.join(', '); };
   $('pick-image').onclick = () => $('image-file').click();
   $('image-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { draft.featuredImage = await shrinkImage(f, FEATURED_MAX); $('thumb').src = draft.featuredImage; $('thumb').hidden = false; $('remove-image').hidden = false; touched(); } catch (err) { toast(err.message, 'error'); } };
   $('remove-image').onclick = () => { draft.featuredImage = ''; $('thumb').hidden = true; $('remove-image').hidden = true; touched(); };
@@ -628,7 +641,7 @@ async function editorView(id, moduleId) {
     const words = wordCount(draft.body);
     const shell = document.createElement('div'); shell.className = 'preview-shell';
     shell.innerHTML = `<div class="preview-bar"><div class="seg" role="tablist"><button type="button" role="tab" data-dev="mobile" aria-selected="true">Mobile</button><button type="button" role="tab" data-dev="desktop" aria-selected="false">Desktop</button></div><span class="muted small">This is how readers will see your post.</span><span class="grow"></span><button type="button" class="btn ghost" id="pv-share">Share</button><button type="button" class="btn accent" id="pv-done">Done</button></div>
-      <div class="preview-stage mobile"><div class="device"><div class="device-bar"><span>9:41</span><i></i><span>●●●</span></div><div class="device-chrome"><span class="dots"><i></i><i></i><i></i></span><span class="url">${esc(location.host + location.pathname)}</span></div><div class="device-screen"><div class="mini-mast">${esc(S.title)}</div><article class="post">${articleHtml({...draft, authorName: u.penName, authorId: u.uid, publishedAt: draft.publishedAt || Date.now()}, {blog, words, preview: true})}</article></div></div></div>`;
+      <div class="preview-stage mobile"><div class="device"><div class="device-bar"><span>9:41</span><i></i><span>●●●</span></div><div class="device-chrome"><span class="dots"><i></i><i></i><i></i></span><span class="url">${esc(location.host + location.pathname)}</span></div><div class="device-screen"><div class="mini-mast">${esc(S.title)}</div><article class="post">${articleHtml({...draft, authorName, authorId: draft.authorId || u.uid, publishedAt: draft.publishedAt || Date.now()}, {blog, words, preview: true})}</article></div></div></div>`;
     $app.replaceChildren(shell, sheet);
     enhance(shell.querySelector('.post .body'), {preview: true, post: draft});
     shell.querySelectorAll('[data-dev]').forEach(b => b.onclick = () => { shell.querySelectorAll('[data-dev]').forEach(x => x.setAttribute('aria-selected', x === b)); shell.querySelector('.preview-stage').className = 'preview-stage ' + b.dataset.dev; });
@@ -746,6 +759,7 @@ async function lecturer(_tab = '', query = '') {
   posts = scope.filter(p => !year || p.academicYear === year);
   const qs = patch => { const o = {blog: blogId, module: moduleId, year, ...patch}; const s = new URLSearchParams(Object.entries(o).filter(([, v]) => v)).toString(); return s ? '?' + s : ''; };
   const pending = posts.filter(p => p.status === 'pending');
+  const reviewPosts = `<section id="posts"><h2>Posts</h2>${posts.length ? `<table class="list"><thead><tr><th>Post</th><th>Status</th></tr></thead><tbody>${posts.map(p => `<tr><td><a href="${esc(p.status === 'published' ? postPath(p) : '/edit/' + p.id)}">${esc(p.title || 'Untitled draft')}</a></td><td>${esc(p.status)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">No posts match these filters.</p>'}</section>`;
   const stats = `<div class="stats"><div class="stat"><b>${posts.filter(p => p.status === 'published').length}</b><span>published</span></div><div class="stat"><b>${posts.filter(p => p.status === 'draft').length}</b><span>drafts</span></div><div class="stat"><b>${pending.length}</b><span>awaiting review</span></div><div class="stat"><b>${users.filter(x => x.role === 'student' || !x.role).length}</b><span>students</span></div><div class="stat"><b>${Math.round(posts.filter(p => p.status === 'published').reduce((s, p) => s + postWords(p), 0) / Math.max(1, posts.filter(p => p.status === 'published').length))}</b><span>avg words</span></div></div>`;
   // Posts per module and academic year, for the whole scope (before the year filter).
   const cells = groupBy(scope, p => (p.moduleId || '?') + '|' + (p.academicYear || '—'));
@@ -760,7 +774,7 @@ async function lecturer(_tab = '', query = '') {
   const sel = (id, label, rows, value, all) => `<label class="field">${label}<select id="${id}"><option value="">${all}</option>${rows.map(([v, l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
   $app.innerHTML = `<div class="area-head"><h1 class="page-title">Instructor area</h1><p class="page-sub">Posts and rosters for your modules, by blog, module and academic year.</p>
     <div class="review-filters">${sel('review-blog', 'Blog', myBlogs.map(b => [b.id, b.title]), blogId, 'All my blogs')}${sel('review-module', 'Module', teachingModules.filter(m => !blogId || m.blogId === blogId).map(m => [m.id, [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '')]), moduleId, 'All modules')}${sel('review-year', 'Academic year', years.map(y => [y, y]), year, 'All years')}</div></div>
-    <div class="area-body">${stats}${summary}${u.role === 'admin' ? '<div id="storage" class="storage muted">Measuring what the blog stores…</div>' : ''}<div id="roster">${roster}</div></div>`;
+    <div class="area-body">${stats}${summary}${reviewPosts}${u.role === 'admin' ? '<div id="storage" class="storage muted">Measuring what the blog stores…</div>' : ''}<div id="roster">${roster}</div></div>`;
   const go = patch => { navigate('/instructor' + qs(patch)); };
   $app.querySelector('#review-blog').onchange = e => go({blog: e.target.value, module: ''});
   $app.querySelector('#review-module').onchange = e => go({module: e.target.value});
@@ -862,7 +876,18 @@ async function admin(tab = 'users', moduleId = '') {
 (async () => {
   try { await initStore(); S = store.settings(); }
   catch (e) { $app.innerHTML = `<p class="empty">The blog could not start: ${esc(e.message)}</p>`; return; }
-  store.onChange(why => { S = store.settings(); renderHeader(); if (!liveView) render(why); });   // 'refresh': the first page caught up with the server, redrawn where it stands
+  let identity = store.currentUser();
+  store.onChange(why => {
+    const next = store.currentUser();
+    if (identity && (identity.uid !== next?.uid || identity.role !== next?.role)) {
+      document.querySelectorAll('dialog[open]').forEach(d => d.close());
+      $app.replaceChildren(); $header.replaceChildren();
+      location.reload();
+      return;
+    }
+    identity = next;
+    S = store.settings(); renderHeader(); if (!liveView) render(why);
+  });   // 'refresh': the first page caught up with the server, redrawn where it stands
   startRouter(render);
   mountFeedbackButton();
   render();

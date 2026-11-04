@@ -4,6 +4,34 @@ import {assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededS
 
 const posts = n => Array.from({length: n}, (_, i) => ({id: 'p' + i, authorId: 'u' + i, authorName: 'pen-' + i, title: 'Post ' + i, status: 'published', publishedAt: 1000 + i, body: '<p>' + 'Analysis of the organisation. '.repeat(30) + '</p>'}));
 
+test('reviewers see only their released snapshot, including after upgrading a legacy demo', async t => {
+  const {local} = await import('../backend-local.js');
+  const data = new Map();
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {configurable:true, value:{getItem:k => data.get(k), setItem:(k,v) => data.set(k,v), removeItem:k => data.delete(k)}});
+  t.after(() => { if (original) Object.defineProperty(globalThis, 'localStorage', original); else delete globalThis.localStorage; });
+  await local.init();
+  local.viewAs('u-admin');
+  await local.savePeerReviewerNote('m', 'u-s1', {grade:'A', note:'Good', aiRaw:'private', noticeTo:'hidden'});
+  local.viewAs('u-s1');
+  assert.equal(await local.getMyPeerReviewerNote('m'), null);
+  local.viewAs('u-admin');
+  await local.savePeerReviewerNote('m', 'u-s1', {releasedAt:123});
+  const legacy = JSON.parse(data.get('ucd-blog.v2'));
+  delete legacy.peerReviewerReleases;
+  data.set('ucd-blog.v2', JSON.stringify(legacy));
+  await local.init();
+  await local.savePeerReviewerNote('m', 'u-s1', {grade:'B', note:'Unreleased edit'});
+  local.viewAs('u-s1');
+  assert.deepEqual(await local.getMyPeerReviewerNote('m'), {moduleId:'m', reviewerUid:'u-s1', grade:'A', note:'Good', releasedAt:123});
+  local.viewAs('u-s2');
+  assert.equal(await local.getMyPeerReviewerNote('m'), null);
+  local.viewAs('u-admin');
+  await local.deletePeerRound('m');
+  local.viewAs('u-s1');
+  assert.equal(await local.getMyPeerReviewerNote('m'), null);
+});
+
 test('a seeded shuffle is reproducible and a different seed gives a different order', () => {
   const items = Array.from({length: 30}, (_, i) => i);
   assert.deepEqual(seededShuffle(items, 'abc'), seededShuffle(items, 'abc'));
