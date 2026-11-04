@@ -40,7 +40,7 @@ function selectAccount(next) {
   const previous = user;
   if (user !== next) {
     profile = null;
-    role = 'student';
+    role = next?.emailVerified && next.email === ADMIN_EMAIL ? 'admin' : 'student';
     managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = [];
     presence?.stop(); presence = null;
   }
@@ -50,7 +50,7 @@ function selectAccount(next) {
 async function refreshManaged(self) {
   if (!user) { managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = []; return; }
   const account = user;
-  const [modules, blogs] = await Promise.all([self.listModules(), self.listBlogs()]);
+  const [modules, blogs] = await Promise.all([self.listModules(), self.listBlogs({metadataOnly: true})]);
   if (user !== account) return;
   managedModuleIds = modules.filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
   managedBlogIds = blogs.filter(b => b.teacherIds.includes(user.uid)).map(b => b.id);
@@ -224,13 +224,21 @@ export const firebase = {
     app = appM.initializeApp(firebaseConfig); auth = A.getAuth(app);
     db = F.getFirestore(app);
     const site = getDoc(F.doc(db, 'settings', 'site')).then(s => { if (s.exists()) settings = {...DEFAULT_SETTINGS, ...s.data()}; }).catch(e => console.warn('settings', e));
+    let initializing = true;
     await new Promise(resolve => {
       A.onAuthStateChanged(auth, async u => {
         selectAccount(u);
+        const startingRole = role;
         if (u) { try { await loadAccount(this, u); } catch (e) { accountFailed(this, u, e); } }
         if (user !== u) return;
         trackPresence(this);
-        await site; notify(); resolve();
+        await site;
+        if (user !== u) return;
+        // During initial startup the UI has no subscribers yet. Reuse the admin directory
+        // reads made for this same account and role when drawing the first page.
+        if (!initializing || startingRole !== 'admin' || role !== startingRole) notify();
+        initializing = false;
+        resolve();
       });
     });
     return settings;
@@ -288,7 +296,7 @@ export const firebase = {
   async listModules() { const s = await getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },
   async getModule(id) { const s = await getDoc(F.doc(db, 'modules', id)); return s.exists() ? norm(s) : null; },
   // ---- blogs: the public canvas and the exercise written on it ----
-  async listBlogs() { const s = await getDocs(F.collection(db, 'blogs')); const rows = s.docs.map(norm).sort((a, b) => a.title.localeCompare(b.title)); return role === 'admin' ? Promise.all(rows.map(withBrief)) : rows.map(({brief, ...metadata}) => metadata); },
+  async listBlogs({metadataOnly = false} = {}) { const s = await getDocs(F.collection(db, 'blogs')); const rows = s.docs.map(norm).sort((a, b) => a.title.localeCompare(b.title)); return role === 'admin' && !metadataOnly ? Promise.all(rows.map(withBrief)) : rows.map(({brief, ...metadata}) => metadata); },
   async getBlog(id) { if (!id) return null; const s = await getDoc(F.doc(db, 'blogs', id)); return s.exists() ? withBrief(norm(s)) : null; },
   async listMyBlogs() { if (!user) return []; return (await this.listBlogs()).filter(b => role === 'admin' || b.teacherIds.includes(user.uid)); },
   async saveBlog(data) {

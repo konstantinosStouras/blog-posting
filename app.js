@@ -70,7 +70,7 @@ const routes = [
   [/^\/instructor\/?([a-z]*)(?:\?(.*))?$/, lecturer],
   [/^\/admin\/?([a-z]*)(?:\?module=([a-z0-9-]+))?$/, admin],
   // A blog is the site's first-level page: /project-management. Last, so every named page above wins.
-  [/^\/([a-z0-9-]+)$/, blogCanvas],
+  [/^\/([a-z0-9-]+)$/, id => blogCanvas(id, blogOf(id))],
   [/^\/([a-z0-9-]+)\/brief$/, briefPage],
 ];
 
@@ -83,7 +83,7 @@ async function doRender(quiet = false) {   // quiet: the page is redrawn where i
   const path = route();   // '/x?trend=y': the app route, whatever the site is mounted at
   liveView = null; $app.onclick = null; $app.onsubmit = null;
   resetAccess();   // who may read what is decided afresh for this navigation
-  try { BLOGS = !user() && path.split('?')[0] === '/' ? [] : await store.listBlogs(); } catch (e) { console.warn('blogs', e); }
+  try { BLOGS = !user() && path.split('?')[0] === '/' ? [] : await store.listBlogs({metadataOnly: true}); } catch (e) { console.warn('blogs', e); }
   // A blog's canvas, brief or post opened by a reader who belongs to none of its modules: the blog
   // is fetched on its own (one memoised read; a page name such as /posts reads as no blog).
   const first = (path.split('?')[0].match(/^\/([a-z0-9-]+)(?:\/brief|\/\d{4}\/\d{2}\/[^/?]+\/?)?$/) || [])[1];

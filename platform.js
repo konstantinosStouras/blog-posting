@@ -27,7 +27,7 @@ const isTeaching = m => m.teaching;
 export async function blogDirectory() {
   const u = currentUser();
   if (!u) { app.innerHTML = renderWelcome(); bindWelcome(app); return; }   // the front door: no blogs, posts or comments before signing in
-  const [blogs, modules, mine] = await Promise.all([store.listBlogs(), store.listModules(), store.listMyModules()]);
+  const [blogs, modules, mine] = await Promise.all([store.listBlogs({metadataOnly: true}), store.listModules(), store.listMyModules()]);
   // The whole card opens the blog (a cover link beneath the buttons, as on the post canvas), and lights up on hover (styles.css, .module-card.linked).
   const card = b => { const here = m => m.blogId === b.id, ms = instructs(u, b) || mine.some(m => here(m) && isTeaching(m)) ? modules.filter(here) : mine.filter(here); return `<article class="module-card linked"><a class="cover" href="/${esc(b.id)}" aria-hidden="true" tabindex="-1"></a><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/${esc(b.id)}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions"><a class="btn small" href="/${esc(b.id)}">Open blog</a>${instructs(u, b) ? `<a class="btn small" href="/blogs/edit/${esc(b.id)}">Blog settings</a>` : ''}</div></article>`; };
   // Each person sees the blogs they belong to; the admin sees them all.
@@ -94,9 +94,9 @@ export async function blogActions(id, el) {
 // student (or a visitor) sees no module facet, no module on a card and none on a post. The brief
 // and the comments are for the module's members; a signed-in reader who belongs to no module on
 // the blog is offered the invitation code instead of the Write button.
-export async function blogCanvas(id) {
+export async function blogCanvas(id, metadata) {
   const u = currentUser();
-  const [blog, modules, posts, mine] = await Promise.all([store.getBlog(id), store.listModules(),
+  const [blog, modules, posts, mine] = await Promise.all([metadata || store.getBlog(id), store.listModules(),
     store.listPosts({status: 'published', blogId: id}).catch(e => { if (u) throw e; console.warn('visitor posts', e); return null; }),
     u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found. <a href="/blogs">Explore blogs</a></p>'; return; }

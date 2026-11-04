@@ -51,7 +51,16 @@ export function renderAccountControl(el){
   el.innerHTML=u?accountMenu(u):'<button class="btn small" id="signin-btn">Log in</button>';
   el.querySelector('#signin-btn')?.addEventListener('click',()=>openAuthModal('signin'));
  }
- if(u)previewOptions(u).then(html=>{const slot=el.querySelector('[data-preview-options]');if(slot&&html)slot.innerHTML=html;}).catch(()=>{});
+ const menu = el.querySelector('.account-menu');
+ if (menu && ['admin', 'lecturer'].includes(u?.role)) {
+  const loadOptions = async () => {
+   if (!menu.open) return;
+   menu.removeEventListener('toggle', loadOptions);
+   try { menu.querySelector('[data-preview-options]').innerHTML = await previewOptions(u); }
+   catch { menu.addEventListener('toggle', loadOptions); }
+  };
+  menu.addEventListener('toggle', loadOptions);
+ }
  if(u&&store.mode==='firebase'&&!u.preview)rememberAccount(u);
 }
 // What the menu offers: the admin may view the site as any instructor; on a blog's pages,
@@ -70,7 +79,7 @@ async function previewOptions(u){
   for(const m of ms)out.push(`<button data-preview-student="${esc(m.id)}" data-blog="${esc(blogId)}" data-label="${esc([m.code,m.title].filter(Boolean).join(' '))}">View as Student${ms.length>1?' of '+esc(m.code||m.title):''}</button>`);
  }
  if(u.role==='admin'&&!p){
-  const [users,blogs]=await Promise.all([store.listUsers(),store.listBlogs()]);
+  const [users,blogs]=await Promise.all([store.listUsers(),store.listBlogs({metadataOnly: true})]);
   const teaches=x=>modules.some(m=>(m.teacherIds||[]).includes(x.uid))||blogs.some(b=>(b.teacherIds||[]).includes(x.uid));
   for(const x of users.filter(x=>x.uid!==u.uid&&(x.role==='lecturer'||teaches(x))).sort((a,b)=>fullName(a).localeCompare(fullName(b))))
    out.push(`<button data-preview-instructor="${esc(x.uid)}" data-name="${esc(fullName(x))}" data-modules="${esc(modules.filter(m=>(m.teacherIds||[]).includes(x.uid)).map(m=>m.id).join(','))}" data-blogs="${esc(blogs.filter(b=>(b.teacherIds||[]).includes(x.uid)).map(b=>b.id).join(','))}">View as Instructor ${esc(fullName(x))}</button>`);
