@@ -140,9 +140,27 @@ async function touchDirectory(u, p) {
 // What a page needs before it can be drawn for this account (profile, role, the modules
 // and blogs it manages), fetched side by side. The roster bookkeeping (touchDirectory)
 // is writes only, so it runs on after the first page is up instead of holding it back.
+// A read refused in the moment after a sign-in (another of this browser's tabs holds the
+// connection the on-disk cache shares and learns of the sign-in a little later, so the first
+// reads went out without the account) once left the account a student with no profile until
+// the next reload. Now the role, which for the admin needs no read, is kept whatever the other
+// reads did, and the load is tried again in the background (retryAccount) until it is in.
 async function loadAccount(self, u) {
-  [profile, role] = await Promise.all([ensureProfile(u), loadRole(u.uid, u.email, u.emailVerified), refreshManaged(self)]);
+  const [p, r, m] = await Promise.allSettled([ensureProfile(u), loadRole(u.uid, u.email, u.emailVerified), refreshManaged(self)]);
+  if (r.status === 'fulfilled') role = r.value;
+  if (p.status === 'fulfilled') profile = p.value;
+  if (p.status === 'rejected' || m.status === 'rejected') throw (p.reason || m.reason);
   touchDirectory(u, profile).catch(e => console.warn('directory', e.code || e.message));
+}
+const RETRY = [800, 2500, 6000];
+function accountFailed(self, u, e, i = 0) {
+  console.warn('account', e?.code || e?.message || e);
+  profile = profile || {penName: 'student'};
+  if (i >= RETRY.length) return;
+  setTimeout(async () => {
+    if (user !== u) return;   // signed out, or in again, meanwhile
+    try { await loadAccount(self, u); notify(); } catch (err) { accountFailed(self, u, err, i + 1); }   // notify: the page is redrawn with the account in
+  }, RETRY[i]);
 }
 
 // Reads that pages repeat are answered once for a short while: one navigation asks for
@@ -186,7 +204,7 @@ export const firebase = {
     await new Promise(resolve => {
       A.onAuthStateChanged(auth, async u => {
         user = u; forget();
-        if (u) { try { await loadAccount(this, u); } catch (e) { console.warn(e); profile = profile || {penName: 'student'}; } }
+        if (u) { try { await loadAccount(this, u); } catch (e) { accountFailed(this, u, e); } }
         else { profile = null; role = 'student'; managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; }
         trackPresence(this);
         await site; notify(); resolve();
@@ -209,7 +227,8 @@ export const firebase = {
     } else if (provider === 'password') cred = await A.signInWithEmailAndPassword(auth, email, password);
     else throw Error('Unknown sign-in method.');
     user = cred.user; forget();
-    await loadAccount(this, user); trackPresence(this); notify(); return cred;
+    try { await loadAccount(this, user); } catch (e) { accountFailed(this, user, e); }   // signed in all the same; the account follows
+    trackPresence(this); notify(); return cred;
   },
   async register(data, teacher = false) {
     const invitation=await this.resolveRegistrationCode(data.registrationCode);

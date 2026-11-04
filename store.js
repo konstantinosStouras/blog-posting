@@ -70,9 +70,11 @@ export async function initStore() {
   const used = new Map();
   ready = start; backend = replay(snapshot, used);
   start.then(async real => {
+    // The real backend answers from here on (the account and a sign-in made meanwhile included);
+    // its reads are still from the cache on disk first while the first page is compared.
+    backend = real; recording = true; real.onChange(emit);
     let changed = shape(real.currentUser()) !== shape(snapshot.user) || shape(real.settings()) !== shape(snapshot.settings);
     for (const [id, [k, a]] of used) { try { if (shape(await real[k](...a)) !== shape(snapshot.answers[id].out)) changed = true; } catch { changed = true; } }
-    backend = real; recording = true; real.onChange(emit);
     if (changed) emit('refresh');
     real.painted();   // the first page is up: reads go to the server from here on, and what the server changed redraws it
   }).catch(e => { console.error('Firebase failed to start behind the snapshot page.', e); });
