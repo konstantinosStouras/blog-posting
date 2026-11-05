@@ -31,11 +31,27 @@ let managedModuleIds = [], managedBlogIds = [], memberModuleIds = [], myBlogIds 
 // is on. A student's visit is filed under each module they belong to, an instructor's under those they
 // teach or belong to, the admin's under no module (readable by the admin alone).
 let presence = null;
+let presenceReady = Promise.resolve();
 const presenceModules = () => role === 'admin' ? [''] : [...new Set([...memberModuleIds, ...managedModuleIds])];
 function trackPresence(self) {
   if (presence && user?.emailVerified) { void presence.beat(); return; }
   presence?.stop(); presence = null;
-  if (user?.emailVerified) presence = startPresence({uid: user.uid, modules: presenceModules, save: row => self.savePresence(row)});
+  const account=user;
+  if(account?.emailVerified) presenceReady=(async()=>{
+    const token=await A.getIdTokenResult(account);
+    if(user!==account || presence) return;
+    const authStartedAt=Number(token.claims.auth_time)*1000;
+    presence=startPresence({uid:account.uid,authStartedAt,modules:presenceModules,save:row=>self.savePresence(row),saveAll:rows=>{
+      const batch=F.writeBatch(db);
+      for(const {id,...data} of rows) batch.set(F.doc(db,'presence',id),data);
+      return batch.commit();
+    }});
+    await presence.flush();
+  })();
+  else presenceReady=Promise.resolve();
+  // Keep authentication usable after a tracking failure; critical operations below
+  // await the original promise and surface an error instead of silently losing data.
+  void presenceReady.catch(error=>console.warn('presence',error?.code||error?.message));
 }
 function selectAccount(next) {
   const previous = user;
@@ -291,7 +307,7 @@ export const firebase = {
     role = await loadRole(user.uid, user.email, user.emailVerified); if (!presence) trackPresence(this); notify();
     return user.emailVerified;
   },
-  async signOut() { await presence?.signOut(); presence?.stop(); presence = null; await A.signOut(auth); },
+  async signOut() { await presenceReady; await presence?.signOut(); presence?.stop(); presence = null; await A.signOut(auth); },
 
   // Public module metadata is separate from private enrolment/roster records.
   async listModules() { const s = await getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },
@@ -557,6 +573,7 @@ export const firebase = {
     const detail = JSON.stringify(doc).length;   // the record without the text: the card image is nearly all of it, and a record may not pass 1 MiB
     if (detail > 900000) throw Error(`The featured image is too large to save with the post (about ${Math.round(detail / 1024)} KB; the limit is 900 KB). Choose a smaller image.`);
     const batch = F.writeBatch(db); batch.set(F.doc(db, 'posts', id), doc); if (body !== null) batch.set(bodyRef(id), {body}); await batch.commit();
+    await presenceReady;
     await presence?.flush();
     notify(); return {id, ...doc, ...(body !== null ? {body} : {})};
   },

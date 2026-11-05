@@ -1,4 +1,4 @@
-import {coveredSeconds,PRESENCE_SINCE} from './presence.js';
+import {coveredSeconds,PRESENCE_SINCE,authenticatedPresence} from './presence.js';
 export function formatWritingTime(seconds=0){
  const n=Math.max(0,Math.floor(Number(seconds)||0));
  return `${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;
@@ -52,22 +52,30 @@ export function postAnalytics(post={}, sessions=[], now=Date.now(), presence=[])
   const gap = Math.floor((merged[i].startedAt - from) / 1000);
   if (gap > 0) breakLines.push(`${formatDuration(gap)} · ${utcMinute(from)}`);
  }
- const visits = presence.filter(v => v.startedAt <= endedAt && v.lastSeenAt >= v.startedAt);
+ const visits = authenticatedPresence(presence.filter(v => v.lastSeenAt >= v.startedAt))
+  .filter(v=>v.startedAt<=endedAt);
  // An uncovered interval is unknown unless its preceding presence interval ends
  // with a recorded sign-out. Never turn missing heartbeats into time away.
  const presenceSpans = mergeSpans([...visits, ...merged].map(v=>({startedAt:v.startedAt,lastSeenAt:v.lastSeenAt})));
  let cursor=startedAt, previousEnd=null, unknown=false;
+ const awaySpans=[],unknownSpans=[];
  const signedOutAt = new Set(visits.filter(v=>v.signedOutAt===v.lastSeenAt).map(v=>v.signedOutAt));
+ const gap=(from,to)=>{
+  if(!(to>from))return;
+  const span={startedAt:from,lastSeenAt:to};
+  if(signedOutAt.has(previousEnd))awaySpans.push(span);
+  else {unknown=true;unknownSpans.push(span);}
+ };
  for(const span of presenceSpans) {
   if(span.lastSeenAt < startedAt) { previousEnd=span.lastSeenAt; continue; }
-  if(span.startedAt > cursor && cursor < endedAt && !signedOutAt.has(previousEnd)) unknown=true;
+  if(span.startedAt > cursor && cursor < endedAt) gap(cursor,Math.min(span.startedAt,endedAt));
   cursor=Math.max(cursor,span.lastSeenAt);
   previousEnd=span.lastSeenAt;
  }
- if(cursor < endedAt && !signedOutAt.has(previousEnd)) unknown=true;
+ if(cursor < endedAt) gap(cursor,endedAt);
  const presenceKnown = placed && startedAt >= PRESENCE_SINCE && !unknown;
  const present = coveredSeconds(presenceSpans, startedAt, endedAt);
- const away = elapsed - present;
+ const away = coveredSeconds(awaySpans,startedAt,endedAt);
  return {
   createdAt: startedAt, lastPublishedAt: publishedAt, submittedAt: publishedAt,
   windowStart: startedAt, windowEnd: placed ? endedAt : 0, open: !publishedAt,
@@ -76,6 +84,9 @@ export function postAnalytics(post={}, sessions=[], now=Date.now(), presence=[])
   idleSeconds: recorded ? idle : '', idleTime: recorded ? formatDuration(idle) : '',
   presentSeconds: presenceKnown ? present : '', awaySeconds: presenceKnown ? away : '',
   awayTime: presenceKnown ? formatDuration(away) : '', utilisation,
+  presenceLines:visits.filter(v=>v.lastSeenAt>=startedAt).map(v=>`${new Date(Math.max(startedAt,v.startedAt)).toISOString()} → ${new Date(Math.min(endedAt,v.lastSeenAt)).toISOString()}${v.signedOutAt&&v.signedOutAt<=endedAt?' · signed out':''}`),
+  awayLines:awaySpans.map(v=>`${formatDuration((v.lastSeenAt-v.startedAt)/1000)} · ${new Date(v.startedAt).toISOString()} → ${new Date(v.lastSeenAt).toISOString()}`),
+  unknownPresenceLines:unknownSpans.map(v=>`${new Date(v.startedAt).toISOString()} → ${new Date(v.lastSeenAt).toISOString()}`),
   utilisationLabel: utilisation === null ? '' : utilisation > 0 && utilisation < 0.005 ? '<1%' : `${Math.round(utilisation * 100)}%`,
   sessionCount: merged.length, untimedSessions: unplaced,
   sessionNote: unplaced ? 'Incomplete older timing records' : recorded ? '' : 'No session recorded',

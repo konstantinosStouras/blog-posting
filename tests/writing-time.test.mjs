@@ -168,6 +168,36 @@ test('explicit sign-out closes presence and subsequent beats cannot reopen it',a
  } finally { await tracker.stop(); }
 });
 
+test('reloads, delayed login initialisation and late tab heartbeats preserve the actual away interval',()=>{
+ const t=PRESENCE_SINCE+86400000,post={createdAt:t+5000,publishedAt:t+80000};
+ const visits=[
+  {uid:'a',authStartedAt:t,startedAt:t+1000,lastSeenAt:t+20000},
+  {uid:'a',authStartedAt:t,startedAt:t+25000,lastSeenAt:t+40000,signedOutAt:t+40000},
+  {uid:'a',authStartedAt:t,startedAt:t+2000,lastSeenAt:t+60000}, // another tab, stale heartbeat after sign-out
+  {uid:'a',authStartedAt:t+50000,startedAt:t+55000,lastSeenAt:t+65000},
+  {uid:'a',authStartedAt:t+50000,startedAt:t+70000,lastSeenAt:t+81000}
+ ];
+ const result=postAnalytics(post,[],t,visits);
+ assert.equal(result.awaySeconds,10);assert.equal(result.presentSeconds,65);
+ assert.equal(result.unknownPresenceLines.length,0);assert.equal(result.awayLines.length,1);
+ const otherDevice={uid:'a',authStartedAt:t+1000,startedAt:t+1000,lastSeenAt:t+81000};
+ assert.equal(postAnalytics(post,[],t,[...visits,otherDevice]).awaySeconds,0);
+});
+
+test('sign-out awaits acknowledgement and surfaces a failed write so authentication is not lost',async()=>{
+ let acknowledge, rejectWrite, fail=false, t=PRESENCE_SINCE+86400000;
+ const tracker=startPresence({uid:'a',authStartedAt:t,modules:()=>['m'],save:r=>r.signedOutAt?new Promise((resolve,reject)=>{acknowledge=resolve;rejectWrite=reject;}):Promise.resolve(),now:()=>t,intervalMs:1e9,doc:null,win:null});
+ try {
+  await tracker.beat();t+=5000;
+  const first=tracker.signOut();await Promise.resolve();await Promise.resolve();
+  rejectWrite(new Error('network failure'));
+  await assert.rejects(first,/Could not record sign-out/);
+  let complete=false;const retry=tracker.signOut().then(()=>{complete=true;});
+  await Promise.resolve();await Promise.resolve();assert.equal(complete,false);
+  acknowledge();await retry;assert.equal(complete,true);
+ } finally {await tracker.stop();}
+});
+
 test('legacy missing heartbeat gaps stay unknown, including the live 37 second regression',()=>{
  const t=PRESENCE_SINCE+86400000,post={createdAt:t,publishedAt:t+479000};
  const r=postAnalytics(post,[],t,[{startedAt:t,lastSeenAt:t+200000},{startedAt:t+237000,lastSeenAt:t+479000}]);

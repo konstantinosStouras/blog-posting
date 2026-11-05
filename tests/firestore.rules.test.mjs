@@ -16,6 +16,19 @@ const comment=(extra={})=>({postId:'published',moduleId:'one',blogId:'pm',author
 const db=(uid,email=uid+'@ucd.ie',verified=true)=>env.authenticatedContext(uid,{email,email_verified:verified,firebase:{sign_in_provider:'password'}}).firestore();
 before(async()=>{env=await initializeTestEnvironment({projectId:'demo-ucd-blog',firestore:{rules:await readFile(new URL('../firestore.rules',import.meta.url),'utf8')}});});
 after(async()=>{await env?.cleanup();});
+
+test('presence authentication start must match the server-verified token and cannot be changed',async()=>{
+ const now=Date.now(),authStartedAt=Math.floor((now-3600000)/1000)*1000;
+ const d=env.authenticatedContext('student',{email:'student@ucdconnect.ie',email_verified:true,auth_time:authStartedAt/1000}).firestore();
+ const row={uid:'student',moduleId:'one',startedAt:now,lastSeenAt:now,authStartedAt};
+ await assertSucceeds(setDoc(doc(d,'presence/auth-one'),row));
+ await assertFails(setDoc(doc(d,'presence/auth-forged'),{...row,authStartedAt:authStartedAt-1000}));
+ await assertFails(setDoc(doc(d,'presence/auth-one'),{...row,authStartedAt:authStartedAt-1000}));
+ await assertSucceeds(setDoc(doc(d,'presence/auth-one'),{...row,lastSeenAt:now+1,signedOutAt:now+1}));
+ await assertFails(setDoc(doc(d,'presence/auth-one'),{...row,lastSeenAt:now+2}));
+ const fresh=env.authenticatedContext('student',{email:'student@ucdconnect.ie',email_verified:true,auth_time:Math.floor(now/1000)}).firestore();
+ await assertFails(setDoc(doc(fresh,'presence/auth-one'),{...row,lastSeenAt:now+2,signedOutAt:now+2}));
+});
 beforeEach(async()=>{
  await env.clearFirestore();
  await env.withSecurityRulesDisabled(async c=>{

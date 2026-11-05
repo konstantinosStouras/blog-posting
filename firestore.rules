@@ -402,10 +402,12 @@ service cloud.firestore {
     match /presence/{id} {
       allow read: if isAdmin() || (resource.data.moduleId != '' && staffOf(resource.data.moduleId));
       function presenceShape(){let d=request.resource.data;return verified()
-        && d.keys().hasOnly(['uid','moduleId','startedAt','lastSeenAt','signedOutAt'])
+        && d.keys().hasOnly(['uid','moduleId','startedAt','lastSeenAt','signedOutAt','authStartedAt'])
         && d.uid == request.auth.uid && d.moduleId is string
         && (d.moduleId == '' ? isAdmin() : (memberOf(d.moduleId) || staffOf(d.moduleId)))
         && d.startedAt is number && d.startedAt <= request.time.toMillis()+60000
+        && (!('authStartedAt' in d) || (d.authStartedAt is number && d.authStartedAt > 0
+          && d.authStartedAt == request.auth.token.auth_time * 1000 && d.authStartedAt <= d.startedAt))
         && d.lastSeenAt is number && d.lastSeenAt >= d.startedAt && d.lastSeenAt <= request.time.toMillis()+60000
         && (!('signedOutAt' in d) || (d.signedOutAt is number && d.signedOutAt == d.lastSeenAt));}
       allow create: if presenceShape() && request.resource.data.startedAt >= request.time.toMillis()-86400000;
