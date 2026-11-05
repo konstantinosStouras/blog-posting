@@ -33,6 +33,7 @@ let managedModuleIds = [], managedBlogIds = [], memberModuleIds = [], myBlogIds 
 let presence = null;
 const presenceModules = () => role === 'admin' ? [''] : [...new Set([...memberModuleIds, ...managedModuleIds])];
 function trackPresence(self) {
+  if (presence && user?.emailVerified) { void presence.beat(); return; }
   presence?.stop(); presence = null;
   if (user?.emailVerified) presence = startPresence({uid: user.uid, modules: presenceModules, save: row => self.savePresence(row)});
 }
@@ -42,7 +43,7 @@ function selectAccount(next) {
     profile = null;
     role = next?.emailVerified && next.email === ADMIN_EMAIL ? 'admin' : 'student';
     managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = [];
-    presence?.stop(); presence = null;
+    if (previous?.uid !== next?.uid || !next?.emailVerified) { presence?.stop(); presence = null; }
   }
   user = next;
   if (previous && previous.uid !== next?.uid) notify(); else forget();
@@ -290,7 +291,7 @@ export const firebase = {
     role = await loadRole(user.uid, user.email, user.emailVerified); if (!presence) trackPresence(this); notify();
     return user.emailVerified;
   },
-  async signOut() { await presence?.flush(); presence?.stop(); presence = null; await A.signOut(auth); },
+  async signOut() { await presence?.signOut(); presence?.stop(); presence = null; await A.signOut(auth); },
 
   // Public module metadata is separate from private enrolment/roster records.
   async listModules() { const s = await getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },

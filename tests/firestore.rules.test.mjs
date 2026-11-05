@@ -81,6 +81,10 @@ test('presence is written by the signed-in account for its own modules, moves fo
  await assertFails(setDoc(doc(d,'presence/forged'),{...row,uid:'peer'}));
  await assertFails(getDoc(doc(d,'presence/v:one')));
  await assertFails(deleteDoc(doc(d,'presence/v:one')));
+ await assertFails(setDoc(doc(d,'presence/v:one'),{...row,lastSeenAt:now,signedOutAt:now-1}));
+ await assertSucceeds(setDoc(doc(d,'presence/v:one'),{...row,lastSeenAt:now,signedOutAt:now}));
+ await assertFails(setDoc(doc(d,'presence/v:one'),{...row,lastSeenAt:now+1})); // closed visits cannot reopen
+ await assertFails(setDoc(doc(d,'presence/v:one'),{...row,lastSeenAt:now+1,signedOutAt:now+1}));
  await assertSucceeds(setDoc(doc(db('admin','kstouras@gmail.com'),'presence/a:site'),{uid:'admin',moduleId:'',startedAt:now-5000,lastSeenAt:now}));
  await assertSucceeds(setDoc(doc(db('teacher-one'),'presence/t:one'),{uid:'teacher-one',moduleId:'one',startedAt:now-5000,lastSeenAt:now}));
  await assertFails(setDoc(doc(db('teacher-two'),'presence/t:one-other'),{uid:'teacher-two',moduleId:'one',startedAt:now-5000,lastSeenAt:now}));

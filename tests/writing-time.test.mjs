@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
 import {formatWritingTime,formatDuration,postAnalytics,writingReport,sessionHistoryReport,moduleWritingTotals,EditingActivityClock,WritingSessionHistory} from '../writing-time.js';
 import {coveredSeconds,startPresence,PRESENCE_SINCE} from '../presence.js';
-test('time away is the part of a post’s window that no signed-in visit of the author covers',async()=>{
+test('time away counts a recorded sign-out between signed-in visits',async()=>{
  const H=3600000,created=PRESENCE_SINCE+9*H;
  assert.equal(coveredSeconds([{startedAt:created,lastSeenAt:created+H},{startedAt:created+0.5*H,lastSeenAt:created+2*H},{startedAt:created+5*H,lastSeenAt:created+9*H}],created,created+4*H),7200);
  assert.equal(coveredSeconds([],created,created+H),0);
- const visits=[{uid:'a',moduleId:'m',startedAt:created-H,lastSeenAt:created+H},{uid:'a',moduleId:'m',startedAt:created+3*H,lastSeenAt:created+5*H},{uid:'b',moduleId:'m',startedAt:created,lastSeenAt:created+4*H},{uid:'a',moduleId:'other',startedAt:created+2*H,lastSeenAt:created+3*H}];
+ const visits=[{uid:'a',moduleId:'m',startedAt:created-H,lastSeenAt:created+H,signedOutAt:created+H},{uid:'a',moduleId:'m',startedAt:created+3*H,lastSeenAt:created+5*H},{uid:'b',moduleId:'m',startedAt:created,lastSeenAt:created+4*H},{uid:'a',moduleId:'other',startedAt:created+2*H,lastSeenAt:created+3*H}];
  const row=writingReport([{id:'p',moduleId:'m',authorId:'a',title:'Post',createdAt:created,status:'published',publishedAt:created+4*H}],[{postId:'p',moduleId:'m',uid:'a',seconds:600,startedAt:created,endedAt:created+600000}],[{id:'m',title:'Module'}],[],created+10*H,visits)[0];
  assert.equal(row.elapsedSeconds,14400);assert.equal(row.presentSeconds,7200);assert.equal(row.awaySeconds,7200);assert.equal(row.awayTime,'2:00:00');assert.equal(row.idleTime,'3:50:00');assert.equal(row.utilisationLabel,'4%');
  const admin=writingReport([{id:'q',moduleId:'m',authorId:'k',title:'Admin post',createdAt:created,status:'published',publishedAt:created+H}],[],[{id:'m',title:'Module'}],[],created+2*H,[{uid:'k',moduleId:'',startedAt:created,lastSeenAt:created+H}])[0];
@@ -123,10 +123,10 @@ test('editing supplies presence even when a heartbeat ends before publication',(
  const t=PRESENCE_SINCE+86400000;
  const r=postAnalytics({createdAt:t,publishedAt:t+60000},[{startedAt:t+30000,endedAt:t+60000,seconds:30}],t+60000,[{startedAt:t,lastSeenAt:t+10000}]);
  assert.equal(r.seconds,30); assert.equal(r.idleSeconds,30);
- assert.equal(r.presentSeconds,40); assert.equal(r.awaySeconds,20);
+ assert.equal(r.presentSeconds,''); assert.equal(r.awaySeconds,'');
 });
 
-test('heartbeat resumption leaves the suspended interval uncovered',async()=>{
+test('heartbeat delays do not turn a still signed-in visit into time away',async()=>{
  let t=PRESENCE_SINCE+86400000, id=0;
  const rows=new Map();
  const tracker=startPresence({uid:'a',modules:()=>['m'],save:async row=>rows.set(row.id,{...row}),now:()=>t,newId:()=>String(++id),intervalMs:60000,doc:null,win:null});
@@ -134,8 +134,8 @@ test('heartbeat resumption leaves the suspended interval uncovered',async()=>{
   await tracker.beat();
   t+=60000; await tracker.beat();
   t+=3600000; await tracker.beat();
-  assert.equal(rows.size,2);
-  assert.equal(coveredSeconds([...rows.values()],t-3660000,t),60);
+  assert.equal(rows.size,1);
+  assert.equal(coveredSeconds([...rows.values()],t-3660000,t),3660);
  } finally { await tracker.stop(); }
 });
 
@@ -154,6 +154,34 @@ test('presence flush finishes within its deadline when a write cannot complete',
  const tracker=startPresence({uid:'a',modules:()=>['m'],save:()=>new Promise(()=>{}),intervalMs:1e9,doc:null,win:null});
  await tracker.flush(10);
  tracker.stop();
+});
+
+test('explicit sign-out closes presence and subsequent beats cannot reopen it',async()=>{
+ let t=PRESENCE_SINCE+86400000;
+ const rows=new Map();
+ const tracker=startPresence({uid:'a',modules:()=>['m'],save:async r=>rows.set(r.id,{...r}),now:()=>t,newId:()=>'visit',intervalMs:1e9,doc:null,win:null});
+ try {
+  await tracker.beat();t+=20000;await tracker.signOut();t+=20000;await tracker.beat();
+  const row=[...rows.values()][0];assert.equal(row.signedOutAt,t-20000);assert.equal(row.lastSeenAt,row.signedOutAt);
+  const result=postAnalytics({createdAt:t-40000,publishedAt:t+20000},[],t,[row,{startedAt:t,lastSeenAt:t+20000}]);
+  assert.equal(result.awaySeconds,20);
+ } finally { await tracker.stop(); }
+});
+
+test('legacy missing heartbeat gaps stay unknown, including the live 37 second regression',()=>{
+ const t=PRESENCE_SINCE+86400000,post={createdAt:t,publishedAt:t+479000};
+ const r=postAnalytics(post,[],t,[{startedAt:t,lastSeenAt:t+200000},{startedAt:t+237000,lastSeenAt:t+479000}]);
+ assert.equal(r.awaySeconds,'');assert.equal(r.awayTime,'');
+ const continuous=postAnalytics(post,[],t,[{startedAt:t,lastSeenAt:t+479000}]);
+ assert.equal(continuous.awaySeconds,0);
+});
+
+test('other signed-in tabs cover a sign-out, while unexplained later gaps remain unknown',()=>{
+ const t=PRESENCE_SINCE+86400000,post={createdAt:t,publishedAt:t+60000};
+ const signedOut={startedAt:t,lastSeenAt:t+20000,signedOutAt:t+20000};
+ assert.equal(postAnalytics(post,[],t,[signedOut,{startedAt:t+10000,lastSeenAt:t+60000}]).awaySeconds,0);
+ assert.equal(postAnalytics(post,[],t,[signedOut,{startedAt:t+10000,lastSeenAt:t+30000}]).awaySeconds,'');
+ assert.equal(postAnalytics(post,[],t,[{startedAt:t+10000,lastSeenAt:t+60000}]).awaySeconds,'');
 });
 
 test('browser timer records content changes and excludes a details-form pause',async()=>{

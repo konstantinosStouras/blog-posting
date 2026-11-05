@@ -52,10 +52,21 @@ export function postAnalytics(post={}, sessions=[], now=Date.now(), presence=[])
   const gap = Math.floor((merged[i].startedAt - from) / 1000);
   if (gap > 0) breakLines.push(`${formatDuration(gap)} · ${utcMinute(from)}`);
  }
- const visits = presence.filter(v => v.lastSeenAt >= startedAt && v.startedAt <= endedAt);
- // Missing telemetry is unknown. Editing is also evidence of signed-in presence.
- const presenceKnown = placed && startedAt >= PRESENCE_SINCE && (visits.some(v => v.startedAt <= startedAt) || (recorded && active === elapsed));
- const present = coveredSeconds([...visits, ...merged], startedAt, endedAt);
+ const visits = presence.filter(v => v.startedAt <= endedAt && v.lastSeenAt >= v.startedAt);
+ // An uncovered interval is unknown unless its preceding presence interval ends
+ // with a recorded sign-out. Never turn missing heartbeats into time away.
+ const presenceSpans = mergeSpans([...visits, ...merged].map(v=>({startedAt:v.startedAt,lastSeenAt:v.lastSeenAt})));
+ let cursor=startedAt, previousEnd=null, unknown=false;
+ const signedOutAt = new Set(visits.filter(v=>v.signedOutAt===v.lastSeenAt).map(v=>v.signedOutAt));
+ for(const span of presenceSpans) {
+  if(span.lastSeenAt < startedAt) { previousEnd=span.lastSeenAt; continue; }
+  if(span.startedAt > cursor && cursor < endedAt && !signedOutAt.has(previousEnd)) unknown=true;
+  cursor=Math.max(cursor,span.lastSeenAt);
+  previousEnd=span.lastSeenAt;
+ }
+ if(cursor < endedAt && !signedOutAt.has(previousEnd)) unknown=true;
+ const presenceKnown = placed && startedAt >= PRESENCE_SINCE && !unknown;
+ const present = coveredSeconds(presenceSpans, startedAt, endedAt);
  const away = elapsed - present;
  return {
   createdAt: startedAt, lastPublishedAt: publishedAt, submittedAt: publishedAt,

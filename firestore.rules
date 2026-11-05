@@ -402,13 +402,15 @@ service cloud.firestore {
     match /presence/{id} {
       allow read: if isAdmin() || (resource.data.moduleId != '' && staffOf(resource.data.moduleId));
       function presenceShape(){let d=request.resource.data;return verified()
-        && d.keys().hasOnly(['uid','moduleId','startedAt','lastSeenAt'])
+        && d.keys().hasOnly(['uid','moduleId','startedAt','lastSeenAt','signedOutAt'])
         && d.uid == request.auth.uid && d.moduleId is string
         && (d.moduleId == '' ? isAdmin() : (memberOf(d.moduleId) || staffOf(d.moduleId)))
         && d.startedAt is number && d.startedAt <= request.time.toMillis()+60000
-        && d.lastSeenAt is number && d.lastSeenAt >= d.startedAt && d.lastSeenAt <= request.time.toMillis()+60000;}
+        && d.lastSeenAt is number && d.lastSeenAt >= d.startedAt && d.lastSeenAt <= request.time.toMillis()+60000
+        && (!('signedOutAt' in d) || (d.signedOutAt is number && d.signedOutAt == d.lastSeenAt));}
       allow create: if presenceShape() && request.resource.data.startedAt >= request.time.toMillis()-86400000;
-      allow update: if presenceShape() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt'])
+      allow update: if presenceShape() && !('signedOutAt' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt','signedOutAt'])
         && request.resource.data.lastSeenAt >= resource.data.lastSeenAt;
       allow delete: if false;
     }
