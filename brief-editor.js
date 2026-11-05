@@ -21,23 +21,40 @@ export function editBrief({html = '', title = 'The brief', blogTitle = '', actio
   return new Promise(resolve => {
     document.getElementById('brief-sheet')?.remove();
     const dialog = document.createElement('dialog'); dialog.className = 'sheet wide brief-sheet'; dialog.id = 'brief-sheet';
+    dialog.setAttribute('aria-labelledby', 'brief-title');
     dialog.innerHTML = `<form method="dialog" class="sheet-form" onsubmit="return false"><button type="button" class="close" data-close aria-label="Close">×</button>
-      <h2>${esc(title)}</h2><p class="muted small">${esc(blogTitle)}${blogTitle ? ' · ' : ''}${esc(note)}</p>
+      <h2 id="brief-title">${esc(title)}</h2><p class="muted small">${esc(blogTitle)}${blogTitle ? ' · ' : ''}${esc(note)}</p>
       <div class="brief-editor" id="brief-editor"></div>
+      <div class="notice brief-discard" id="brief-discard" hidden><p role="alert">Discard your changes to the brief?</p><div class="actions"><button type="button" class="btn" id="brief-keep">Keep editing</button><button type="button" class="btn danger" id="brief-discard-confirm">Discard changes</button></div></div>
       <div class="actions sheet-actions"><button type="button" class="btn primary" id="brief-save">${esc(action)}</button><button type="button" class="btn ghost" data-close>Cancel</button><span class="status-line" id="brief-status" aria-live="polite"></span></div></form>`;
     document.body.append(dialog);
     let saved = false, dirty = false, busy = false;
     const api = mountEditor(dialog.querySelector('#brief-editor'), {html: sanitize(html), placeholder: 'Write the brief…', onChange: () => { dirty = true; }});
+    const surface = dialog.querySelector('.surface');
+    surface.setAttribute('role', 'textbox');
+    surface.setAttribute('aria-label', 'Brief text');
+    surface.setAttribute('aria-multiline', 'true');
     const status = dialog.querySelector('#brief-status'), saveBtn = dialog.querySelector('#brief-save');
     const close = () => { if (dialog.open) dialog.close(); };
     dialog.addEventListener('close', () => { dialog.remove(); resolve(saved); });
-    dialog.addEventListener('cancel', e => { if (busy) e.preventDefault(); });   // Escape while saving
-    dialog.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { if (busy) return; if (!dirty || confirm('Discard your changes to the brief?')) close(); });
+    const discard = dialog.querySelector('#brief-discard');
+    const keepEditing = () => { discard.hidden = true; api.focus(); };
+    const requestClose = () => {
+      if (busy) return;
+      if (!dirty) { close(); return; }
+      discard.hidden = false;
+      dialog.querySelector('#brief-keep').focus();
+    };
+    dialog.querySelector('#brief-keep').onclick = keepEditing;
+    dialog.querySelector('#brief-discard-confirm').onclick = () => { if (!busy) close(); };
+    // Escape must protect unsaved edits just like Cancel and the close button.
+    dialog.addEventListener('cancel', e => { e.preventDefault(); if (busy) return; if (!discard.hidden) keepEditing(); else requestClose(); });
+    dialog.querySelectorAll('[data-close]').forEach(b => b.onclick = requestClose);
     saveBtn.onclick = async () => {
       if (busy) return;
       const out = api.getHTML(), problem = briefTooLong(out);
       if (problem) { status.textContent = problem; return; }
-      busy = true; saveBtn.disabled = true; status.textContent = '';
+      busy = true; discard.hidden = true; saveBtn.disabled = true; status.textContent = '';
       try { await save(out); saved = true; close(); }
       catch (err) { status.textContent = err.message || String(err); }
       finally { busy = false; saveBtn.disabled = false; }

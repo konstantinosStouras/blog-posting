@@ -166,7 +166,7 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
   pop.querySelector('[data-link-cancel]').onclick = () => { pop.hidden = true; restoreRange(); };
   pop.querySelector('[data-link-remove]').onclick = () => { pop.hidden = true; restoreRange(); const a = inside('a'); if (a) { a.replaceWith(...a.childNodes); changed(); } };
   pop.querySelector('[data-link-ok]').onclick = applyLink;
-  pop.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } if (e.key === 'Escape') { pop.hidden = true; restoreRange(); } });
+  pop.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pop.hidden = true; restoreRange(); } });
   function applyLink() {
     let url = lkUrl.value.trim(); const text = lkText.value.trim();
     if (!/^https?:\/\//i.test(url)) { if (/^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(url)) url = 'https://' + url; else { toast('Enter a full URL starting with https://', 'error'); lkUrl.focus(); return; } }
@@ -302,7 +302,11 @@ export function mountEditor(container, {html = '', onChange = () => {}, placehol
   surface.addEventListener('input', () => { if (!surface.firstElementChild && surface.textContent) { document.execCommand('formatBlock', false, 'P'); } renumberFootnotes(surface, true); changed(); });
   surface.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openLinkPop(); }
-    if (e.key === 'Escape') closeMenus();
+    if (e.key === 'Escape') {
+      // Dismiss an open formatting menu before Escape reaches a containing dialog.
+      if (container.querySelector('.menu:not([hidden]), .link-pop:not([hidden])')) { e.preventDefault(); e.stopPropagation(); }
+      closeMenus();
+    }
     if (e.key === 'Enter' && inside('pre') && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\n'); }
     if (e.key === 'Enter' && !e.shiftKey) { const cap = inside('figcaption'); if (cap) { e.preventDefault(); const p = document.createElement('p'); p.innerHTML = '<br>'; (cap.closest('figure') || cap).after(p); placeCaret(p); changed(); } }   // Enter leaves the caption instead of adding a second one
     if ((e.key === 'Backspace' || e.key === 'Delete') && sel().isCollapsed) {
