@@ -534,7 +534,7 @@ async function editorView(id, moduleId) {
   const $ = sel => document.getElementById(sel);
   const {mountEditor, fillOutline} = await import('./editor.js');
   const extras = blog.outline ? [{label: 'Insert the outline', run: api => { if (!api.isEmpty() && !confirm('Insert the outline at the end of what you have written?')) return; api.appendHTML(fillOutline(blog.outline, orgPhrase(draft.organisation) || 'the organisation', draft.category ? catName(draft.category, {blogId: blog.id}).toLowerCase() : 'the ' + (catLabel || 'topic').toLowerCase())); }}] : [];
-  ed = mountEditor($('editor'), {html: draft.body, placeholder: 'Start writing…', extras, onChange: html => { draft.body = html; touched(); }});
+  ed = mountEditor($('editor'), {html: draft.body, placeholder: 'Start writing…', extras, onChange: html => { if (html !== draft.body) writingTimer?.activity(); draft.body = html; touched(); }});
   // Title, subtitle and byline sit between the toolbar and the text, as on Substack.
   const authorName = draft.authorName || u.penName || 'student';
   const head = document.createElement('div'); head.className = 'writer-head';
@@ -544,8 +544,8 @@ async function editorView(id, moduleId) {
   $('editor').insertBefore(head, $('editor').querySelector('.surface'));
   const grow = t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
   for (const t of [$('title'), $('excerpt')]) { grow(t); t.addEventListener('input', () => grow(t)); t.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); (t.id === 'title' ? $('excerpt') : ed).focus(); } }); }
-  $('title').oninput = e => { draft.title = e.target.value; touched(); };
-  $('excerpt').oninput = e => { draft.excerpt = e.target.value; touched(); };
+  $('title').oninput = e => { writingTimer?.activity(); draft.title = e.target.value; touched(); };
+  $('excerpt').oninput = e => { writingTimer?.activity(); draft.excerpt = e.target.value; touched(); };
   $('category') && ($('category').onchange = e => { draft.category = e.target.value; touched(); });
   $('organisation') && ($('organisation').oninput = e => { draft.organisation = e.target.value; touched(); });
   $('organisation') && ($('organisation').onchange = e => { const v = orgList(e.target.value).join(', '); e.target.value = v; if (v !== draft.organisation) { draft.organisation = v; touched(); } });
@@ -568,7 +568,7 @@ async function editorView(id, moduleId) {
   $('pick-image').onclick = () => $('image-file').click();
   $('image-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { draft.featuredImage = await shrinkImage(f, FEATURED_MAX); $('thumb').src = draft.featuredImage; $('thumb').hidden = false; $('remove-image').hidden = false; touched(); } catch (err) { toast(err.message, 'error'); } };
   $('remove-image').onclick = () => { draft.featuredImage = ''; $('thumb').hidden = true; $('remove-image').hidden = true; touched(); };
-  $('continue').onclick = $('details').onclick = () => { updateMeter(); $('status-line').textContent = ''; $('sheet').showModal(); };
+  $('continue').onclick = $('details').onclick = () => { writingTimer?.pause(); updateMeter(); $('status-line').textContent = ''; $('sheet').showModal(); };
   const settle = async () => { clearTimeout(saveTimer); while (saving) await new Promise(r => setTimeout(r, 100)); };
   $('save-draft').onclick = () => { const wasLive = draft.status === 'published'; settle().then(() => save(draft.status === 'pending' ? 'pending' : 'draft')).then(ok => { if (ok) { $('sheet').close(); toast(wasLive ? 'Saved as a draft; the post is no longer public.' : 'Draft saved.'); } }); };
   $('publish').onclick = () => {
@@ -618,6 +618,8 @@ async function editorView(id, moduleId) {
   async function save(status, quiet = false) {
     if (saving) { pendingStatus = status; return false; }   // queued: runs as soon as the current save lands
     saving = true; chip('saving', 'Saving…');
+    writingTimer?.sample();
+    if (status === 'published' || status === 'pending') { writingTimer?.pause(); void writingTimer?.flush(); }
     const rev = revision; let ok = false;
     try {
       if ((draft.featuredImage || '').length > 160000) { try { draft.featuredImage = await shrinkImage(draft.featuredImage, FEATURED_MAX); if ($('thumb')) $('thumb').src = draft.featuredImage; } catch {} }   // a full-size image from before the card-only change shrinks on its next save
@@ -654,7 +656,7 @@ async function editorView(id, moduleId) {
   const stop = () => { writingTimer?.stop();clearTimeout(saveTimer); removeEventListener('beforeunload', leave);removeEventListener('pagehide',stop); removeEventListener('routechange', stop); liveView = null; };
   addEventListener('routechange', stop);   // in-page anchors (#comments, #fn-3) change the hash, not the route, so they keep the editor
   addEventListener('pagehide',stop);
-  if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor')});
+  if(trackTime)writingTimer=startWritingTimer({uid:u.uid,postId:p.id,moduleId,store,baseSeconds:previousWritingSeconds,isEditing:()=>!!document.getElementById('editor')&&!document.getElementById('sheet')?.open});
 }
 
 // ---------- my posts ----------

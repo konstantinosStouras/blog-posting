@@ -667,3 +667,15 @@ test('a verified student can run the actual first-save slug checks and atomicall
  batch.set(doc(student,'posts/qa-first-save/content/body'), {body});
  await assertSucceeds(batch.commit());
 });
+
+test('signed-out clients cannot create or edit posts, content, or editing history',async()=>{
+ const guest=env.unauthenticatedContext().firestore();
+ await assertFails(setDoc(doc(guest,'posts/guest-created'),post()));
+ await assertFails(updateDoc(doc(guest,'posts/draft'),{title:'Changed anonymously'}));
+ await assertFails(setDoc(doc(guest,'posts/draft/content/body'),{body:'<p>Anonymous edit</p>'}));
+ const startedAt=Date.now()-1000;
+ await assertFails(setDoc(doc(guest,'writingHistory/guest'),{
+  uid:'student',postId:'draft',moduleId:'one',seconds:1,
+  startedAt,lastActivityAt:startedAt+1000,lastRecordedAt:startedAt+1000
+ }));
+});

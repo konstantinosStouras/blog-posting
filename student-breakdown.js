@@ -3,7 +3,7 @@ import {currentUser} from './auth.js';
 import {makeTablesSortable} from './sortable-tables.js';
 import {studentWritingBreakdown} from './student-breakdown-model.js';
 const utc=t=>t?esc(new Date(t).toISOString().replace('T',' ').slice(0,19)):'—';
-const reason=s=>({legacy:'Legacy editor visit; detailed timestamps unavailable',checkpoint:'Last checkpoint; end not recorded',inactive:'30 seconds without editing',away:'Tab hidden or window unfocused',preview:'Preview / left editor',left:'Left the post',interrupted:'Reopened after interruption'}[s]||s);
+const reason=s=>({legacy:'Legacy editor visit; detailed timestamps unavailable',checkpoint:'Last checkpoint; end not recorded',inactive:'Pause between content changes',away:'Tab hidden or window unfocused',preview:'Preview / left editor',left:'Left the post',interrupted:'Reopened after interruption'}[s]||s);
 export function showStudentWritingBreakdown(target,report,authorId,moduleId,trigger){
  const u=currentUser(),module=report.modules?.find(m=>m.id===moduleId);
  if(!u||!module||!(u.role==='admin'||(u.role==='lecturer'&&module.teacherIds?.includes(u.uid))))return;

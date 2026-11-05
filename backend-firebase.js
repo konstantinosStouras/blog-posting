@@ -290,7 +290,7 @@ export const firebase = {
     role = await loadRole(user.uid, user.email, user.emailVerified); if (!presence) trackPresence(this); notify();
     return user.emailVerified;
   },
-  async signOut() { await A.signOut(auth); },
+  async signOut() { await presence?.flush(); presence?.stop(); presence = null; await A.signOut(auth); },
 
   // Public module metadata is separate from private enrolment/roster records.
   async listModules() { const s = await getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },
@@ -556,6 +556,7 @@ export const firebase = {
     const detail = JSON.stringify(doc).length;   // the record without the text: the card image is nearly all of it, and a record may not pass 1 MiB
     if (detail > 900000) throw Error(`The featured image is too large to save with the post (about ${Math.round(detail / 1024)} KB; the limit is 900 KB). Choose a smaller image.`);
     const batch = F.writeBatch(db); batch.set(F.doc(db, 'posts', id), doc); if (body !== null) batch.set(bodyRef(id), {body}); await batch.commit();
+    await presence?.flush();
     notify(); return {id, ...doc, ...(body !== null ? {body} : {})};
   },
   // What the blog holds, in bytes, by kind: the admin's storage line, across every module and

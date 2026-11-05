@@ -18,18 +18,44 @@ export function coveredSeconds(intervals=[],from=0,to=0){
  return Math.floor(covered/1000);
 }
 
-// One tab's heartbeat. `modules` is read on every beat, so a module joined after sign-in is picked up;
-// `save` writes one row (the same row id each beat, so the server copy only moves lastSeenAt).
-export function startPresence({uid,modules=()=>[],save,now=Date.now,newId=()=>crypto.randomUUID(),intervalMs=BEAT_MS,doc=globalThis.document}){
- const visitId=newId(),startedAt=now();let stopped=false,busy=false;
- async function beat(){
-  if(stopped||busy)return;busy=true;
-  try{const seen=now();for(const moduleId of [...new Set(modules())]){try{await save({id:`${visitId}:${moduleId||'site'}`,uid,moduleId,startedAt,lastSeenAt:seen});}catch(e){if(e?.code!=='permission-denied')console.warn('presence',e?.code||e?.message||e);}}}
-  finally{busy=false;}
+// A delayed heartbeat starts a new visit so sleep or suspension cannot bridge a gap.
+export function startPresence({uid,modules=()=>[],save,now=Date.now,newId=()=>crypto.randomUUID(),intervalMs=BEAT_MS,doc=globalThis.document,win=globalThis.window}) {
+ const rows = new Map();
+ let lastBeat = now(), stopped = false, pending = Promise.resolve();
+ function beat() {
+  const seen = now();
+  if (stopped) return pending;
+  if (seen < lastBeat || seen-lastBeat > intervalMs*1.5) rows.clear();
+  lastBeat = seen;
+  const snapshots = [...new Set(modules())].map(moduleId => {
+   if (!rows.has(moduleId)) rows.set(moduleId, {id: newId()+':'+(moduleId||'site'),uid,moduleId,startedAt:seen});
+   return {...rows.get(moduleId),lastSeenAt:seen};
+  });
+  pending = pending.then(async () => {
+   for (const row of snapshots) {
+    try { await save(row); }
+    catch (error) { console.warn('presence',error?.code||error?.message||error); }
+   }
+  });
+  return pending;
  }
- const timer=setInterval(beat,intervalMs);
- const onVisible=()=>{if(doc?.visibilityState==='visible')void beat();};
- doc?.addEventListener?.('visibilitychange',onVisible);
+ const timer = setInterval(beat,intervalMs);
+ const onVisibility = () => { void beat(); };
+ const onPageHide = () => { void beat(); };
+ doc?.addEventListener?.('visibilitychange',onVisibility);
+ win?.addEventListener?.('pagehide',onPageHide);
  void beat();
- return {beat,stop(){stopped=true;clearInterval(timer);doc?.removeEventListener?.('visibilitychange',onVisible);}};
+ async function flush(timeoutMs=2000) {
+  let timeout;
+  try {
+   await Promise.race([beat(), new Promise(resolve => { timeout=setTimeout(resolve,timeoutMs); })]);
+  } finally { clearTimeout(timeout); }
+ }
+ return {beat,flush,stop() {
+  stopped=true;
+  clearInterval(timer);
+  doc?.removeEventListener?.('visibilitychange',onVisibility);
+  win?.removeEventListener?.('pagehide',onPageHide);
+  return pending;
+ }};
 }

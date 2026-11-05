@@ -28,55 +28,168 @@ test('student module totals sum all posts, keep modules separate and include zer
  assert.equal(rows.length,3);const one=rows.find(r=>r.authorId==='student'&&r.moduleId==='one');assert.equal(one.writingTime,'2:50:12');assert.equal(one.postCount,2);assert.equal(rows.find(r=>r.moduleId==='two').seconds,3);assert.equal(rows.find(r=>r.authorId==='zero').seconds,0);
  const book=createRosterWorkbook(ExcelJS,{users:[],invitations:[],moduleTotals:[one]});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());const s=loaded.getWorksheet('Student module totals');assert.equal(s.getCell('K2').value,'2:50:12');assert.equal(s.getCell('H2').value,'00123');assert.equal(s.getCell('K1').font.bold,true);assert.equal(Boolean(s.getCell('K2').font.bold),false);
 });
-test('history splits inactivity and returns into independent active sessions',()=>{
- const rows=[];let id=0;const h=new WritingSessionHistory({uid:'a',postId:'p',moduleId:'m',newId:()=>String(++id),onSession:r=>rows.push(r)});
- h.activity(1000,100000);for(let t=2000;t<=32000;t+=1000)h.sample(t,99000+t);
- assert.equal(rows.length,1);assert.equal(rows[0].seconds,30);assert.equal(rows[0].endReason,'inactive');assert.equal(rows[0].endedAt,130000);
- h.activity(60000,159000);h.sample(61000,160000);h.pause(62000,161000,'left');
- assert.equal(rows.length,2);assert.equal(rows[1].seconds,2);assert.equal(rows[1].endReason,'left');assert.equal(rows[0].seconds+rows[1].seconds,32);
+test('history ends at the last actual edit and splits pauses',()=>{
+ const rows=[]; let id=0;
+ const h=new WritingSessionHistory({uid:'a',postId:'p',moduleId:'m',newId:()=>String(++id),onSession:r=>rows.push(r)});
+ h.activity(1000,100000);
+ h.activity(2000,101000);
+ h.activity(3000,102000);
+ h.sample(32000,131000);
+ assert.equal(rows.length,1);
+ assert.equal(rows[0].seconds,2);
+ assert.equal(rows[0].endedAt,102000);
+ assert.equal(rows[0].endReason,'inactive');
+ h.activity(60000,159000);
+ h.activity(61000,160000);
+ h.pause(62000,161000,'left');
+ assert.equal(rows[1].seconds,1);
+ assert.equal(rows[1].endedAt,160000);
 });
+
 test('history report limits scope, preserves legacy gaps and exports session timestamps',async()=>{
  const sessions=sessionHistoryReport([{id:'p',moduleId:'m',authorId:'a',title:'Post'},{id:'private',moduleId:'other',authorId:'a'}],[{id:'old',postId:'p',moduleId:'m',uid:'a',seconds:12,startedAt:1000},{id:'new',postId:'p',moduleId:'m',uid:'a',seconds:4,startedAt:10000,lastActivityAt:11000,lastRecordedAt:14000,endedAt:14000,endReason:'left'},{id:'secret',postId:'private',moduleId:'other',uid:'a',seconds:999}],[{id:'m',title:'Module'}],[{uid:'a',studentId:'00123'}]);
  assert.equal(sessions.length,2);assert.equal(sessions[1].lastRecordedAt,0);assert.equal(sessions[1].endReason,'legacy');assert.equal(sessions[0].writingTime,'0:00:04');
  const w=createRosterWorkbook(ExcelJS,{users:[],invitations:[],sessions});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await w.xlsx.writeBuffer());const sheet=loaded.getWorksheet('Writing sessions');assert.equal(sheet.getCell('G2').value,'1970-01-01 00:00:10');assert.equal(sheet.getCell('K2').value,'0:00:04');assert.equal(sheet.getCell('F2').value,'00123');assert.equal(sheet.getCell('G1').font.bold,true);assert.equal(Boolean(sheet.getCell('G2').font.bold),false);
 });
-test('idle editor starts paused, counts recent edits and stops at the inactivity cutoff',()=>{
- const c=new EditingActivityClock(30000);c.sample(5000);assert.equal(c.seconds,0);c.activity(5000);
+test('sampling cannot add time without further content changes',()=>{
+ const c=new EditingActivityClock();
+ c.sample(5000); c.activity(5000);
  for(let t=6000;t<=40000;t+=1000)c.sample(t);
- assert.equal(c.seconds,30);assert.equal(c.active(40000),false);c.activity(40000);c.sample(41000);assert.equal(c.seconds,31);
+ assert.equal(c.seconds,0);
+ c.activity(40000); c.activity(41000); c.sample(42000);
+ assert.equal(c.seconds,1);
 });
-test('leaving or hiding the editor pauses time until another editing action',()=>{
- const c=new EditingActivityClock();c.activity(1000);c.sample(2000);c.pause(2000);c.sample(60000);assert.equal(c.seconds,1);
- c.activity(60000);c.sample(61000);c.sample(62000,false);c.sample(90000);assert.equal(c.seconds,2);
+
+test('leaving the editor prevents a subsequent edit from bridging the gap',()=>{
+ const c=new EditingActivityClock();
+ c.activity(1000); c.activity(2000); c.pause(2000); c.sample(60000);
+ assert.equal(c.seconds,1);
+ c.activity(60000); c.activity(61000); c.sample(62000,false); c.activity(63000);
+ assert.equal(c.seconds,2);
 });
 import {compareTableValues} from '../sortable-tables.js';
 import {createRosterWorkbook} from '../roster-export.js';
+
 test('writing time formats hours without wrapping after a day',()=>{assert.equal(formatWritingTime(10212),'2:50:12');assert.equal(formatWritingTime(90061),'25:01:01');assert.equal(formatWritingTime(), '0:00:00');});
 test('writing report sums only the author and assigned module sessions',()=>{
- const r=writingReport([{id:'p',moduleId:'m',authorId:'a',title:'Post'},{id:'private',moduleId:'other'}],[{postId:'p',moduleId:'m',uid:'a',seconds:100},{postId:'p',moduleId:'m',uid:'a',seconds:12},{postId:'p',moduleId:'m',uid:'other',seconds:999}],[{id:'m',title:'Module'}],[{uid:'a',studentId:'00123'}]);assert.equal(r.length,1);assert.equal(r[0].writingTime,'0:01:52');assert.equal(r[0].studentId,'00123');
+ const r=writingReport([{id:'p',moduleId:'m',authorId:'a',title:'Post'},{id:'private',moduleId:'other'}],[{postId:'p',moduleId:'m',uid:'a',seconds:100},{postId:'p',moduleId:'m',uid:'a',seconds:12},{postId:'p',moduleId:'m',uid:'other',seconds:999}],[{id:'m',title:'Module'}],[{uid:'a',studentId:'00123'}]);assert.equal(r.length,1);assert.equal(r[0].writingTime,'');assert.equal(r[0].sessionNote,'Incomplete older timing records');assert.equal(r[0].studentId,'00123');
 });
 test('sort compares numerical values, natural text and blanks',()=>{assert.ok(compareTableValues(2,10)<0);assert.ok(compareTableValues('Module 2','Module 10')<0);assert.ok(compareTableValues('',1)>0);});
 test('Excel includes per-post analytics with bold heading and normal body',async()=>{
  const book=createRosterWorkbook(ExcelJS,{users:[],invitations:[],writing:[{title:'Post',writingTime:'2:50:12',seconds:10212,studentId:'00123',open:true,status:'pending',idleTime:'1 day 0:00:00',awayTime:'20:00:00',awaySeconds:72000,utilisationLabel:'11%',sessionLines:['2:50:12 · 2026-11-01 09:00'],breakLines:[]}]});const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await book.xlsx.writeBuffer());const sheet=loaded.getWorksheet('Blog posting analytics');
- assert.equal(sheet.getCell('K2').value,'2:50:12');assert.equal(sheet.getCell('J2').value,'awaiting review');assert.equal(sheet.getCell('M2').value,'1 day 0:00:00');assert.equal(sheet.getCell('O1').value,'Time away');assert.equal(sheet.getCell('O2').value,'20:00:00');assert.equal(String(sheet.getCell('P2').value),'72000');assert.equal(sheet.getCell('Q2').value,'11%');assert.equal(sheet.getCell('R2').value,'2:50:12 · 2026-11-01 09:00');assert.equal(sheet.getCell('K1').font.bold,true);assert.equal(Boolean(sheet.getCell('K2').font.bold),false);
+ assert.equal(sheet.getCell('K2').value,'2:50:12');assert.equal(sheet.getCell('J2').value,'awaiting review');assert.equal(sheet.getCell('M2').value,'1 day 0:00:00');assert.equal(sheet.getCell('O1').value,'Time away (estimated)');assert.equal(sheet.getCell('O2').value,'20:00:00');assert.equal(String(sheet.getCell('P2').value),'72000');assert.equal(sheet.getCell('Q2').value,'11%');assert.equal(sheet.getCell('R2').value,'2:50:12 · 2026-11-01 09:00');assert.equal(sheet.getCell('K1').font.bold,true);assert.equal(Boolean(sheet.getCell('K2').font.bold),false);
 });
-test('post analytics measure the window from creation to the last publication, its idle share and the breaks between sessions',()=>{
- const H=3600000,created=Date.UTC(2026,10,1,9,0);
- const sessions=[{seconds:1800,startedAt:created+3*H,endedAt:created+3.5*H},{seconds:3600,startedAt:created,endedAt:created+H},{seconds:5}];
- const a=postAnalytics({createdAt:created,status:'published',publishedAt:created+4*H},sessions);
- assert.equal(a.elapsedSeconds,14400);assert.equal(a.idleSeconds,14400-5405);assert.equal(a.idleTime,'2:29:55');assert.equal(a.utilisationLabel,'38%');assert.equal(a.open,false);assert.equal(a.lastPublishedAt,created+4*H);
- const updated=postAnalytics({createdAt:created,status:'published',publishedAt:created+4*H,updatedAt:created+6*H},sessions);
- assert.equal(updated.lastPublishedAt,created+6*H);assert.equal(updated.submittedAt,created+6*H);assert.equal(updated.elapsedSeconds,21600);assert.equal(updated.utilisationLabel,'25%');
- assert.deepEqual(a.sessionLines,['1:00:00 · 2026-11-01 09:00','0:30:00 · 2026-11-01 12:00']);assert.deepEqual(a.breakLines,['2:00:00 · 2026-11-01 10:00']);assert.equal(a.sessionCount,2);assert.equal(a.untimedSessions,1);
- const draft=postAnalytics({createdAt:created,status:'draft'},[],created+2*86400000+H);
- assert.equal(a.recorded,true);assert.equal(a.sessionNote,'1 older visit without timestamps');
- // nothing recorded: the window is still measured, but idle time and utilisation stay blank rather than reading 0%
- assert.equal(draft.open,true);assert.equal(draft.submittedAt,0);assert.equal(draft.elapsedSeconds,2*86400+3600);assert.equal(draft.recorded,false);assert.equal(draft.idleTime,'');assert.equal(draft.idleSeconds,'');assert.equal(draft.utilisation,null);assert.equal(draft.utilisationLabel,'');assert.equal(draft.sessionNote,'No session recorded');
- const untracked=postAnalytics({createdAt:created,status:'published',publishedAt:created+H},[]);
- assert.equal(untracked.elapsedSeconds,3600);assert.equal(untracked.utilisationLabel,'');assert.equal(untracked.idleTime,'');assert.equal(untracked.sessionNote,'No session recorded');
- const early=postAnalytics({createdAt:created+H,status:'pending',updatedAt:created+2*H},[{seconds:7200,startedAt:created,endedAt:created+2*H}]);
- assert.equal(early.windowStart,created);assert.equal(early.utilisationLabel,'100%');assert.equal(early.idleSeconds,0);assert.equal(early.lastPublishedAt,0);assert.equal(early.submittedAt,created+2*H);
- assert.equal(formatDuration(90061),'1 day 1:01:01');assert.equal(formatDuration(59),'0:00:59');assert.equal(postAnalytics({},[]).utilisationLabel,'');
- const row=writingReport([{id:'p',moduleId:'m',authorId:'a',title:'Post',createdAt:created,status:'draft'}],[{postId:'p',moduleId:'m',uid:'a',seconds:60,startedAt:created,endedAt:created+60000}],[{id:'m',title:'Module',code:'BMGT1'}],[],created+120000)[0];
- assert.equal(row.writingTime,'0:01:00');assert.equal(row.idleSeconds,60);assert.equal(row.utilisationLabel,'50%');assert.equal(row.sessionLines.length,1);assert.equal(row.moduleLabel,'BMGT1: Module');
+
+test('first publication fixes the window even after updates and later sessions',()=>{
+ const t=PRESENCE_SINCE+86400000, sec=1000;
+ const post={createdAt:t,publishedAt:t+60*sec,updatedAt:t+3600*sec,status:'published'};
+ const sessions=[{startedAt:t-10*sec,endedAt:t+70*sec,seconds:80},{startedAt:t+80*sec,endedAt:t+90*sec,seconds:10}];
+ const r=postAnalytics(post,sessions);
+ assert.equal(r.windowStart,t); assert.equal(r.windowEnd,t+60000);
+ assert.equal(r.elapsedSeconds,60); assert.equal(r.seconds,60);
+ assert.equal(r.idleSeconds,0); assert.equal(r.utilisation,1);
+ assert.equal(r.lastPublishedAt,post.publishedAt);
+ assert.equal(r.awaySeconds,0); // editing itself establishes signed-in presence
+});
+
+test('nested overlapping sessions neither double count nor invent breaks',()=>{
+ const t=PRESENCE_SINCE+86400000;
+ const r=postAnalytics({createdAt:t,publishedAt:t+60000},[[0,50],[10,20],[40,60]].map(([a,b])=>({startedAt:t+a*1000,endedAt:t+b*1000,seconds:b-a})));
+ assert.equal(r.seconds,60); assert.equal(r.idleSeconds,0);
+ assert.equal(r.sessionCount,1); assert.deepEqual(r.breakLines,[]);
+});
+
+test('idle includes leading, trailing and inter-session gaps',()=>{
+ const t=PRESENCE_SINCE+86400000;
+ const r=postAnalytics({createdAt:t,publishedAt:t+60000},[[5,15],[45,55]].map(([a,b])=>({startedAt:t+a*1000,endedAt:t+b*1000,seconds:b-a})));
+ assert.equal(r.seconds,20); assert.equal(r.idleSeconds,40);
+ assert.equal(r.utilisation,1/3); assert.equal(r.breakLines.length,1);
+ assert.ok(r.breakLines[0].startsWith('0:00:30'));
+ assert.equal(r.awaySeconds,''); // no presence baseline
+});
+
+test('pending posts run to now and missing or sparse data stays unknown',()=>{
+ const t=PRESENCE_SINCE+86400000;
+ const post={createdAt:t,status:'pending',updatedAt:t+10000};
+ const r=postAnalytics(post,[],t+60000);
+ assert.equal(r.elapsedSeconds,60); assert.equal(r.utilisation,null);
+ assert.equal(r.idleSeconds,''); assert.equal(r.awaySeconds,'');
+ const sparse=postAnalytics(post,[{startedAt:t,endedAt:t+60000,seconds:10}],t+60000);
+ assert.equal(sparse.utilisation,null);
+ assert.equal(sparse.sessionNote,'Incomplete older timing records');
+});
+
+test('editing supplies presence even when a heartbeat ends before publication',()=>{
+ const t=PRESENCE_SINCE+86400000;
+ const r=postAnalytics({createdAt:t,publishedAt:t+60000},[{startedAt:t+30000,endedAt:t+60000,seconds:30}],t+60000,[{startedAt:t,lastSeenAt:t+10000}]);
+ assert.equal(r.seconds,30); assert.equal(r.idleSeconds,30);
+ assert.equal(r.presentSeconds,40); assert.equal(r.awaySeconds,20);
+});
+
+test('heartbeat resumption leaves the suspended interval uncovered',async()=>{
+ let t=PRESENCE_SINCE+86400000, id=0;
+ const rows=new Map();
+ const tracker=startPresence({uid:'a',modules:()=>['m'],save:async row=>rows.set(row.id,{...row}),now:()=>t,newId:()=>String(++id),intervalMs:60000,doc:null,win:null});
+ try {
+  await tracker.beat();
+  t+=60000; await tracker.beat();
+  t+=3600000; await tracker.beat();
+  assert.equal(rows.size,2);
+  assert.equal(coveredSeconds([...rows.values()],t-3660000,t),60);
+ } finally { await tracker.stop(); }
+});
+
+test('clipped union preserves active plus idle equals elapsed for overlapping inputs',()=>{
+ const t=PRESENCE_SINCE+86400000;
+ for(let offset=-20;offset<=80;offset+=5) {
+  const sessions=[{startedAt:t+offset*1000,endedAt:t+(offset+20)*1000,seconds:20},{startedAt:t+10000,endedAt:t+30000,seconds:20}];
+  const r=postAnalytics({createdAt:t,publishedAt:t+60000},sessions);
+  assert.equal(r.seconds+r.idleSeconds,60);
+  assert.ok(r.seconds>=0&&r.seconds<=60);
+  assert.equal(r.utilisation,r.seconds/60);
+ }
+});
+
+test('presence flush finishes within its deadline when a write cannot complete',async()=>{
+ const tracker=startPresence({uid:'a',modules:()=>['m'],save:()=>new Promise(()=>{}),intervalMs:1e9,doc:null,win:null});
+ await tracker.flush(10);
+ tracker.stop();
+});
+
+test('browser timer records content changes and excludes a details-form pause',async()=>{
+ const {startWritingTimer}=await import('../writing-time.js');
+ const names=['document','navigator','localStorage','performance','addEventListener','removeEventListener','setInterval','clearInterval'];
+ const saved=new Map(names.map(name=>[name,Object.getOwnPropertyDescriptor(globalThis,name)]));
+ const originalNow=Date.now;
+ let t=1000, editing=true;
+ const rows=new Map(), storage=new Map();
+ try {
+  const globals={
+   document:{visibilityState:'visible',hasFocus:()=>true,addEventListener(){},removeEventListener(){}},
+   navigator:{},
+   localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
+   performance:{now:()=>t},addEventListener(){},removeEventListener(){},setInterval:()=>0,clearInterval(){}
+  };
+  for(const [key,value] of Object.entries(globals))Object.defineProperty(globalThis,key,{configurable:true,value});
+  Date.now=()=>PRESENCE_SINCE+86400000+t;
+  const timer=startWritingTimer({uid:'a',postId:'p',moduleId:'m',isEditing:()=>editing,store:{saveWritingHistory:async row=>rows.set(row.id,{...row})}});
+  timer.activity();
+  await timer.flush();
+  t+=1000; timer.activity();
+  timer.pause();
+  editing=false; t+=30000; timer.activity(); timer.sample();
+  await timer.flush();
+  timer.stop();
+  await timer.flush();
+  assert.equal(rows.size,1);
+  const row=[...rows.values()][0];
+  assert.equal(row.seconds,1);
+  assert.equal(row.endedAt-row.startedAt,1000);
+ } finally {
+  Date.now=originalNow;
+  for(const [name,descriptor] of saved) {
+   if(descriptor)Object.defineProperty(globalThis,name,descriptor);
+   else delete globalThis[name];
+  }
+ }
 });

@@ -10,44 +10,76 @@ export function formatDuration(seconds=0){
 export const utcMinute=t=>t?new Date(t).toISOString().replace('T',' ').slice(0,16):'';
 const postRow=(p,m,u={})=>({postId:p.id,title:p.title,slug:p.slug||'',blogId:p.blogId||'',publishedAt:p.publishedAt||0,moduleId:m.id,moduleTitle:m.title,code:m.code||'',moduleLabel:m.code?`${m.code}: ${m.title}`:m.title,authorId:p.authorId,firstName:u.firstName||'',lastName:u.lastName||'',email:u.email||'',contactEmail:u.contactEmail||'',studentId:u.studentId||'',status:p.status});
 
-// How a post's recorded work sits in calendar time. The window runs from the post's creation (or its first
-// recorded session, if earlier) to its submission — publication, or the last save of a post awaiting review —
-// extended by any session recorded after that; a draft's window is still open and is measured up to `now`.
-// Active time is the sum of the sessions (time editing the text), idle time the rest of the window (time not
-// editing, so the gaps before the first and after the last session count too) and utilisation their ratio.
-// Time away is the part of the window that none of the author's visits covers (`presence`: the author's
-// signed-in visits, see presence.js); a window that starts before visits were recorded leaves it blank.
-// Sessions, and the breaks between consecutive sessions, are listed oldest first in UTC. Legacy visits
-// without timestamps count towards active time but cannot be placed, so they appear in neither list.
-export function postAnalytics(post={},sessions=[],now=Date.now(),presence=[]){
- const active=sessions.reduce((n,s)=>n+Math.max(0,Number(s.seconds)||0),0);
- const timed=sessions.filter(s=>s.startedAt>0).sort((a,b)=>a.startedAt-b.startedAt);
- const endOf=s=>Math.max(s.startedAt,s.endedAt||0,s.lastRecordedAt||0,s.lastActivityAt||0);
- // A live post's last publication: its first publication, or the latest Update if it was edited since (only a save moves updatedAt).
- const lastPublishedAt=post.status==='published'?Math.max(post.publishedAt||0,post.updatedAt||0):0;
- const submittedAt=post.status==='published'?lastPublishedAt:post.status==='pending'?post.updatedAt||0:0;
- const startedAt=Math.min(...[post.createdAt,timed[0]?.startedAt].filter(t=>t>0));
- const placed=Number.isFinite(startedAt),open=!submittedAt;
- const endedAt=open?now:Math.max(submittedAt,timed.length?endOf(timed[timed.length-1]):0);
- const elapsed=placed?Math.max(0,Math.floor((endedAt-startedAt)/1000)):0;
- // A post with no session at all (written before tracking, or by an instructor before instructors were
- // tracked) has no idle time or utilisation to show: a 0% there would read as a measurement.
- const recorded=active>0||timed.length>0;
- const idle=recorded?Math.max(0,elapsed-active):null,utilisation=recorded&&elapsed>0?Math.min(1,active/elapsed):null;
- const breakLines=[];
- for(let i=1;i<timed.length;i++){const from=endOf(timed[i-1]),gap=Math.floor((timed[i].startedAt-from)/1000);if(gap>0)breakLines.push(`${formatDuration(gap)} · ${utcMinute(from)}`);}
- const untimed=sessions.length-timed.length;
- const visited=placed&&startedAt>=PRESENCE_SINCE,present=visited?coveredSeconds(presence,startedAt,endedAt):0,away=visited?Math.max(0,elapsed-present):null;
- return {createdAt:post.createdAt||0,lastPublishedAt,submittedAt,windowStart:placed?startedAt:0,windowEnd:placed?endedAt:0,open,recorded,elapsedSeconds:elapsed,idleSeconds:recorded?idle:'',idleTime:recorded?formatDuration(idle):'',presentSeconds:visited?present:'',awaySeconds:visited?away:'',awayTime:visited?formatDuration(away):'',utilisation,utilisationLabel:utilisation===null?'':utilisation>0&&utilisation<0.005?'<1%':`${Math.round(utilisation*100)}%`,sessionCount:timed.length,untimedSessions:untimed,sessionNote:untimed?`${untimed} older visit${untimed===1?'':'s'} without timestamps`:recorded?'':'No session recorded',sessionLines:timed.map(s=>`${formatWritingTime(s.seconds)} · ${utcMinute(s.startedAt)}`),breakLines};
+// All report durations use the same creation-to-first-publication window.
+// A session is a continuous run of content changes. Merge runs before counting seconds.
+function mergeSpans(spans) {
+ const merged = [];
+ for (const span of spans.sort((a, b) => a.startedAt - b.startedAt)) {
+  const previous = merged.at(-1);
+  if (previous && span.startedAt <= previous.lastSeenAt) {
+   previous.lastSeenAt = Math.max(previous.lastSeenAt, span.lastSeenAt);
+  } else merged.push({...span});
+ }
+ return merged;
 }
 
-export function writingReport(posts=[],sessions=[],modules=[],users=[],now=Date.now(),presence=[]){
- const allowed=new Map(modules.map(m=>[m.id,m])),people=new Map(users.map(u=>[u.uid,u]));
- return posts.filter(p=>allowed.has(p.moduleId)).map(p=>{
-  const own=sessions.filter(s=>s.postId===p.id&&s.uid===p.authorId&&s.moduleId===p.moduleId);
-  const visits=presence.filter(v=>v.uid===p.authorId&&(!v.moduleId||v.moduleId===p.moduleId));   // the author's visits (the admin's carry no module)
-  const seconds=own.reduce((n,s)=>n+Math.max(0,Number(s.seconds)||0),0);
-  return {...postRow(p,allowed.get(p.moduleId),people.get(p.authorId)),seconds,writingTime:formatWritingTime(seconds),...postAnalytics(p,own,now,visits)};
+export function postAnalytics(post={}, sessions=[], now=Date.now(), presence=[]) {
+ const startedAt = Number(post.createdAt) || 0;
+ const publishedAt = Number(post.publishedAt) || 0;
+ const endedAt = publishedAt || now;
+ const placed = startedAt > 0 && endedAt >= startedAt;
+ const elapsed = placed ? Math.floor((endedAt - startedAt) / 1000) : 0;
+ const spans = [];
+ let unplaced = 0;
+ for (const session of sessions) {
+  const start = Number(session.startedAt) || 0;
+  const end = Number(session.lastActivityAt || session.endedAt || session.lastRecordedAt) || 0;
+  const seconds = Math.max(0, Number(session.seconds) || 0);
+  if (!start || end < start) { if (seconds) unplaced++; continue; }
+  if (!placed || end < startedAt || start > endedAt) continue;
+  // Old aggregate counters cannot locate edits within a sparse or interrupted visit.
+  if (Math.abs((end - start) / 1000 - seconds) >= 1) { unplaced++; continue; }
+  spans.push({startedAt: Math.max(startedAt, start), lastSeenAt: Math.min(endedAt, end)});
+ }
+ const merged = mergeSpans(spans);
+ const recorded = placed && merged.length > 0 && unplaced === 0;
+ const active = coveredSeconds(merged, startedAt, endedAt);
+ const idle = elapsed - active;
+ const utilisation = recorded && elapsed > 0 ? active / elapsed : null;
+ const breakLines = [];
+ for (let i = 1; i < merged.length; i++) {
+  const from = merged[i - 1].lastSeenAt;
+  const gap = Math.floor((merged[i].startedAt - from) / 1000);
+  if (gap > 0) breakLines.push(`${formatDuration(gap)} · ${utcMinute(from)}`);
+ }
+ const visits = presence.filter(v => v.lastSeenAt >= startedAt && v.startedAt <= endedAt);
+ // Missing telemetry is unknown. Editing is also evidence of signed-in presence.
+ const presenceKnown = placed && startedAt >= PRESENCE_SINCE && (visits.some(v => v.startedAt <= startedAt) || (recorded && active === elapsed));
+ const present = coveredSeconds([...visits, ...merged], startedAt, endedAt);
+ const away = elapsed - present;
+ return {
+  createdAt: startedAt, lastPublishedAt: publishedAt, submittedAt: publishedAt,
+  windowStart: startedAt, windowEnd: placed ? endedAt : 0, open: !publishedAt,
+  recorded, elapsedSeconds: elapsed, elapsedTime: placed ? formatDuration(elapsed) : '', seconds: recorded ? active : '',
+  writingTime: recorded ? formatWritingTime(active) : '',
+  idleSeconds: recorded ? idle : '', idleTime: recorded ? formatDuration(idle) : '',
+  presentSeconds: presenceKnown ? present : '', awaySeconds: presenceKnown ? away : '',
+  awayTime: presenceKnown ? formatDuration(away) : '', utilisation,
+  utilisationLabel: utilisation === null ? '' : utilisation > 0 && utilisation < 0.005 ? '<1%' : `${Math.round(utilisation * 100)}%`,
+  sessionCount: merged.length, untimedSessions: unplaced,
+  sessionNote: unplaced ? 'Incomplete older timing records' : recorded ? '' : 'No session recorded',
+  sessionLines: merged.map(s => `${formatWritingTime((s.lastSeenAt-s.startedAt)/1000)} · ${utcMinute(s.startedAt)}`),
+  breakLines
+ };
+}
+
+export function writingReport(posts=[],sessions=[],modules=[],users=[],now=Date.now(),presence=[]) {
+ const allowed = new Map(modules.map(m => [m.id,m]));
+ const people = new Map(users.map(u => [u.uid,u]));
+ return posts.filter(p => allowed.has(p.moduleId)).map(p => {
+  const own = sessions.filter(s => s.postId === p.id && s.uid === p.authorId && s.moduleId === p.moduleId);
+  const visits = presence.filter(v => v.uid === p.authorId && (!v.moduleId || v.moduleId === p.moduleId));
+  return {...postRow(p,allowed.get(p.moduleId),people.get(p.authorId)), ...postAnalytics(p,own,now,visits)};
  });
 }
 
@@ -68,32 +100,53 @@ export function moduleWritingTotals(writing=[],memberships=[],modules=[],users=[
   if(seen.has(postKey))continue;seen.add(postKey);
   const m=allowed.get(p.moduleId),u=people.get(p.authorId)||{};
   if(!rows.has(key)&&(['lecturer','admin'].includes(u.role)||m.teacherIds?.includes(p.authorId)))continue;
-  const r=ensure(p.authorId,p.moduleId,p);r.postCount++;r.seconds+=Math.max(0,Number(p.seconds)||0);
+  const r=ensure(p.authorId,p.moduleId,p);r.postCount++;if(p.seconds==='')r.incomplete=true;r.seconds+=Math.max(0,Number(p.seconds)||0);
  }
- return [...rows.values()].map(r=>({...r,writingTime:formatWritingTime(r.seconds)})).sort((a,b)=>[a.moduleTitle,a.lastName,a.firstName,a.authorId].join(' ').localeCompare([b.moduleTitle,b.lastName,b.firstName,b.authorId].join(' ')));
+ return [...rows.values()].map(r=>({...r,seconds:r.incomplete?'':r.seconds,writingTime:r.incomplete?'Incomplete records':formatWritingTime(r.seconds)})).sort((a,b)=>[a.moduleTitle,a.lastName,a.firstName,a.authorId].join(' ').localeCompare([b.moduleTitle,b.lastName,b.firstName,b.authorId].join(' ')));
 }
 
+// Count only intervals bounded by actual changes, never a tail after the last edit.
 export class EditingActivityClock {
- constructor(idleMs=30000){this.idleMs=idleMs;this.seconds=0;this.previous=0;this.deadline=0;}
- sample(now,eligible=true){const end=Math.min(now,this.deadline);if(eligible&&end>this.previous)this.seconds+=Math.min(2000,end-this.previous)/1000;this.previous=now;if(!eligible)this.deadline=0;return this.seconds;}
- activity(now,eligible=true){this.sample(now,eligible);if(eligible)this.deadline=now+this.idleMs;}
- pause(now){this.sample(now);this.deadline=0;}
- active(now){return now<this.deadline;}
+ constructor(idleMs=2000) { this.idleMs=idleMs; this.seconds=0; this.previous=null; this.deadline=0; }
+ sample(now,eligible=true) { if (!eligible || now > this.deadline) this.previous=null; return this.seconds; }
+ activity(now,eligible=true) {
+  if (!eligible) { this.pause(); return; }
+  if (this.previous !== null && now >= this.previous && now-this.previous <= this.idleMs) this.seconds += (now-this.previous)/1000;
+  this.previous=now;
+  this.deadline=now+this.idleMs;
+ }
+ pause() { this.previous=null; this.deadline=0; }
+ active(now) { return this.previous !== null && now <= this.deadline; }
 }
 
 export class WritingSessionHistory {
- constructor({uid,postId,moduleId,newId=()=>crypto.randomUUID(),onSession=()=>{}}){Object.assign(this,{uid,postId,moduleId,newId,onSession});this.clock=new EditingActivityClock();this.current=null;this.base=0;}
- sample(now,wall,eligible=true,reason='away'){
+ constructor({uid,postId,moduleId,newId=()=>crypto.randomUUID(),onSession=()=>{}}) {
+  Object.assign(this,{uid,postId,moduleId,newId,onSession});
+  this.clock=new EditingActivityClock(); this.current=null;
+ }
+ sample(now,wall,eligible=true,reason='away') {
   this.clock.sample(now,eligible);
-  if(this.current){this.current.seconds=Math.floor(this.clock.seconds-this.base);this.current.lastRecordedAt=Math.min(wall,this.current.lastActivityAt+30000);
-   if(!this.clock.active(now))this.close(eligible?'inactive':reason);}
+  if (this.current && !this.clock.active(now)) this.close(eligible?'inactive':reason);
  }
- activity(now,wall){
-  this.sample(now,wall);if(!this.current){this.base=this.clock.seconds;this.current={id:this.newId(),uid:this.uid,postId:this.postId,moduleId:this.moduleId,seconds:0,startedAt:wall,lastActivityAt:wall,lastRecordedAt:wall};this.onSession(this.current);}
-  this.clock.activity(now);this.current.lastActivityAt=wall;this.current.lastRecordedAt=wall;
+ activity(now,wall) {
+  this.sample(now,wall);
+  if (!this.current) {
+   this.current={id:this.newId(),uid:this.uid,postId:this.postId,moduleId:this.moduleId,seconds:0,startedAt:wall,lastActivityAt:wall,lastRecordedAt:wall};
+   this.onSession(this.current);
+  }
+  this.clock.activity(now);
+  this.current.lastActivityAt=Math.max(wall,this.current.lastActivityAt);
+  this.current.lastRecordedAt=this.current.lastActivityAt;
+  this.current.seconds=Math.floor((this.current.lastActivityAt-this.current.startedAt)/1000);
  }
- close(reason){if(!this.current)return;this.current.endedAt=this.current.lastRecordedAt;this.current.endReason=reason;this.current=null;this.clock.deadline=0;}
- pause(now,wall,reason='away'){this.sample(now,wall);this.close(reason);}
+ close(reason) {
+  if (!this.current) return;
+  this.current.endedAt=this.current.lastRecordedAt;
+  this.current.endReason=reason;
+  this.current=null;
+  this.clock.pause();
+ }
+ pause(now,wall,reason='away') { this.close(reason); this.clock.pause(); }
 }
 
 // New session records are write-only for students; history is read by staff only.
@@ -123,17 +176,17 @@ export function startWritingTimer({uid,postId,moduleId,store,baseSeconds=0,onTic
   if(navigator.locks){claiming=true;navigator.locks.request(`ucd-writing-${uid}`,{ifAvailable:true},lock=>{claiming=false;if(!lock||!eligible())return;acquired();return new Promise(r=>{release=r;});}).catch(()=>{claiming=false;});}
   else try{const lease=JSON.parse(localStorage.getItem(leaseKey)||'null');if(!lease||lease.id===instanceId||lease.until<Date.now()){localStorage.setItem(leaseKey,JSON.stringify({id:instanceId,until:Date.now()+2500}));acquired();release=()=>{try{if(JSON.parse(localStorage.getItem(leaseKey)||'null')?.id===instanceId)localStorage.removeItem(leaseKey);}catch{}};}}catch{}
  }
- function activity(event){
-  if(!event.isTrusted||!event.target?.closest?.('.writer')||!eligible())return;   // the text alone: the details sheet (category, tags, image) is not editing the post
-  if(event.type==='keydown'&&!(['Backspace','Delete','Enter'].includes(event.key)||event.key.length===1))return;
-  if(event.type==='pointerdown'&&!event.target.closest('.toolbar [data-cmd]'))return;
-  sample();if(owned)history.activity(performance.now(),Date.now());else claim();stash();
+ function activity() {
+  if (!eligible()) return;
+  sample();
+  if (owned) history.activity(performance.now(),Date.now()); else claim();
+  stash();
  }
  const leaseTimer=setInterval(()=>{if(!navigator.locks&&owned)try{localStorage.setItem(leaseKey,JSON.stringify({id:instanceId,until:Date.now()+2500}));}catch{}},1000);
  const tick=setInterval(sample,1000),sync=setInterval(flush,15000);
  const pause=()=>{history.pause(performance.now(),Date.now(),'away');sample();unlock();void flush();};
  document.addEventListener('visibilitychange',pause);addEventListener('blur',pause);
- for(const type of ['input','keydown','pointerdown'])document.addEventListener(type,activity,true);
+
  void flush();show();
- return {sample,flush,total,stop(){if(stopped)return;history.pause(performance.now(),Date.now(),'left');stopped=true;clearInterval(tick);clearInterval(sync);clearInterval(leaseTimer);document.removeEventListener('visibilitychange',pause);removeEventListener('blur',pause);for(const type of ['input','keydown','pointerdown'])document.removeEventListener(type,activity,true);stash();unlock();void flush();}};
+ return {activity,pause,sample,flush,total,stop(){if(stopped)return;history.pause(performance.now(),Date.now(),'left');stopped=true;clearInterval(tick);clearInterval(sync);clearInterval(leaseTimer);document.removeEventListener('visibilitychange',pause);removeEventListener('blur',pause);stash();unlock();void flush();}};
 }
