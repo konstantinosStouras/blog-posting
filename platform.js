@@ -8,7 +8,7 @@ import {can} from './permissions.js';
 import {store, memberOfBlog} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
-import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
+import {esc, toast, slugify, fmtDate, fmtDateTime, toDom, pageHead} from './util.js';
 import {JOIN_CITIES, cityLabel, isRetiredStudentCode} from './invitation-codes.js';
 import {DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
@@ -133,6 +133,21 @@ export async function moduleRedirect(id) {
 
 // ---------- the brief: a blog's exercise, with the reader's own deadlines ----------
 // For the blog's members and instructors only: unlike the canvas, a visitor is asked to log in.
+function briefContent(html, blog) {
+  const range = [blog.minWords, blog.maxWords].filter(Boolean).map(n => Number(n).toLocaleString('en-IE')).join('–');
+  const target = range ? (!blog.minWords ? 'up to ' : !blog.maxWords ? 'at least ' : '') + range + ' words' : 'no word target';
+  const body = toDom(html);
+  const tokens = {thisYear: String(new Date().getFullYear()), wordTarget: target, blogTitle: blog.title};
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const text = walker.currentNode;
+    text.data = text.data.replace(/\/(thisYear|wordTarget|blogTitle)\b/g, (_, name) => tokens[name]);
+  }
+  const heading = body.firstElementChild;
+  const title = heading?.matches('h1, h2') ? heading.textContent : 'The brief';
+  if (heading?.matches('h1, h2')) heading.remove();
+  return {title, html: body.innerHTML, range};
+}
 export async function briefPage(id) {
   const u = currentUser();
   if (!u) { app.innerHTML = '<p class="empty">This brief is for the members of its blog. <button class="btn primary" id="brief-signin">Log in</button></p>'; app.querySelector('#brief-signin').addEventListener('click', () => openAuthModal()); return; }
@@ -140,11 +155,12 @@ export async function briefPage(id) {
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
   const preview = u?.studentPreview, myHere = preview ? modules.filter(m => m.id === preview.moduleId && m.blogId === id) : mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;
-  const words = blog.minWords && blog.maxWords ? `${blog.minWords}–${blog.maxWords} words` : blog.maxWords ? `up to ${blog.maxWords} words` : '';
+  const brief = briefContent(blog.brief, blog);
+  const words = blog.minWords && blog.maxWords ? `${brief.range} words` : blog.maxWords ? `up to ${brief.range} words` : '';
   const editable = instructs(u, blog);   // the blog's instructors and the admin edit the brief here, in the post editor's sheet (brief-editor.js); a student preview reads it as a student
-  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/${esc(id)}">${esc(blog.title)}</a></p><h1 class="page-title">The brief</h1>
+  app.innerHTML = `<div class="guide challenge-guide"><h1 class="page-title">${esc(brief.title)}</h1>
     ${editable ? '<p class="actions brief-tools"><button type="button" class="btn small" id="brief-edit">Edit the brief</button></p>' : ''}
-    ${blog.brief ? `<div class="body brief-body">${sanitize(blog.brief)}</div>` : `<p class="muted">${editable ? 'There is no brief yet: <b>Edit the brief</b> opens the editor.' : 'The instructor has not written a brief for this blog yet.'}</p>`}
+    ${blog.brief ? `<div class="body brief-body">${brief.html}</div>` : `<p class="muted">${editable ? 'There is no brief yet: <b>Edit the brief</b> opens the editor.' : 'The instructor has not written a brief for this blog yet.'}</p>`}
     <h2 class="page-title" style="font-size:20px;margin-top:30px">How publishing works here</h2>
     <ol class="steps">
       <li><b>Log in.</b> Your posts and comments appear under an <b>alias</b> generated at random when your account was created, with the date of publication; your instructor alone sees who is behind it.</li>
@@ -218,7 +234,11 @@ export async function manageModule(id) {
 }
 
 // ---------- blog settings: the exercise ----------
-const briefPreview = html => html ? `<div class="body">${sanitize(html)}</div>` : '<p class="muted">No brief yet.</p>';
+function briefPreview(html, blog) {
+  if (!html) return '<p class="muted">No brief yet.</p>';
+  const brief = briefContent(html, blog);
+  return `<div class="body brief-body"><h2>${esc(brief.title)}</h2>${brief.html}</div>`;
+}
 export async function manageBlog(id) {
   const u = currentUser();
   const [b, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
@@ -229,7 +249,7 @@ export async function manageBlog(id) {
     <label class="field">Blog title<input name="title" required maxlength="160" value="${esc(b.title)}"></label>
     <label class="field">Description (shown above the canvas)<textarea name="description" maxlength="1200" rows="3">${esc(b.description || '')}</textarea></label>
     <div class="field brief-field"><span class="field-label">The brief (shown on “The brief” and linked from the editor)</span>
-      <div class="brief-preview" id="brief-preview">${briefPreview(b.brief)}</div>
+      <div class="brief-preview" id="brief-preview">${briefPreview(b.brief, b)}</div>
       <p class="actions"><button type="button" class="btn small" id="brief-edit">${b.brief ? 'Edit the brief' : 'Write the brief'}</button><span class="hint" id="brief-hint">Opens the editor. The brief is saved with the rest of the settings by <b>Save blog</b>.</span></p>
       <input type="hidden" name="brief" value="${esc(b.brief || '')}"></div>
     <div class="two-col">
@@ -250,7 +270,7 @@ export async function manageBlog(id) {
   app.querySelector('#brief-edit').onclick = () => {
     const field = app.querySelector('#blog-form').elements.brief;
     editBrief({html: field.value, blogTitle: b.title, action: 'Done', note: 'Click Done, then Save blog to keep the new brief.', save: html => {
-      field.value = html; app.querySelector('#brief-preview').innerHTML = briefPreview(html); app.querySelector('#brief-edit').textContent = html ? 'Edit the brief' : 'Write the brief';
+      field.value = html; app.querySelector('#brief-preview').innerHTML = briefPreview(html, b); app.querySelector('#brief-edit').textContent = html ? 'Edit the brief' : 'Write the brief';
       app.querySelector('#brief-hint').innerHTML = '<b>Changed.</b> Click <b>Save blog</b> below to keep it.';
     }});
   };

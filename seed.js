@@ -52,9 +52,9 @@ export const PM_EXERCISE = {
   categoryLabel: 'Megatrend',
   categories: MEGATRENDS,
   organisationLabel: 'Organisation(s) studied',
-  minWords: 900,
-  maxWords: 1100,
-  brief: `<p>The goal of the <strong>PM Challenge</strong> is to promote peer learning and discussion on the impact of a <em>megatrend</em> on business and society. Megatrends are powerful, transformative forces that can change the trajectory of the global economy by shifting the priorities of societies, driving innovation and redefining business models. Progress depends on change-makers: people who see opportunity and solutions in the midst of crisis.</p>
+  minWords: 4500,
+  maxWords: 5500,
+  brief: `<h2>PM Challenge /thisYear</h2><p>The goal of the <strong>PM Challenge /thisYear</strong> is to promote peer learning and discussion on the impact of a <em>megatrend</em> on business and society. Megatrends are powerful, transformative forces that can change the trajectory of the global economy by shifting the priorities of societies, driving innovation and redefining business models. Progress depends on change-makers: people who see opportunity and solutions in the midst of crisis.</p>
 <p>Project professionals are, of course, born change-makers. Organisations have long turned to project managers and professionals with project skills to help them turn ideas into reality. What truly sets us apart is our focus on implementation: figuring out how to make something concrete out of an audacious goal. This skill set will be more indispensable in the years ahead than ever before, as the world grapples with megatrends.</p>
 <p>In this Challenge you will investigate how an organisation is addressing one of the following megatrends (in no particular order):</p>
 <ol>
@@ -82,7 +82,7 @@ export const PM_EXERCISE = {
 </ol>
 <p>Your post should convey facts, analysis and your recommendations. It should focus on a single organisation (a single company, non-profit organisation or government agency) and a concern related to one of the megatrends above. It is fine if the concern you chose also relates to other megatrends the organisation is facing, but that is not required. The formatting is entirely up to you. Roughly a quarter of the post should go to each of the first four questions, with just a few sentences for the last.</p>
 <h2>Length and sources</h2>
-<p>Your post should be <strong>at least 900 and no more than 1,100 words</strong>, excluding the text of tables, table captions, figure captions, appendices and links. Reference every source you mention with a hyperlink, as opposed to a list of references at the end. I highly encourage you to read and reference top outlets such as the <a href="https://www.ft.com/content/3405a512-5cbb-11e1-8f1f-00144feabdc0" target="_blank" rel="noopener">FT50</a> research journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em>, <em>California Management Review</em>, <em>The Economist</em>, <em>Bloomberg Businessweek</em>, <em>Forbes</em>, and major newspapers or trustworthy articles on the web.</p>
+<p>Your post should be <strong>/wordTarget</strong>, excluding the text of tables, table captions, figure captions, appendices and links. Reference every source you mention with a hyperlink, as opposed to a list of references at the end. I highly encourage you to read and reference top outlets such as the <a href="https://www.ft.com/content/3405a512-5cbb-11e1-8f1f-00144feabdc0" target="_blank" rel="noopener">FT50</a> research journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em>, <em>California Management Review</em>, <em>The Economist</em>, <em>Bloomberg Businessweek</em>, <em>Forbes</em>, and major newspapers or trustworthy articles on the web.</p>
 <h2>Submitting your post</h2>
 <p>Write and publish your post on this blog, logged in through the invitation from your instructor (how it works is explained below). When you publish, select your megatrend as the post's <strong>category</strong>, choose an informative <strong>featured image</strong> (one that relates closely to or summarises your post; it is shown on the blog's canvas) and add appropriate <strong>tags</strong>. Once your post is published:</p>
 <ol>
@@ -111,7 +111,7 @@ export const PM_EXERCISE = {
 <h2>Two questions remain open</h2><p><strong>Question 1:</strong> </p><p><strong>Question 2:</strong> </p>`,
   checklist: ['Why the megatrend matters to management', 'How management is affected (+/−)', 'Current steps: next 2 years and 2–10 years', 'Your recommendations, short and medium term', 'One or two open questions for classmates', 'Sources as hyperlinks (FT50, HBR, MIT SMR, The Economist…)'],
 };
-export const EMPTY_EXERCISE = {categoryLabel: 'Category', categories: [], organisationLabel: '', minWords: 0, maxWords: 0, brief: '', outline: '', checklist: []};
+export const EMPTY_EXERCISE = {categoryLabel: 'Category', categories: [], organisationLabel: '', minWords: 4500, maxWords: 5500, brief: '<h2>/blogTitle Challenge /thisYear</h2><p>Write a blog post of <strong>/wordTarget</strong>.</p>', outline: '', checklist: []};
 // The reply rules shown under the comment box: every blog starts with these; an instructor
 // rewrites them in Blog settings, and they apply to every post on that blog's canvas.
 export const DEFAULT_REPLY_RULES = 'Be nice, and be specific: reply to what the author actually argued, with your own reasoning and, where you can, evidence. Disagreement is welcome; dismissiveness is not. If you use AI to help, make sure the idea is yours and the words are too.';
@@ -120,7 +120,7 @@ export const replyRulesOf = blog => (blog && typeof blog.replyRules === 'string'
 const T0 = new Date('2026-09-01T09:00:00').getTime();
 export const SEED_BLOGS = [
   {id: 'project-management', title: 'Project Management', description: 'How organisations face the megatrends shaping business and society: blog posts by UCD project management students.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...PM_EXERCISE},
-  {id: 'operations', title: 'Operations', description: 'Blog posts by students of BMGT41040 Operations, Innovation and Management.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...EMPTY_EXERCISE, brief: '<p>The brief for this blog has not been written yet.</p>'},
+  {id: 'operations', title: 'Operations', description: 'Blog posts by students of BMGT41040 Operations, Innovation and Management.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...EMPTY_EXERCISE, brief: '<h2>OIM Challenge /thisYear</h2><p>Write a blog post of <strong>/wordTarget</strong>.</p>'},
 ];
 const M = (o) => ({description: '', teacherIds: ['u-admin'], teacherName: 'Konstantinos Stouras', createdBy: 'u-admin', createdAt: T0, updatedAt: T0, submissionsOpen: true, requireApproval: false, deadline: '2026-11-28', ...o});
 export const SEED_MODULES = [
