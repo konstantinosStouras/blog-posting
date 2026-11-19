@@ -180,12 +180,11 @@ export const local = {
     state.votes.push({postId, pollId, uid: u.uid, option, t: Date.now()}); save();
     return this.pollVotes(postId, pollId, u);
   },
-  async listLikes(postId) { return (state.likes || []).filter(l => l.postId === postId).map(l => l.uid); },
-  async toggleLike(postId, u) {
-    state.likes = state.likes || [];
-    const i = state.likes.findIndex(l => l.postId === postId && l.uid === u.uid);
-    if (i >= 0) state.likes.splice(i, 1); else state.likes.push({postId, uid: u.uid});
-    save(); return {liked: i < 0, count: state.likes.filter(l => l.postId === postId).length};
+  async listLikes(postId) { return [...new Set((state.likes || []).filter(l => l.postId === postId).map(l => l.uid))]; },
+  async setPostLike(postId, u, liked) {
+    state.likes = (state.likes || []).filter(l => l.postId !== postId || l.uid !== u.uid);
+    if (liked) state.likes.push({postId, uid: u.uid});
+    save();
   },
 
   // ---- bookmarks: two id lists on the reader's own profile, plus a marker per reader on the post for the count ----

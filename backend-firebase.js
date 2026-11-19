@@ -618,12 +618,18 @@ export const firebase = {
     await F.setDoc(F.doc(db, 'posts', postId, 'votes', pollId + '_' + u.uid), {pollId, uid: u.uid, option, t: Date.now()});
     return this.pollVotes(postId, pollId, u);
   },
-  async listLikes(postId) { try { const s = await getDocs(F.collection(db, 'posts', postId, 'likes')); return s.docs.map(d => d.id); } catch { return []; } },
-  async toggleLike(postId, u) {
+  async listLikes(postId) {
+    const snapshot = await getDocs(F.collection(db, 'posts', postId, 'likes'));
+    return snapshot.docs.map(doc => doc.id);
+  },
+  async setPostLike(postId, u, liked) {
     if (!user?.emailVerified) throw Error('Verify your sign-in email to like posts.');
-    const ref = F.doc(db, 'posts', postId, 'likes', u.uid), had = (await getDoc(ref)).exists();
-    if (had) await F.deleteDoc(ref); else await F.setDoc(ref, {t: Date.now()});
-    const likes = await this.listLikes(postId); return {liked: !had, count: likes.length};
+    const ref = F.doc(db, 'posts', postId, 'likes', u.uid);
+    await F.runTransaction(db, async tx => {
+      if ((await tx.get(ref)).exists() === liked) return;
+      if (liked) tx.set(ref, {t: Date.now()});
+      else tx.delete(ref);
+    });
   },
 
   // ---- bookmarks: two id lists (posts, comments) on the reader's own profile, which only its owner may write.
