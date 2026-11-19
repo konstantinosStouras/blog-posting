@@ -933,3 +933,12 @@ dialog.brief-sheet { width: min(900px, 96vw); height: min(800px, 90dvh); }
 .brief-sheet .sheet-actions { align-items: center; }
 .brief-sheet .sheet-actions .status-line { margin: 0 0 0 auto; color: var(--bad); }
 @media (max-width: 700px) { .brief-sheet .editor .surface { padding: 12px 14px; } }
+.masthead-actions { display: flex; align-items: center; gap: .6rem; flex: none; }
+.module-writer { position: relative; }
+.module-writer summary { cursor: pointer; list-style: none; }
+.module-choices { position: absolute; right: 0; z-index: 20; background: white; border: 1px solid var(--line); padding: .75rem; width: min(230px, 72vw); }
+.module-choices a { display: block; padding: .4rem 0; }
+.canvas-theme + .canvas-theme { margin-top: 2.5rem; }
+.canvas-theme h2 { border-bottom: 1px solid var(--line); padding-bottom: .5rem; margin-bottom: 1rem; }
+.canvas-theme h2 small { color: var(--muted); font: normal .85rem system-ui; white-space: nowrap; }
+@media (max-width: 700px) { .masthead-actions .write-long { display: none; } }

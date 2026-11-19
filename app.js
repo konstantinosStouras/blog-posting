@@ -124,26 +124,16 @@ const blogOnPath = path => BLOGS.find(b => b.id === (path.match(/^\/([a-z0-9-]+)
 function renderHeader(path = route(), blog = blogOnPath(path)) {
   const u = user();
   const active = h => (h === '/' ? path === '/' : path.startsWith(h)) ? 'active' : '';
-  // Two rows. Top: the masthead with the account control on the right (the avatar menu, where
-  // everything personal lives). Under the rule: the site's public tabs on the left and search on
-  // the right. On a phone the tabs fold into a drawer that slides in from the left. On a blog's
-  // pages (its canvas, its brief, each of its posts) a signed-in reader gets a third row, the
-  // blog's actions (Write your blog post, The brief, and for its instructors Blog settings and
-  // Review posts), filled by platform.js blogActions once it knows the reader's modules.
   setNav(false);
-  // Signed in, the first tab is the person's own blog (or blogs; the admin explores them all),
-  // then All posts and search. A visitor on a blog (its canvas or one of its posts) gets the blog's
-  // own menu, its home alone: All posts and search are for readers, and the brief for members.
-  // On the front door (the welcome page) only the masthead and Log in are drawn.
   const own = BLOGS.filter(b => b !== VISITING);   // the menu names the reader's own blogs, not one they are visiting by its link
   const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : own.length === 1 ? {href: '/' + own[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
-  const tabs = u ? `<a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
+  const tabs = !blog && u ? `<a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>`
-    : blog ? `<a href="/${esc(blog.id)}" class="${path.split('?')[0] === '/' + blog.id ? 'active' : ''}">Home</a>` : '';
+    : '';
   $header.innerHTML = `<div class="brand">
     ${tabs ? '<button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>' : ''}
     <div class="masthead">${blog ? `<h1><a href="/${esc(blog.id)}">${esc(blog.title)}</a></h1><p class="tagline">${esc(blog.description || S.tagline)}</p>` : `<h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p>`}</div>
-    <div class="account" id="account"></div></div>
+    <div class="masthead-actions">${u && blog ? '<span id="blog-write" hidden></span>' : ''}<div class="account" id="account"></div></div></div>
   <hr class="rule">
   ${tabs ? `<div class="sub">
     <nav id="site-nav" class="site-nav" aria-label="Site">
@@ -154,7 +144,7 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   ${u && blog ? '<div class="blog-actions actions" id="blog-actions" hidden></div>' : ''}`;
   renderAccountControl($header.querySelector('#account'));   // includes "View as Instructor X" / "View as Student" when they apply
   const slot = $header.querySelector('#blog-actions');
-  if (slot) blogActions(blog.id, slot).catch(e => console.warn('blog actions', e));
+  if (slot) blogActions(blog.id, slot, $header.querySelector('#blog-write')).catch(e => console.warn('blog actions', e));
   const toggle = $header.querySelector('.nav-toggle'), nav = $header.querySelector('#site-nav'), backdrop = $header.querySelector('.nav-backdrop');
   if (!nav) return;
   toggle.onclick = () => { const open = !$header.classList.contains('nav-open'); setNav(open); if (open) nav.querySelector('a')?.focus(); };
@@ -664,7 +654,7 @@ async function mine() {
   const u = user();
   if (!u) { $app.innerHTML = `<p class="empty">Log in to see your posts.</p>`; return; }
   const posts = (await store.listPosts({authorId: u.uid})).sort(by('updatedAt'));
-  $app.innerHTML = `<h1 class="page-title">My posts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="/profile">Edit profile</a></p>
+  $app.innerHTML = `<h1 class="page-title">My posts &amp; drafts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="/profile">Edit profile</a></p>
     <p class="actions"><a class="btn primary" href="/write">Write a new post</a><a class="btn" href="/my-modules">My modules</a></p>
     ${posts.length ? `<table class="list"><thead><tr><th>Title</th><th>Blog</th><th>Status</th><th>Words</th><th>Megatrend</th><th>Updated</th><th></th></tr></thead><tbody>
       ${posts.map(p => `<tr><td><a href="/edit/${encodeURIComponent(p.id)}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${postWords(p)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
