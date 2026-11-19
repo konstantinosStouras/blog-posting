@@ -381,6 +381,19 @@ table.list td.actions > * + * { margin-left:6px; }
 .canvas-sort { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 .canvas-sort select, .canvas-facets select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 13px; color: var(--ink); }
 .canvas-count { font-size: 13px; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+.filter-toggle, .theme-option { cursor: pointer; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font: inherit; font-size: 13px; }
+.filter-toggle::after { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 2px 3px 9px; border: solid currentColor; border-width: 0 1px 1px 0; transform: rotate(45deg); }
+.filter-toggle[aria-expanded="true"]::after { transform: rotate(225deg); margin-bottom: 0; }
+.filter-toggle[aria-expanded="true"], .theme-option[aria-pressed="true"] { color: var(--blue); border-color: currentColor; }
+.canvas-filters > div:not([hidden]) { margin-bottom: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
+.canvas-filters .chips, .canvas-filters .canvas-facets { margin: 0; }
+.canvas-filters .tagcloud { margin: 12px 0 0; }
+.canvas-filters select { width: 100%; }
+@media (max-width: 600px) {
+  .canvas-head { gap: 8px; }
+  .canvas-head .canvas-search { flex-basis: 100%; max-width: none; }
+  .canvas-sort { flex-wrap: wrap; }
+}
 /* select mode (staff): tick cards, act on them from the bar */
 .canvas-select[aria-pressed="true"] { background: var(--ink); color: #fff; }
 .canvas-bulk { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; margin: -4px 0 16px; padding: 8px 12px; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }

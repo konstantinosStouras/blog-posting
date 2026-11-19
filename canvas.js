@@ -108,9 +108,15 @@ function facets(st) {
 function headHtml(st) {
   return `<div class="canvas-head">
     <form class="canvas-search" role="search" onsubmit="return false"><input type="search" name="q" value="${esc(st.f.q)}" placeholder="Search titles, organisations, tags, text…" aria-label="Search posts" autocomplete="off"><button type="button" class="clear" data-set="q" data-v="" aria-label="Clear search" ${st.f.q ? '' : 'hidden'}>×</button></form>
+    ${['theme', 'more'].map(key => `<button type="button" class="filter-toggle" data-panel="${key}" aria-expanded="false" aria-controls="canvas-${key}-panel">${panelLabel(st, key)}</button>`).join('')}
     <label class="canvas-sort">Sort<select data-set="sort" aria-label="Sort posts">${SORTS.map(([v, l]) => `<option value="${v}" ${st.f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     ${st.bulk ? `<button type="button" class="btn small canvas-select" data-select-mode aria-pressed="${st.selecting}" title="Tick posts and delete them together">${st.selecting ? 'Done' : 'Select'}</button>` : ''}
-    <span class="canvas-count" aria-live="polite">${countText(st)}</span></div>`;
+    <span class="canvas-count" aria-live="polite">${countText(st)}</span><button type="button" class="linkish" data-clear ${activeFilterCount(st.f) ? '' : 'hidden'}>Clear filters</button></div>`;
+}
+function panelLabel(st, key) {
+  const {f} = st;
+  const n = key === 'theme' ? f.trends.length : [f.org, f.industry, f.year, f.module, f.blog].filter(Boolean).length + f.tags.length;
+  return (key === 'theme' ? 'Theme' : 'More filters') + (n ? ` (${n})` : '');
 }
 // The select-mode bar: how many are ticked, select all / none of the posts on screen, and the action.
 function bulkHtml(st) {
@@ -128,19 +134,19 @@ function countText(st) {
 }
 function filtersHtml(st) {
   const {f} = st, fx = facets(st), link = patch => esc(st.base + filterQuery({...f, ...patch}));
-  const chip = (slug, name, n, active) => `<a href="${link({trends: !slug ? [] : active ? f.trends.filter(t => t !== slug) : [...f.trends, slug]})}" data-trend="${esc(slug)}" class="${active ? 'active' : ''}${n ? '' : ' zero'}" aria-pressed="${active}">${esc(name)}<span class="n">${n}</span></a>`;
-  const select = (name, label, rows, value, all) => rows.length ? `<label>${label}<select data-set="${name}" aria-label="${label}"><option value="">${all} (${rows.reduce((s, r) => s + r.n, 0)})</option>${rows.map(r => `<option value="${esc(r.key)}" ${norm(r.key) === norm(value) ? 'selected' : ''}>${esc(r.label)} (${r.n})</option>`).join('')}</select></label>` : '';
+  const chip = (slug, name, n, active) => `<button type="button" class="theme-option" data-trend="${esc(slug)}" aria-pressed="${active}">${esc(name)}${slug ? ` <small>${n}</small>` : ''}</button>`;
+  const select = (name, label, rows, value, all) => {
+    if (value && !rows.some(r => norm(r.key) === norm(value))) rows = [...rows, {key: value, label: value, n: 0}];
+    return `<label>${label}<select data-set="${name}" aria-label="${label}"><option value="">${all}</option>${rows.map(r => `<option value="${esc(r.key)}" ${norm(r.key) === norm(value) ? 'selected' : ''}>${esc(r.label)} (${r.n})</option>`).join('')}</select></label>`;
+  };
   const shownTags = st.allTags ? fx.tags : fx.tags.slice(0, TAG_LIMIT);
   const active = f.tags.map(t => fx.tags.find(x => x.key === norm(t)) || {key: norm(t), label: t, n: 0});
   for (const t of active) if (!shownTags.some(x => x.key === t.key)) shownTags.unshift(t);
   const tagHtml = shownTags.map(t => { const on = f.tags.some(x => norm(x) === t.key); return `<a href="${link({tags: on ? f.tags.filter(x => norm(x) !== t.key) : [...f.tags, t.label]})}" data-tag="${esc(t.label)}" class="${on ? 'active' : ''}${t.n ? '' : ' zero'}" aria-pressed="${on}">${esc(t.label)}<span class="n">${t.n}</span></a>`; }).join('');
-  // The category chips are toggles: a click selects a megatrend, a second click on a lit chip
-  // deselects it, and nothing selected means every post. "Clear all" at the end of the row
-  // resets every filter (chips, search, selects and tags) and shows only while one is set.
-  const clearAll = activeFilterCount(f) ? `<button type="button" class="linkish clear-all" data-clear>Clear all</button>` : '';
-  return `${fx.allCats.length ? `<div class="chips" role="group" aria-label="${esc(catLabel(st))}">${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trends.includes(c.slug))).join('')}${clearAll}</div>` : clearAll ? `<div class="chips">${clearAll}</div>` : ''}
-    <div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('industry', 'Industry', fx.industries, f.industry, 'All industries')}${select('year', fx.yearLabel, fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${st.modules.size && (fx.modules.length > 1 || f.module) ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
-    ${fx.tags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}`;
+  for (const slug of f.trends) if (!fx.allCats.some(c => c.slug === slug)) fx.allCats.push({slug, name: slug});
+  return `<div id="canvas-theme-panel" ${st.panel === 'theme' ? '' : 'hidden'}><div class="chips" role="group" aria-label="Theme">${chip('', 'All themes', st.posts.length, !f.trends.length)}${fx.allCats.map(c => chip(c.slug, c.name, fx.trends.get(c.slug) || 0, f.trends.includes(c.slug))).join('')}</div></div>
+    <div id="canvas-more-panel" ${st.panel === 'more' ? '' : 'hidden'}><div class="canvas-facets">${select('org', 'Organisation', fx.orgs, f.org, 'All organisations')}${select('industry', 'Industry', fx.industries, f.industry, 'All industries')}${select('year', 'Academic year', fx.years, f.year, 'All years')}${st.blogs.size > 1 || fx.blogs.length > 1 || f.blog ? select('blog', 'Blog', fx.blogs, f.blog, 'All blogs') : ''}${st.modules.size && (fx.modules.length > 1 || f.module) ? select('module', 'Module', fx.modules, f.module, 'All modules') : ''}</div>
+    ${shownTags.length ? `<div class="tagcloud" role="group" aria-label="Tags"><span class="lbl">Tags</span>${tagHtml}${fx.tags.length > TAG_LIMIT ? `<button type="button" class="more" data-more-tags>${st.allTags ? 'Fewer tags' : `All ${fx.tags.length} tags`}</button>` : ''}</div>` : ''}</div>`;
 }
 const shownPosts = st => sorted(st.posts.filter(p => matches(p, st.f)), st.f.sort);
 function gridHtml(st) {
@@ -182,14 +188,22 @@ export function card(p, st = current || {f: parseFilters(''), base: '/posts', ca
 
 // ---------- behaviour (delegated, so the page only has to render the string) ----------
 function root(el) { const r = el?.closest?.('.canvas-root'); return r && current ? r : null; }
+function refreshFilters(r) {
+  const filters = r.querySelector('.canvas-filters'), focus = document.activeElement;
+  const key = filters.contains(focus) && ['data-set', 'data-trend', 'data-tag', 'data-more-tags'].find(attr => focus.hasAttribute(attr));
+  filters.innerHTML = filtersHtml(current);
+  if (key) filters.querySelector(`[${key}="${CSS.escape(focus.getAttribute(key))}"]`)?.focus({preventScroll: true});
+}
 function apply(r, patch) {
   current.f = {...current.f, ...patch};
   rewrite(current.base + filterQuery(current.f));
-  r.querySelector('.canvas-filters').innerHTML = filtersHtml(current);
+  refreshFilters(r);
   if (current.selecting) { const keep = new Set(shownPosts(current).map(p => p.id)); for (const id of [...current.selected]) if (!keep.has(id)) current.selected.delete(id); }
   r.querySelector('.canvas-grid').innerHTML = gridHtml(current);
   r.querySelector('.canvas-bulk').innerHTML = bulkHtml(current);
   r.querySelector('.canvas-count').textContent = countText(current);
+  r.querySelector('.canvas-head [data-clear]').hidden = !activeFilterCount(current.f);
+  for (const button of r.querySelectorAll('[data-panel]')) button.textContent = panelLabel(current, button.dataset.panel);
   r.querySelector('.canvas-search .clear').hidden = !current.f.q;
   if (!current.f.q) r.querySelector('.canvas-search input').value = '';
 }
@@ -220,6 +234,16 @@ async function bulkDelete(r, btn) {
 }
 document.addEventListener('click', e => {
   const r = root(e.target); if (!r) return;
+  const toggle = e.target.closest('[data-panel]');
+  if (toggle) {
+    current.panel = current.panel === toggle.dataset.panel ? null : toggle.dataset.panel;
+    for (const button of r.querySelectorAll('[data-panel]')) {
+      const open = button.dataset.panel === current.panel;
+      button.setAttribute('aria-expanded', String(open));
+      r.querySelector('#' + button.getAttribute('aria-controls')).hidden = !open;
+    }
+    return;
+  }
   if (e.target.closest('[data-select-mode]')) { if (!current.bulk) return; current.selecting = !current.selecting; current.selected.clear(); redrawSelection(r); return; }
   if (current.selecting) {
     if (e.target.closest('[data-select-all]')) { for (const p of shownPosts(current)) if (current.bulk.canDelete(p)) current.selected.add(p.id); redrawSelection(r); return; }
@@ -234,9 +258,9 @@ document.addEventListener('click', e => {
   else if (tag) { e.preventDefault(); const k = norm(tag.dataset.tag), on = current.f.tags.some(t => norm(t) === k); apply(r, {tags: tag.dataset.only ? [tag.dataset.tag] : on ? current.f.tags.filter(t => norm(t) !== k) : [...current.f.tags, tag.dataset.tag]}); }
   else if (rm) { const k = rm.dataset.remove; apply(r, k === 'tag' ? {tags: current.f.tags.filter(t => norm(t) !== norm(rm.dataset.v))} : k === 'trend' ? {trends: current.f.trends.filter(t => t !== rm.dataset.v)} : {[k]: ''}); }
   else if (e.target.closest('[data-clear]')) { apply(r, {q: '', trends: [], org: '', industry: '', year: '', module: '', blog: '', tags: []}); r.querySelector('.canvas-search input').value = ''; }
-  else if (e.target.closest('[data-more-tags]')) { current.allTags = !current.allTags; r.querySelector('.canvas-filters').innerHTML = filtersHtml(current); }
+  else if (e.target.closest('[data-more-tags]')) { current.allTags = !current.allTags; refreshFilters(r); }
   else return;
-  if (set || tag || trend || rm) r.querySelector('.canvas-grid').scrollIntoView({block: 'nearest'});
+  if ((set || tag || trend || rm) && e.target.closest('.card')) r.querySelector('.canvas-grid').scrollIntoView({block: 'nearest'});
 });
 document.addEventListener('change', e => {
   const r = root(e.target); if (!r) return;
