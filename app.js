@@ -267,14 +267,14 @@ function postSideHtml(p, {u, module, blog, words, context, peer = null}) {
 }
 function articleHtml(p, {blog = null, words = null, likes = [], bookmarks = [], comments = 0, me = null, preview = false} = {}) {
   const w = words ?? postWords(p);
-  const liked = !!me && likes.includes(me.uid), saved = !!me && (me.bookmarkedPosts || []).includes(p.id);
+  const liked = !!me && !!likes?.includes(me.uid), saved = !!me && (me.bookmarkedPosts || []).includes(p.id);
   return `<header class="post-head">
     ${p.category || (p.industries || []).length ? `<div class="cat">${p.category ? `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a>` : ''}${(p.industries || []).map(s => `<a class="industry" href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?industry=${esc(s)}">${esc(industryName(s))}</a>`).join('')}</div>` : ''}
     <h1>${esc(p.title || 'Untitled')}</h1>
     ${p.excerpt ? `<p class="subtitle">${esc(p.excerpt)}</p>` : ''}
     <div class="byline"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div><a href="/author/${esc(p.authorId || '')}"><b>${esc(p.authorName || 'you')}</b></a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}<br><span class="muted">${fmtDate(p.publishedAt || p.updatedAt || Date.now())} · ${readingTime(w)}${blog ? ` · <a href="/${esc(blog.id)}">${esc(blog.title)}</a>` : ''}</span></div></div>
     <div class="post-actions-row" role="group" aria-label="Post actions">
-      <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes.length || ''}</span></button>
+      <button type="button" class="react ${liked ? 'on' : ''}" data-like ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${liked}" aria-label="Like">${ICON.heart}<span>${likes?.length || ''}</span></button>
       <a class="react" href="#comments" data-comments aria-label="Comments">${ICON.comment}<span>${comments || ''}</span></a>
       <button type="button" class="react ${saved ? 'on' : ''}" data-bookmark ${preview || p.status !== 'published' ? 'disabled' : ''} aria-pressed="${saved}" aria-label="Bookmark" title="${saved ? 'Bookmarked: find it on your profile' : 'Bookmark this post'}">${ICON.star}<span>${bookmarks.length || ''}</span></button>
       <span class="grow"></span>
@@ -300,7 +300,7 @@ async function postView(slug, blogId = null) {
   const shareModule = showModule || (u && u.uid === p.authorId) ? module : null;   // the share credit names the module for the author and those readers only
   const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
   const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
-  const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}), store.listLikes(p.id), store.listBookmarks(p.id)]);
+  const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}), (u || store.mode === 'local' ? store.listLikes(p.id).catch(() => null) : null), store.listBookmarks(p.id)]);
   if (blog) renderHeader(route(), blog);   // a post's masthead is its blog's
   const words = wordCount(p.body);
   $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${showModule ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<div class="post-layout"><article class="post">
@@ -352,10 +352,40 @@ async function postView(slug, blogId = null) {
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
     try { const n = await store.toggleBookmark('post', p.id); b.classList.toggle('on', n.on); b.setAttribute('aria-pressed', n.on); b.title = n.on ? 'Bookmarked: find it on your profile' : 'Bookmark this post'; b.querySelector('span').textContent = n.count || ''; toast(n.on ? 'Bookmarked. Find it on your profile.' : 'Bookmark removed.'); } catch (err) { toast(err.message, 'error'); }
   };
+  let knownLikes = likes;
   $app.querySelector('[data-like]').onclick = async e => {
     const b = e.currentTarget;
     if (!u) { store.mode === 'firebase' ? openAuthModal() : toast('Pick an account with "View as" at the top right.'); return; }
-    try { const n = await store.toggleLike(p.id, u); b.classList.toggle('on', n.liked); b.setAttribute('aria-pressed', n.liked); b.querySelector('span').textContent = n.count || ''; } catch (err) { toast(err.message, 'error'); }
+    if (b.getAttribute('aria-busy') === 'true') return;
+    b.setAttribute('aria-busy', 'true');
+    const paint = (liked, count) => {
+      b.classList.toggle('on', liked);
+      b.setAttribute('aria-pressed', String(liked));
+      b.querySelector('span').textContent = count || '';
+    };
+    try {
+      // If the opening read failed, recover the existing votes before choosing an action.
+      if (!knownLikes) knownLikes = await store.listLikes(p.id);
+      const had = knownLikes.includes(u.uid);
+      paint(!had, knownLikes.length + (had ? -1 : 1));
+      b.classList.toggle('like-pulse', !had);
+      await quietly(() => store.setPostLike(p.id, u, !had));
+      // The write has committed. A failed count refresh must never undo the heart.
+      try {
+        knownLikes = await store.listLikes(p.id);
+        paint(knownLikes.includes(u.uid), knownLikes.length);
+      } catch {
+        knownLikes = null;
+        paint(!had, null);
+        toast('Your change was saved. The like count is temporarily unavailable.');
+      }
+    } catch (err) {
+      if (knownLikes) paint(knownLikes.includes(u.uid), knownLikes.length);
+      b.classList.remove('like-pulse');
+      toast(err.message, 'error');
+    } finally {
+      b.removeAttribute('aria-busy');
+    }
   };
   $app.onclick = async e => {
     const del = e.target.closest('[data-del-comment]');

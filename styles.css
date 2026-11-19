@@ -547,6 +547,12 @@ dialog.sheet { width: min(760px, 94vw); padding: 0; font-family: var(--ui); }
 .react:hover { background: var(--soft); text-decoration: none; }
 .react.on { color: var(--accent); border-color: var(--accent); background: #fff4ee; }
 .react.on svg { fill: var(--accent); }
+.react[data-like].on { color: #b42346; border-color: currentColor; background: #fff2f5; }
+.react[data-like].on svg { fill: currentColor; }
+@media (prefers-reduced-motion: no-preference) {
+  .react.like-pulse.on svg { animation: like-pulse 300ms ease-out; }
+  @keyframes like-pulse { 0% { transform: scale(.88); } 45% { transform: scale(1.2); } 100% { transform: scale(1); } }
+}
 .react[disabled] { opacity: .6; cursor: default; }
 .react.wide { padding: 0 14px; }
 /* bookmarks: the star under a comment is smaller than the post's; the profile lists them by person */
