@@ -146,7 +146,17 @@ const shownPosts = st => sorted(st.posts.filter(p => matches(p, st.f)), st.f.sor
 function gridHtml(st) {
   const shown = shownPosts(st);
   if (!shown.length) return `<div class="canvas-empty"><p>No posts match these filters.</p><button type="button" class="btn small" data-clear>Clear filters</button></div>`;
-  return `<div class="canvas">${shown.map(p => card(p, st)).join('')}</div>`;
+  const grid = posts => `<div class="canvas">${posts.map(p => card(p, st)).join('')}</div>`;
+  if (!st.opts.groupByTheme || !shown.some(p => p.category)) return grid(shown);
+  const groups = new Map(st.cats.map(c => [c.slug, []]));
+  for (const post of shown) {
+    const key = post.category || '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(post);
+  }
+  return [...groups].filter(([, posts]) => posts.length).map(([key, posts]) =>
+    `<section class="canvas-theme"><h2>${esc(catName(st, key, posts[0]) || 'Uncategorised')} <small>${posts.length} ${posts.length === 1 ? 'post' : 'posts'}</small></h2>${grid(posts)}</section>`
+  ).join('');
 }
 export function card(p, st = current || {f: parseFilters(''), base: '/posts', cats: [], modules: new Map(), blogs: new Map(), opts: {}}) {
   const link = patch => esc(st.base + filterQuery({...st.f, ...patch}));

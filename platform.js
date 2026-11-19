@@ -4,6 +4,7 @@
 //   A MODULE is a cohort: code, academic year, roster, invitations, deadline and
 //   moderation settings. Every module posts to exactly one blog, and several
 //   modules of the same instructor may share one blog canvas.
+import {can} from './permissions.js';
 import {store, memberOfBlog} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
@@ -69,20 +70,24 @@ export async function myModules(target = app, embedded = false) {
 }
 
 // ---------- the blog's action row ----------
-// Under the masthead of every page of a blog (its canvas, its brief and each of its posts), for a
-// signed-in reader: Write your blog post (or Enter invitation code for a reader who belongs to no
-// module on it), The brief, and for the blog's instructors Blog settings and Review posts. app.js
-// renderHeader leaves the slot and calls this to fill it; a visitor gets no row.
-export async function blogActions(id, el) {
+export async function blogActions(id, el, writeSlot) {
   const u = currentUser();
   if (!u) return;
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), store.listMyModules()]);
   if (!blog || !el.isConnected) return;   // a later navigation has redrawn the header
   const onBlog = modules.filter(m => m.blogId === id), preview = u.studentPreview;   // an instructor seeing the blog as a student of one module
-  const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
+  const myHere = preview ? onBlog.filter(m => m.id === preview.moduleId) : mine.filter(m => m.blogId === id);
   const owner = instructs(u, blog) || myHere.some(isTeaching);
-  el.innerHTML = `${writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>'}${blog.brief && (owner || myHere.length || preview) ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/instructor?blog=${esc(id)}#posts">Review posts</a>` : ''}`;
-  el.hidden = false;
+  const writable = (instructs(u, blog) ? onBlog : myHere).filter(m => can(u, 'write', {moduleId: m.id, blogId: id}, m));
+  const label = '+ Write<span class="write-long"> a post</span>';
+  if (writable.length && (store.mode !== 'firebase' || u.emailVerified)) {
+    writeSlot.innerHTML = writable.length === 1
+      ? `<a class="btn primary" href="/write/${esc(writable[0].id)}">${label}</a>`
+      : `<details class="module-writer"><summary class="btn primary">${label}</summary><div class="module-choices"><b>Choose a module</b>${writable.map(m => `<a href="/write/${esc(m.id)}">${esc(moduleLabel(m))} ${esc(m.academicYear || '')}</a>`).join('')}</div></details>`;
+    writeSlot.hidden = false;
+  }
+  el.innerHTML = `${!myHere.length && !owner ? '<button class="btn primary" id="join-module">Enter invitation code</button>' : ''}${blog.brief && (owner || myHere.length || preview) ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/instructor?blog=${esc(id)}#posts">Review posts</a>` : ''}`;
+  el.hidden = !el.childElementCount;
   el.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register'));
 }
 
@@ -104,18 +109,18 @@ export async function blogCanvas(id, metadata) {
   if (!u) {
     // The posts alone, with nothing above them: no module line, no brief, no button row. Until the
     // rules that open published posts to visitors are deployed, the read fails and the page says so.
-    app.innerHTML = posts ? canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})
+    app.innerHTML = posts ? canvas(posts, {groupByTheme: true, categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})
       : `<section class="coming-soon" aria-label="Posts"><h2>Coming soon</h2><p>Posts by this blog’s students will appear here as they are published.</p></section>`;
     return;
   }
   const preview = u?.studentPreview;   // an instructor seeing the blog as a student of one module
-  const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
+  const myHere = preview ? [] : mine.filter(m => m.blogId === id);
   const owner = instructs(u, blog) || myHere.some(isTeaching);
   // The action row (Write your blog post, The brief, …) is the header's, drawn by blogActions above.
   // The module line above the canvas is the owner's: a student sees no module here, not even their own.
   app.innerHTML = `${owner ? `<p class="page-sub">${esc(onBlog.map(m => m.code || m.title).filter(Boolean).join(' · ') || 'Blog')}</p>` : ''}
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
-    <p class="muted small">${owner ? 'Published posts are public and every module’s students see them all; each module’s discussion is its own, and the instructors on this blog see everything.' : 'Published posts are public. The discussion under each post is for its author’s classmates and their instructors.'}</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
+    <p class="muted small">${owner ? 'Published posts are public and every module’s students see them all; each module’s discussion is its own, and the instructors on this blog see everything.' : 'Published posts are public. The discussion under each post is for its author’s classmates and their instructors.'}</p>${canvas(posts, {groupByTheme: true, categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
 }
 
 // Old `/module/<id>` links land on the module's blog.
