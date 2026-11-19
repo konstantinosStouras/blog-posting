@@ -80,7 +80,7 @@ img.avatar { object-fit: cover; background: var(--soft); }
 body.nav-locked { overflow: hidden; }
 
 /* ---- buttons & forms ---- */
-.btn { display: inline-block; padding: 8px 14px; border: 1px solid var(--ink); border-radius: 4px; background: #fff; color: var(--ink); cursor: pointer; font-size: 13px; font-weight: 500; text-decoration: none; }
+.btn { display: inline-block; text-align: center; padding: 8px 14px; border: 1px solid var(--ink); border-radius: 4px; background: #fff; color: var(--ink); cursor: pointer; font-size: 13px; font-weight: 500; text-decoration: none; }
 .btn:hover { background: var(--soft); text-decoration: none; }
 .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
 .btn.primary:hover { background: #184db0; }
@@ -542,7 +542,8 @@ dialog.sheet { width: min(760px, 94vw); padding: 0; font-family: var(--ui); }
 .post .body code { background: #f3f3f3; border-radius: 4px; padding: 1px 5px; font-size: .9em; }
 .post .body pre { background: #f6f6f4; border-radius: 6px; padding: 12px 14px; font-size: 14px; overflow-x: auto; }
 .post-actions-row { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 6px 0 26px; font-family: var(--ui); }
-.react { display: inline-flex; align-items: center; gap: 6px; height: 36px; min-width: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 18px; background: #fff; color: var(--ink); cursor: pointer; font-size: 13px; text-decoration: none; }
+.react { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 18px; background: #fff; color: var(--ink); cursor: pointer; font-size: 13px; text-decoration: none; }
+.react > span:empty { display: none; }
 .react:hover { background: var(--soft); text-decoration: none; }
 .react.on { color: var(--accent); border-color: var(--accent); background: #fff4ee; }
 .react.on svg { fill: var(--accent); }
@@ -713,7 +714,7 @@ body.writing .fb-fab { bottom: 64px; }
 .fb-shot img { display: block; width: 108px; height: 80px; object-fit: cover; border: 1px solid var(--line); border-radius: 8px; }
 .fb-shot.audio { width: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .fb-shot.audio audio { height: 36px; max-width: 100%; }
-.fb-shot .rm { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--ink); color: #fff; font-size: 14px; line-height: 1; cursor: pointer; box-shadow: 0 2px 6px #0003; }
+.fb-shot .rm { display: grid; place-items: center; padding: 0; position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--ink); color: #fff; font-size: 14px; line-height: 1; cursor: pointer; box-shadow: 0 2px 6px #0003; }
 .fb-shot.audio .rm { position: static; }
 .fb-shot figcaption { font-size: 11px; color: var(--muted); text-align: center; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fb-shot.audio figcaption { text-align: left; }
