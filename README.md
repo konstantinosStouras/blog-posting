@@ -26,12 +26,7 @@ UCD blog hosts public **blogs**, each written on by one or more **modules**.
   word target, an outline the student can insert, a pre-publish checklist and
   whether comments are open. Blogs are owned by instructors. Address:
   `/<url-name>`, directly under the site: `/ucd-blog/project-management`.
-  The brief is written in the post editor (its toolbar and writing surface,
-  `editor.js`, in a sheet: `brief-editor.js`), never as HTML: **Edit the
-  brief** on The brief page saves it to the blog at once, and the same button
-  on Blog settings, under a preview of the brief, hands it to the form for
-  **Save blog**. The sheet refuses a brief over the 60,000 characters the
-  rules allow (an image pasted into it is stored inside it).
+  Blog settings displays the rich-text toolbar directly above the editable brief. **Save blog** saves the brief with the other settings. **Edit the brief** on the brief page also opens a dedicated editor. Both enforce the 60,000-character limit.
 - A **module** is one cohort: code, title, academic year (e.g. 2026/27),
   roster, invitations, deadline and whether student posts need approval. When
   an instructor creates a module they either create a new, separate blog for it
