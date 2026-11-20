@@ -30,7 +30,18 @@ export async function blogDirectory() {
   if (!u) { app.innerHTML = renderWelcome(); bindWelcome(app); return; }   // the front door: no blogs, posts or comments before signing in
   const [blogs, modules, mine] = await Promise.all([store.listBlogs({metadataOnly: true}), store.listModules(), store.listMyModules()]);
   // The whole card opens the blog (a cover link beneath the buttons, as on the post canvas), and lights up on hover (styles.css, .module-card.linked).
-  const card = b => { const here = m => m.blogId === b.id, ms = instructs(u, b) || mine.some(m => here(m) && isTeaching(m)) ? modules.filter(here) : mine.filter(here); return `<article class="module-card linked"><a class="cover" href="/${esc(b.id)}" aria-hidden="true" tabindex="-1"></a><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/${esc(b.id)}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions"><a class="btn small" href="/${esc(b.id)}">Open blog</a>${instructs(u, b) ? `<a class="btn small" href="/blogs/edit/${esc(b.id)}">Blog settings</a>` : ''}</div></article>`; };
+  const card = b => {
+    const id = esc(b.id);
+    const owner = instructs(u, b);
+    const here = m => m.blogId === b.id;
+    const ms = owner || mine.some(m => here(m) && isTeaching(m)) ? modules.filter(here) : mine.filter(here);
+    const actions = owner
+      ? `<a class="btn" href="/${id}/brief">The brief</a>
+         <a class="btn" href="/blogs/edit/${id}">Blog settings</a>
+         <a class="btn" href="/instructor?blog=${id}#posts">Review posts</a>`
+      : `<a class="btn small" href="/${id}">Open blog</a>`;
+    return `<article class="module-card linked"><a class="cover" href="/${id}" aria-hidden="true" tabindex="-1"></a><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/${id}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions">${actions}</div></article>`;
+  };
   // Each person sees the blogs they belong to; the admin sees them all.
   app.innerHTML = `<h1 class="page-title">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</h1><p class="page-sub">${u.role === 'admin' ? 'Every blog on the platform, with the modules writing on it.' : 'The blogs your modules write on, with the posts of your own module.'}</p>
     <p class="actions"><a class="btn" href="/my-modules">My modules</a>${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
