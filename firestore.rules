@@ -6,6 +6,10 @@ service cloud.firestore {
     function role() { return get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.get('role', 'student'); }
     function hasRole(value) { return signedIn() && exists(/databases/$(database)/documents/roles/$(request.auth.uid)) && role() == value; }
     function isAdmin() { return verified() && (request.auth.token.email == 'kstouras@gmail.com' || hasRole('admin')); }
+    function granted(field) {
+      return isAdmin() || (verified() && hasRole('lecturer') && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.get(field,false) == true);
+    }
+    function validGrants(d) { return d.get('aiGrading',false) is bool && d.get('peerAccess',false) is bool; }
     function modulePath(id) { return /databases/$(database)/documents/modules/$(id); }
     function moduleExists(id) { return id is string && exists(modulePath(id)); }
     function staffOf(id) { return isAdmin() || (verified() && hasRole('lecturer') && moduleExists(id) && request.auth.uid in get(modulePath(id)).data.teacherIds); }
@@ -25,6 +29,11 @@ service cloud.firestore {
     function postWritable(p) { return staffOf(p.moduleId) || blogStaff(p.get('blogId','')) || (own(p.authorId) && memberOf(p.moduleId) && openSubmissions(p.moduleId)); }
     function moduleBlog(id) { return get(modulePath(id)).data.get('blogId', ''); }
     function own(uid) { return signedIn() && request.auth.uid == uid; }
+    function deadlineField(field) {
+      let due = request.resource.data.get(field, '');
+      return (due is string && (due == '' || due.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')))
+        || (due is map && due.keys().hasOnly(['at','zone']) && due.at is int && due.zone is string && due.zone.size() > 0 && due.zone.size() <= 100);
+    }
     function str(field, max) { let v = request.resource.data.get(field, ''); return v is string && v.size() <= max; }
     function universityEmail(value) { return value is string && value.matches('^[^@ ]+@[^@ ]+[.][^@ ]+$'); }
     function memberOf(id) { return signedIn() && exists(/databases/$(database)/documents/modules/$(id)/members/$(request.auth.uid)); }
@@ -72,7 +81,7 @@ service cloud.firestore {
       allow get: if isAdmin() || invitationMatches(resource.data);
       allow list: if isAdmin();
       allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['ucdEmail','gmail','createdBy','createdAt','expiresAt','acceptedBy','revoked','code'])
+        && request.resource.data.keys().hasOnly(['ucdEmail','gmail','createdBy','createdAt','expiresAt','acceptedBy','revoked','code','peerAccess','aiGrading']) && validGrants(request.resource.data)
         && universityEmail(request.resource.data.ucdEmail) && str('gmail',200)
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt is number && request.resource.data.expiresAt is number
@@ -94,13 +103,15 @@ service cloud.firestore {
         && invitationValid(get(path).data)
         && getAfter(path).data.acceptedBy == uid
         && get(/databases/$(database)/documents/profiles/$(uid)).data.contactEmail == get(path).data.ucdEmail
-        && request.resource.data.keys().hasOnly(['role','inviteId','setBy','setAt'])
+        && request.resource.data.keys().hasOnly(['role','inviteId','setBy','setAt','peerAccess','aiGrading'])
+        && request.resource.data.get('peerAccess',false) == get(path).data.get('peerAccess',false)
+        && request.resource.data.get('aiGrading',false) == get(path).data.get('aiGrading',false)
         && request.resource.data.role == 'lecturer'
         && request.resource.data.setBy == 'invitation' && request.resource.data.setAt is number;
     }
     match /roles/{uid} {
       allow read: if own(uid) || isAdmin();
-      allow create, update: if (isAdmin() && request.resource.data.keys().hasOnly(['role','setBy','setAt','inviteId']) && request.resource.data.role in ['student','lecturer','admin'])
+      allow create, update: if (isAdmin() && request.resource.data.keys().hasOnly(['role','setBy','setAt','inviteId','peerAccess','aiGrading']) && validGrants(request.resource.data) && request.resource.data.role in ['student','lecturer','admin'])
         || invitationRole(uid);
       allow delete: if isAdmin();
     }
@@ -169,24 +180,30 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.keys().hasOnly(['title','code','description','teacherName','teacherIds','createdBy','createdAt','updatedAt','submissionsOpen','requireApproval','blogId','academicYear','deadline','brightspaceUrl','peerReview','peerDeadline'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 160
-        && str('peerDeadline',20) && (!('peerReview' in d) || d.peerReview is bool)
+        && deadlineField('peerDeadline') && (!('peerReview' in d) || d.peerReview is bool)
         && str('code',40) && str('description',1200) && str('teacherName',200)
-        && blogExists(d.blogId) && str('academicYear',20) && str('deadline',20) && str('brightspaceUrl',300)
+        && blogExists(d.blogId) && str('academicYear',20) && deadlineField('deadline') && str('brightspaceUrl',300)
         && d.teacherIds is list && d.teacherIds.size() > 0 && d.teacherIds.size() <= 20
         && d.createdBy is string && d.createdAt is number && d.updatedAt is number
         && d.submissionsOpen is bool && d.requireApproval is bool;
     }
+    match /{parent=**}/members/{uid} {
+      allow list: if signedIn() && resource.data.uid == request.auth.uid;
+    }
     match /modules/{moduleId} {
-      allow read: if true;
+      function assigned() { return verified() && hasRole('lecturer') && request.auth.uid in resource.data.teacherIds; }
+      allow get: if isAdmin() || (verified() && hasRole('lecturer') && !moduleExists(moduleId)) || memberOf(moduleId) || assigned() || blogStaff(resource.data.blogId);
+      allow list: if isAdmin() || assigned() || blogStaff(resource.data.blogId);
       // A module may only write on a blog its instructor owns (or any blog, for the admin).
       allow create: if moduleShape() && moduleId.matches('^[a-z0-9][a-z0-9-]{1,79}$')
+        && (!request.resource.data.get('peerReview',false) || granted('peerAccess'))
         && request.resource.data.createdBy == request.auth.uid && blogStaff(request.resource.data.blogId)
-        && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid] && request.resource.data.get('peerReview',false) == false));
-      // Peer review (the option and its deadline) is the admin's alone: another instructor's save leaves both as they are.
-      allow update: if moduleShape() && staffOf(moduleId) && blogStaff(request.resource.data.blogId)
+        && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid]));
+      allow update: if moduleShape()
+        && (granted('peerAccess') || (!request.resource.data.get('peerReview',false) && request.resource.data.get('peerDeadline','') == '') || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['peerReview','peerDeadline','deadline']))
+        && staffOf(moduleId) && blogStaff(request.resource.data.blogId)
         && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
-        && (isAdmin() || (request.resource.data.teacherIds == resource.data.teacherIds
-          && request.resource.data.get('peerReview',false) == resource.data.get('peerReview',false) && request.resource.data.get('peerDeadline','') == resource.data.get('peerDeadline','')));
+        && (isAdmin() || request.resource.data.teacherIds == resource.data.teacherIds);
       // A module's instructor (or the admin) deletes it, with its roster; the app refuses while it has posts.
       allow delete: if staffOf(moduleId);
       match /members/{uid} {
@@ -219,7 +236,8 @@ service cloud.firestore {
         && d.createdBy is string && d.createdAt is number && d.updatedAt is number;
     }
     match /blogs/{blogId} {
-      allow read: if true;
+      allow get: if !blogExists(blogId) || resource.data.get('brief','') == '' || blogStaff(blogId);
+      allow list: if isAdmin() || (verified() && hasRole('lecturer') && request.auth.uid in resource.data.teacherIds);
       allow create: if blogShape() && blogId.matches('^[a-z0-9][a-z0-9-]{1,79}$')
         && request.resource.data.createdBy == request.auth.uid
         && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid]));
@@ -419,6 +437,18 @@ service cloud.firestore {
     match /adminContent/{id} { allow read, write: if isAdmin(); }
     // AI grading assistant: one private review per post, written and read by the admin only.
     // API keys are never stored here; the grader persona lives in adminContent/grader.
+    match /instructorGraders/{uid} {
+      function grading() { return own(uid) && granted('aiGrading'); }
+      allow get: if grading();
+      allow create, update: if grading() && request.resource.data.keys().hasOnly(['persona','instructions','polish','updatedAt','updatedBy'])
+        && request.resource.data.updatedBy == uid && str('persona',40000) && str('instructions',60000) && str('polish',40000);
+      match /reviews/{postId} {
+        allow read: if grading() && staffOf(resource.data.moduleId);
+        allow create, update: if grading() && staffOf(request.resource.data.moduleId)
+          && request.resource.data.postId == postId
+          && get(/databases/$(database)/documents/posts/$(postId)).data.moduleId == request.resource.data.moduleId;
+      }
+    }
     match /aiReviews/{postId} {
       allow read, delete: if isAdmin();
       allow create, update: if isAdmin()
@@ -434,6 +464,11 @@ service cloud.firestore {
     // each reviewer (peerReviewerNotes) and both kinds of release are written by the admin.
     // Reviewers can update their own assignments while the round is open and read their
     // released grade and note. Authors can read the anonymous summaries of their own posts.
+    function acceptsPeerReviews(moduleId) {
+      let module = get(modulePath(moduleId)).data;
+      let due = module.get('peerDeadline', '');
+      return module.get('peerReview', false) && (!(due is map) || request.time.toMillis() <= due.at);
+    }
     function peerRound(moduleId) { return get(/databases/$(database)/documents/peerRounds/$(moduleId)).data; }
     match /peerRounds/{moduleId} {
       allow read: if isAdmin() || memberOf(moduleId);
@@ -449,7 +484,7 @@ service cloud.firestore {
         && d.get('order',0) is number && d.assignedAt is number && (d.get('grade',null) == null || d.grade is number);
     }
     match /peerReviews/{id} {
-      allow read: if isAdmin() || own(resource.data.reviewerUid);
+      allow read: if own(resource.data.reviewerUid) || (granted('peerAccess') && staffOf(resource.data.moduleId));
       // An assignment: a published post of the module, a member of the module who is not its author, no grade yet.
       allow create: if isAdmin() && peerReviewShape()
         && id == request.resource.data.moduleId + '_' + request.resource.data.postId + '_' + request.resource.data.reviewerUid
@@ -464,7 +499,8 @@ service cloud.firestore {
         && request.resource.data.moduleId == resource.data.moduleId && request.resource.data.postId == resource.data.postId
         && request.resource.data.reviewerUid == resource.data.reviewerUid && request.resource.data.authorId == resource.data.authorId
         && (isAdmin()
-          || (verified() && own(resource.data.reviewerUid) && peerRound(resource.data.moduleId).status == 'open'
+          || (verified() && own(resource.data.reviewerUid) && acceptsPeerReviews(resource.data.moduleId) && peerRound(resource.data.moduleId).status == 'open'
+            && (peerRound(resource.data.moduleId).get('assignedBy','') != 'scheduler' || resource.data.assignedAt == peerRound(resource.data.moduleId).assignedAt)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['grade','assessment','submittedAt','updatedAt'])
             && request.resource.data.grade is int && request.resource.data.grade >= 1 && request.resource.data.grade <= 10
             && request.resource.data.assessment is string
@@ -489,7 +525,10 @@ service cloud.firestore {
     }
     match /peerSummaries/{postId} {
       allow read: if isAdmin() || own(resource.data.authorId);
-      allow create, update: if isAdmin() && request.resource.data.postId == postId && exists(/databases/$(database)/documents/posts/$(postId))
+      allow create, update: if (isAdmin() || (granted('peerAccess') && staffOf(request.resource.data.moduleId)))
+        && request.resource.data.postId == postId
+        && get(/databases/$(database)/documents/posts/$(postId)).data.moduleId == request.resource.data.moduleId
+        && get(/databases/$(database)/documents/posts/$(postId)).data.authorId == request.resource.data.authorId
         && request.resource.data.keys().hasOnly(['postId','moduleId','authorId','count','mean','adjustedMean','feedback','assessments','releasedAt','updatedAt'])
         && str('moduleId',100) && str('authorId',100) && str('feedback',20000)
         && request.resource.data.get('assessments',[]) is list && request.resource.data.get('assessments',[]).size() <= 10;

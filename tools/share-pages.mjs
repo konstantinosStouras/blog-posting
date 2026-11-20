@@ -14,6 +14,7 @@
 import {readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, existsSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {faviconFor} from '../canvas-icon.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SITE = 'https://www.stouras.com/ucd-blog';
@@ -33,8 +34,9 @@ export const pathOf = p => {
 
 // The page at a path: the blog's card (the same tags as index.html, headed with the post's
 // or blog's title) and the hand-over to the app.
-export function render(path, {title = '', description = ''} = {}) {
+export function render(path, {title = '', description = '', blog} = {}) {
   const here = `${SITE}/${path}`, depth = path.split('/').length, up = '../'.repeat(depth), post = depth > 1;
+  const canvas = blog || (depth === 1 || depth === 4 ? {id: path.split('/')[0], title: post ? '' : title} : null);
   const heading = title ? `${title} — UCD blog` : 'UCD blog — Posts by curious UCD students';
   const blurb = description || DESCRIPTION;
   return `<!doctype html>
@@ -64,7 +66,7 @@ ${MARK}
 <meta name="twitter:description" content="${esc(blurb)}">
 <meta name="twitter:image" content="${SITE}/og-image.jpg">
 <meta name="twitter:image:alt" content="UCD blog — Posts by curious UCD students">
-<link rel="icon" href="${up}favicon.ico?v=2" sizes="any">
+<link rel="icon" href="${esc(faviconFor(canvas, up))}" type="image/svg+xml" sizes="any">
 <script>
   // Hand the address to the app, as the site's 404 page does for addresses without a file:
   // the app root is ${depth} segment${depth === 1 ? '' : 's'} up from this page, wherever the app is mounted.
@@ -81,8 +83,9 @@ ${MARK}
 // Every page wanted: one per blog, one per published post with a usable address.
 export function pages({blogs = [], posts = []} = {}) {
   const wanted = new Map();
-  for (const b of blogs) if (NAME.test(b.id || '')) wanted.set(b.id, render(b.id, {title: b.title, description: b.description}));
-  for (const p of posts) if (p.status === 'published' && NAME.test(p.slug || '') && (!p.blogId || NAME.test(p.blogId))) wanted.set(pathOf(p), render(pathOf(p), {title: p.title}));
+  const byId = new Map(blogs.map(b => [b.id, b]));
+  for (const b of blogs) if (NAME.test(b.id || '')) wanted.set(b.id, render(b.id, {title: b.title, description: b.description, blog: b}));
+  for (const p of posts) if (p.status === 'published' && NAME.test(p.slug || '') && (!p.blogId || NAME.test(p.blogId))) wanted.set(pathOf(p), render(pathOf(p), {title: p.title, blog: byId.get(p.blogId)}));
   return wanted;
 }
 

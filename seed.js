@@ -52,37 +52,27 @@ export const PM_EXERCISE = {
   categoryLabel: 'Megatrend',
   categories: MEGATRENDS,
   organisationLabel: 'Organisation(s) studied',
-  minWords: 900,
-  maxWords: 1100,
-  brief: `<p>The goal of the <strong>PM Challenge</strong> is to promote peer learning and discussion on the impact of a <em>megatrend</em> on business and society. Megatrends are powerful, transformative forces that can change the trajectory of the global economy by shifting the priorities of societies, driving innovation and redefining business models. Progress depends on change-makers: people who see opportunity and solutions in the midst of crisis.</p>
-<p>Project professionals are, of course, born change-makers. Organisations have long turned to project managers and professionals with project skills to help them turn ideas into reality. What truly sets us apart is our focus on implementation: figuring out how to make something concrete out of an audacious goal. This skill set will be more indispensable in the years ahead than ever before, as the world grapples with megatrends.</p>
-<p>In this Challenge you will investigate how an organisation is addressing one of the following megatrends (in no particular order):</p>
+  minWords: 4500,
+  maxWords: 5500,
+  brief: `<h2>PM Challenge /thisYear</h2>
+<p>Choose one existing organisation and one aspect of one of the six megatrends. Write a blog post of <strong>/wordTarget</strong> for your classmates. Use a project management technique taught in class to investigate the case and support your recommendation. Link to credible sources where you use them and include a figure, table or statistic where it helps explain your analysis.</p>
 <ol>
-<li>Global power shifts and geopolitical realignments</li>
-<li>The future of work and workforce transformation</li>
-<li>Digital transformation</li>
-<li>Sustainability and climate change</li>
-<li>Demographic shifts and urbanization</li>
-<li>Health and well-being revolution</li>
+<li><strong>How is the megatrend affecting your organisation?</strong> Focus on one part of its work, such as how it delivers a service, manages a project or supports its workforce. Use evidence to explain what is changing and why it matters.</li>
+<li><strong>How is the organisation responding?</strong> Examine one initiative. Distinguish what the organisation has announced, what it has implemented and what the evidence shows about its impact so far.</li>
+<li><strong>What does a technique taught in class reveal about this case?</strong> Choose a project management technique, explain why it fits and apply it using evidence from the case. State your assumptions, show your result and explain what it tells you about the organisation’s options.</li>
+<li><strong>What should the organisation do next, and why?</strong> Use a specific finding from your technique to recommend an action for the next two years. Explain why you favour it over a plausible alternative, what trade-off it involves and what evidence should guide action in years three to ten.</li>
+<li><strong>Who would benefit from your recommendation, and who might bear the costs or risks?</strong> Examine the likely consequences for two groups. Explain where their interests align or conflict and how that affects your judgement.</li>
 </ol>
-<p>These megatrends are likely to have a meaningful impact not just on how we live and work, but also on government policies and corporate strategies in the coming years of your career.</p>
-<p>The Challenge requires you to conduct research and write a <strong>blog post</strong> that examines how <strong>one organisation of your choice</strong> is facing a particular aspect of one of these megatrends. I highly encourage you to think big about the company and the megatrend you choose to focus on. You may also use this blog post as an opportunity to research your dream employer.</p>
+<h2>Marking rubric</h2>
 <ul>
-<li><strong>A blog post, not an essay.</strong> In overall style a blog post is different from a traditional essay or assignment: it refers to its sources through hyperlinks in the text (as opposed to a list of references at the end) and it may contain figures or tables. Browse the posts already on this blog for examples.</li>
-<li><strong>An organisation that exists today.</strong> It cannot be a defunct business, or a project that you hope will eventually lead to a start-up, and it can be of any size, geography or sector: a start-up, a listed company, a government, a for-profit or an NGO, located in Ireland, India, Germany or anywhere in the world. I hope that this module and this exercise push you to study an important organisation in depth, and not merely a small local enterprise.</li>
+<li><strong>1. Explain the impact (15%).</strong> Adequate work describes a relevant change. Excellent work uses case evidence to show how the trend affects a specific activity and why the effect matters.</li>
+<li><strong>2. Assess the response (15%).</strong> Adequate work describes an initiative and its intended benefits. Excellent work distinguishes plans, actions and observed results, and explains what remains uncertain.</li>
+<li><strong>3. Apply a class technique (30%).</strong> Adequate work applies a relevant technique and reports a result. Excellent work justifies the choice, shows how evidence and assumptions produce the result, and interprets its implications for the options.</li>
+<li><strong>4. Support a recommendation (30%).</strong> Adequate work proposes a feasible action with a general rationale. Excellent work uses a specific result to justify one option over another, weighs a trade-off and identifies evidence that would warrant continuing or changing course.</li>
+<li><strong>5. Evaluate stakeholder consequences (10%).</strong> Adequate work identifies two groups and a likely effect on each. Excellent work explains how benefits, costs or risks arise for each group and uses that comparison to defend or refine the recommendation.</li>
 </ul>
-<h2>The five questions</h2>
-<p>Your blog post should address the following five questions in the context of the organisation you choose:</p>
-<ol>
-<li>Why do you think the megatrend you selected is important to your organisation's management?</li>
-<li>How will the organisation's management be affected, positively or negatively, by the megatrend you selected?</li>
-<li>What steps is the organisation's management currently taking to mitigate these effects in the short term (the next two years) and the medium term (two to ten years out)?</li>
-<li>What other steps do you recommend the organisation's management take to address this issue in the short and medium terms?</li>
-<li>In the context of this organisation, what are one or two important open questions related to this issue that you are unsure about and that merit comments from your classmates?</li>
-</ol>
-<p>Your post should convey facts, analysis and your recommendations. It should focus on a single organisation (a single company, non-profit organisation or government agency) and a concern related to one of the megatrends above. It is fine if the concern you chose also relates to other megatrends the organisation is facing, but that is not required. The formatting is entirely up to you. Roughly a quarter of the post should go to each of the first four questions, with just a few sentences for the last.</p>
 <h2>Length and sources</h2>
-<p>Your post should be <strong>at least 900 and no more than 1,100 words</strong>, excluding the text of tables, table captions, figure captions, appendices and links. Reference every source you mention with a hyperlink, as opposed to a list of references at the end. I highly encourage you to read and reference top outlets such as the <a href="https://www.ft.com/content/3405a512-5cbb-11e1-8f1f-00144feabdc0" target="_blank" rel="noopener">FT50</a> research journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em>, <em>California Management Review</em>, <em>The Economist</em>, <em>Bloomberg Businessweek</em>, <em>Forbes</em>, and major newspapers or trustworthy articles on the web.</p>
+<p>Your post should be <strong>/wordTarget</strong>, excluding the text of tables, table captions, figure captions, appendices and links. Reference every source you mention with a hyperlink, as opposed to a list of references at the end. I highly encourage you to read and reference top outlets such as the <a href="https://www.ft.com/content/3405a512-5cbb-11e1-8f1f-00144feabdc0" target="_blank" rel="noopener">FT50</a> research journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em>, <em>California Management Review</em>, <em>The Economist</em>, <em>Bloomberg Businessweek</em>, <em>Forbes</em>, and major newspapers or trustworthy articles on the web.</p>
 <h2>Submitting your post</h2>
 <p>Write and publish your post on this blog, logged in through the invitation from your instructor (how it works is explained below). When you publish, select your megatrend as the post's <strong>category</strong>, choose an informative <strong>featured image</strong> (one that relates closely to or summarises your post; it is shown on the blog's canvas) and add appropriate <strong>tags</strong>. Once your post is published:</p>
 <ol>
@@ -91,27 +81,16 @@ export const PM_EXERCISE = {
 <li>Convert the completed Word template to PDF.</li>
 <li>Upload the PDF to the relevant Assignment on Brightspace. Multiple submissions are allowed; I will normally grade the most recent one unless you say otherwise in the comments.</li>
 </ol>
-<p>Your classmates will read and assess your post in the next phase of the assignment (the assessment of others' blogs), so make sure it is published and not left as a draft.</p>
-<h2>Evaluation criteria</h2>
-<p>Your blog post will be evaluated according to the following criteria:</p>
-<ul>
-<li>Does the post demonstrate depth and provide meaningful, informative content, or does it feel superficial, as if generated by AI in a matter of minutes?</li>
-<li>What aspects of the post were interesting or insightful?</li>
-<li>What did we learn from the post?</li>
-<li>Are there any concerns about the content, such as inaccuracies, unrealistic recommendations or the presence of fake information?</li>
-<li>Is the analysis grounded in rigorous, high-quality research from top outlets such as FT50 journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em> or <em>The Economist</em>, and does the post clearly reflect and build on those insights rather than merely citing them in passing?</li>
-</ul>
-<p>Overall, this exercise lets you synthesise the knowledge gained from our module and combine it with your own experience and research. Peer review stays anonymous: your post appears under the alias generated for your account.</p>`,
+<p>Overall, this exercise lets you synthesise the knowledge gained from our module and combine it with your own experience and research.</p>`,
   // {organisation} and {category} are filled in from the post's side panel.
-  outline: `<p><em>Introduce {organisation} in a few sentences: what it does, where, and why it is worth studying in the context of {category}.</em></p>
-<h2>Why {category} matters to {organisation}'s management</h2><p></p>
-<h2>How management will be affected</h2><p></p>
-<h2>What management is doing now: the next two years and the decade ahead</h2><p></p>
-<h2>What else management should do</h2><p></p>
-<h2>Two questions remain open</h2><p><strong>Question 1:</strong> </p><p><strong>Question 2:</strong> </p>`,
-  checklist: ['Why the megatrend matters to management', 'How management is affected (+/−)', 'Current steps: next 2 years and 2–10 years', 'Your recommendations, short and medium term', 'One or two open questions for classmates', 'Sources as hyperlinks (FT50, HBR, MIT SMR, The Economist…)'],
+  outline: `<h2>How {category} is affecting {organisation}</h2><p></p>
+<h2>The organisation’s response and results so far</h2><p></p>
+<h2>Applying a project management technique</h2><p></p>
+<h2>My recommendation and the evidence behind it</h2><p></p>
+<h2>Who benefits and who bears the costs or risks?</h2><p></p>`,
+  checklist: ["Explain the change using case evidence","Assess one initiative and its results","Apply a class technique and interpret the result","Use the result to justify your recommendation and weigh an alternative","Compare consequences for two stakeholder groups","Link claims to credible sources"],
 };
-export const EMPTY_EXERCISE = {categoryLabel: 'Category', categories: [], organisationLabel: '', minWords: 0, maxWords: 0, brief: '', outline: '', checklist: []};
+export const EMPTY_EXERCISE = {categoryLabel: 'Category', categories: [], organisationLabel: '', minWords: 4500, maxWords: 5500, brief: '<h2>/blogTitle Challenge /thisYear</h2><p>Write a blog post of <strong>/wordTarget</strong>.</p>', outline: '', checklist: []};
 // The reply rules shown under the comment box: every blog starts with these; an instructor
 // rewrites them in Blog settings, and they apply to every post on that blog's canvas.
 export const DEFAULT_REPLY_RULES = 'Be nice, and be specific: reply to what the author actually argued, with your own reasoning and, where you can, evidence. Disagreement is welcome; dismissiveness is not. If you use AI to help, make sure the idea is yours and the words are too.';
@@ -120,7 +99,7 @@ export const replyRulesOf = blog => (blog && typeof blog.replyRules === 'string'
 const T0 = new Date('2026-09-01T09:00:00').getTime();
 export const SEED_BLOGS = [
   {id: 'project-management', title: 'Project Management', description: 'How organisations face the megatrends shaping business and society: blog posts by UCD project management students.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...PM_EXERCISE},
-  {id: 'operations', title: 'Operations', description: 'Blog posts by students of BMGT41040 Operations, Innovation and Management.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...EMPTY_EXERCISE, brief: '<p>The brief for this blog has not been written yet.</p>'},
+  {id: 'operations', title: 'Operations', description: 'Blog posts by students of BMGT41040 Operations, Innovation and Management.', teacherIds: ['u-admin'], createdBy: 'u-admin', createdAt: T0, updatedAt: T0, allowComments: true, ...EMPTY_EXERCISE, brief: '<h2>OIM Challenge /thisYear</h2><p>Write a blog post of <strong>/wordTarget</strong>.</p>'},
 ];
 const M = (o) => ({description: '', teacherIds: ['u-admin'], teacherName: 'Konstantinos Stouras', createdBy: 'u-admin', createdAt: T0, updatedAt: T0, submissionsOpen: true, requireApproval: false, deadline: '2026-11-28', ...o});
 export const SEED_MODULES = [
@@ -200,9 +179,9 @@ export const SEED_POSTS = [
 <h2>Current steps</h2><p>Mobile check-in across all properties this year; an AI concierge pilot in two flagships over the next three.</p>
 <h2>Recommendations</h2><p>Define service-level agreements for the human fallback before scaling any AI feature.</p>
 <h2>Open questions</h2><p>Will guests pay a premium for human service once automation is the norm?</p>` + sample}),
-  P({id: 'p6', slug: 'the-cooling-crisis-engineering-sustainability-into-the-data-centre-boom', date: '2026-10-15T09:00:00', authorId: 'u-s2', authorName: 'amber-falcon-731', category: 'digital-transformation', organisation: 'Frostline Infrastructure (fictional)', industries: ['technology-software', 'energy-utilities'], tags: ['Data Centres', 'Energy', 'Ireland', 'Sustainability'], featuredImage: img('ucd-datacentre'),
+  P({id: 'p6', slug: 'the-cooling-crisis-engineering-sustainability-into-the-data-centre-boom', date: '2026-10-15T09:00:00', authorId: 'u-s2', authorName: 'amber-falcon-731', category: 'digital-transformation', organisation: 'Frostline Infrastructure (fictional)', industries: ['technology-software', 'energy-utilities'], tags: ['Data Centres', 'Energy', 'Sustainability'], featuredImage: img('ucd-datacentre'),
     title: 'The Cooling Crisis: How Frostline Is Engineering Sustainability Into the Data Centre Boom',
-    body: `<p>Ireland hosts a disproportionate share of Europe's data centres, and <strong>Frostline Infrastructure</strong>, a fictional operator, sits at the centre of the debate about grid capacity and water use.</p>
+    body: `<p>As data centres compete for grid capacity, <strong>Frostline Infrastructure</strong>, a fictional operator, sits at the centre of the debate about grid capacity and water use.</p>
 <h2>Why it matters</h2><p>Planning permission increasingly depends on demonstrating energy and water strategies, so sustainability has become the critical path of every build.</p>
 <h2>Effects on management</h2><p>Projects now carry regulatory milestones that can stop construction entirely, which changes how risk is priced.</p>
 <h2>Current steps</h2><p>Heat-reuse agreements with district heating schemes and on-site battery storage to shave peak demand.</p>
@@ -221,7 +200,7 @@ export const SEED_POSTS = [
 ];
 
 export const SEED_COMMENTS = [
-  {id: 'c1', postId: 'p6', authorId: 'u-s3', authorName: 'swift-osprey-215', createdAt: d('2026-10-16T08:10:00'), likedBy: ['u-s2'], body: 'Really clear explanation of why planning permission has become the critical path. Do you know whether heat reuse has actually been delivered anywhere in Ireland yet?'},
+  {id: 'c1', postId: 'p6', authorId: 'u-s3', authorName: 'swift-osprey-215', createdAt: d('2026-10-16T08:10:00'), likedBy: ['u-s2'], body: 'Really clear explanation of why planning permission has become the critical path. Do you know whether heat reuse has actually been delivered at any of these sites yet?'},
   {id: 'c2', postId: 'p6', parentId: 'c1', authorId: 'u-s2', authorName: 'amber-falcon-731', createdAt: d('2026-10-16T12:40:00'), body: 'Good question. Two schemes are in planning but, as far as I could find, none is live. I would love a classmate with an engineering background to weigh in.'},
   {id: 'c3', postId: 'p7', authorId: 'u-s1', authorName: 'quiet-heron-482', createdAt: d('2026-10-12T19:00:00'), body: 'The rolling-wave planning recommendation fits the lecture on uncertainty well. One worry: does quarterly updating of a master plan create its own coordination cost?'},
   {id: 'c4', postId: 'p7', authorId: 'u-lect', authorName: 'tutor_eve', createdAt: d('2026-10-13T09:00:00'), body: 'Nice structure. For the final version, link each recommendation to the evidence you cite in the first half.'},

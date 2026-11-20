@@ -33,9 +33,10 @@ async function demoCall({user, system}) {
 
 export async function renderGrading(target, {moduleId = '', embedded = false} = {}) {
   const u = currentUser();
-  if (!u || u.role !== 'admin') { target.innerHTML = '<p class="empty">This page is private to the platform admin.</p>'; return; }
+  if (!u || u.preview || !(u.role === 'admin' || (u.role === 'lecturer' && u.aiGrading))) { target.innerHTML = '<p class="empty">This page is private to the platform admin.</p>'; return; }
   const providers = {...PROVIDERS, ...(store.mode === 'local' ? {demo: DEMO} : {})};
-  const keys = gradingKeys, prefs = {provider: store.mode === 'local' ? 'demo' : 'anthropic', model: '', custom: '', effort: '', status: 'published', ...read(PREFS, {})};
+  const prefsKey = PREFS + '.' + u.uid;
+  const keys = gradingKeys(u.uid), prefs = {provider: store.mode === 'local' ? 'demo' : 'anthropic', model: '', custom: '', effort: '', status: 'published', ...read(prefsKey, {})};
   if (!providers[prefs.provider]) prefs.provider = Object.keys(providers)[0];
   const [allModules, blogs, saved] = await Promise.all([store.listModules(), store.listBlogs(), store.getGraderConfig()]);
   // The admin grades only the modules they teach themselves.
@@ -52,13 +53,13 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
   const byId = new Map(rows.map(r => [r.postId, r]));
 
   const providerOptions = Object.entries(providers).map(([id, p]) => `<option value="${id}" ${id === prefs.provider ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
-  target.innerHTML = `${pageHead('AI grading', 'Private to the platform admin: grade and draft feedback for the posts of the modules you teach, with your own API keys.' + (embedded ? '' : ' <a href="/admin">Admin area</a>'), embedded)}
+  target.innerHTML = `${pageHead('AI grading', 'Grade and draft feedback for the posts of the modules you teach, with your own API keys.' + (embedded ? '' : ' <a href="/admin">Admin area</a>'), embedded)}
     <div class="notice info"><b>How this works.</b> Your API keys are kept only in this tab until reload or sign-out (never in the database) and are sent only to the lab that issued them. Each review sends the post text, the blog's brief and your grader persona to that lab's API from this browser; nothing is shown to students or other instructors. Check the lab's data-use terms before grading real student work.</div>
     <div class="grading-setup two-col">
       <div class="panel"><h3>1. Model</h3>
         <label class="field">AI lab<select id="ai-provider">${providerOptions}</select></label>
         <div id="ai-key-wrap"><label class="field">API key<input id="ai-key" type="password" autocomplete="off" spellcheck="false"><p class="hint" id="ai-key-status"></p></label>
-        <p class="actions"><button type="button" class="btn small" id="ai-key-save">Save key in this browser</button><button type="button" class="btn small" id="ai-key-remove">Remove key</button><a class="small" id="ai-key-link" target="_blank" rel="noopener">Get a key</a></p></div>
+        <p class="actions"><button type="button" class="btn small" id="ai-key-save">Use key for this tab</button><button type="button" class="btn small" id="ai-key-remove">Remove key</button><a class="small" id="ai-key-link" target="_blank" rel="noopener">Get a key</a></p></div>
         <label class="field">Model<select id="ai-model"></select></label>
         <label class="field" id="ai-custom-wrap" hidden>Model id<input id="ai-custom" placeholder="exact model id from the lab's documentation"></label>
         <label class="field">Reasoning effort<select id="ai-effort"></select><p class="hint">Higher effort thinks longer and costs more. Fable 5.1 at high effort can take a minute or more per post.</p></label>
@@ -93,7 +94,7 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
     $('ai-custom-wrap').hidden = known; $('ai-custom').value = known ? '' : prefs.model;
     $('ai-effort').innerHTML = p.efforts.map(e => `<option value="${e}" ${(p.efforts.includes(prefs.effort) ? prefs.effort : p.defaultEffort) === e ? 'selected' : ''}>${e}</option>`).join('');
   }
-  const remember = () => { const s = selection(); Object.assign(prefs, {provider: s.provider, model: s.model, effort: s.effort}); write(PREFS, prefs); };
+  const remember = () => { const s = selection(); Object.assign(prefs, {provider: s.provider, model: s.model, effort: s.effort}); write(prefsKey, prefs); };
   paintProvider();
   $('ai-provider').onchange = () => { prefs.model = ''; prefs.effort = ''; paintProvider(); remember(); };
   $('ai-model').onchange = () => { $('ai-custom-wrap').hidden = $('ai-model').value !== '__custom'; if ($('ai-model').value === '__custom') $('ai-custom').focus(); remember(); };
@@ -127,8 +128,8 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
   }
   const paintAi = r => { const tr = $('grading-table').querySelector(`tr[data-post="${r.postId}"]`); if (!tr) return; const cells = tr.querySelectorAll('td'); const t = document.createElement('template'); t.innerHTML = `<tr>${aiCells(r)}</tr>`; const [gradeCell, feedbackCell] = t.content.querySelectorAll('td'); cells[5].replaceWith(gradeCell); cells[6].replaceWith(feedbackCell); const b = tr.querySelector('[data-grade]'); b.textContent = r.aiFeedback ? 'Re-grade' : 'Grade'; b.classList.toggle('primary', r.aiGrade == null); };
   drawTable();
-  $('grading-search').oninput = drawTable; $('grading-status').onchange = () => { prefs.status = $('grading-status').value; write(PREFS, prefs); drawTable(); };
-  $('grading-module').onchange = e => { navigate('/admin/grading' + (e.target.value ? '?module=' + e.target.value : '')); };
+  $('grading-search').oninput = drawTable; $('grading-status').onchange = () => { prefs.status = $('grading-status').value; write(prefsKey, prefs); drawTable(); };
+  $('grading-module').onchange = e => { navigate((u.role === 'admin' ? '/admin/grading' : '/instructor/grading') + (e.target.value ? '?module=' + e.target.value : '')); };
 
   // ---- reviewing ----
   const ident = r => ({postId: r.postId, moduleId: r.post.moduleId || '', blogId: r.post.blogId || '', authorId: r.authorId || ''});
@@ -137,7 +138,9 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
   async function reviewOne(r, s) {
     const tr = $('grading-table').querySelector(`tr[data-post="${r.postId}"]`); tr?.classList.add('row-busy');
     try {
-      const built = buildReview({grader, post: r.post, blog: blogOf(r.post), module: moduleOf(r.post), categoryName: categoryName(r.post)});
+      const post = await store.getPost(r.postId);
+      if (!post || currentUser()?.uid !== u.uid || !target.isConnected) throw Error('The grading session has ended.');
+      const built = buildReview({grader, post, blog: blogOf(r.post), module: moduleOf(r.post), categoryName: categoryName(r.post)});
       const out = await call(s, {system: built.system, user: built.user, schema: built.schema});
       if (['max_tokens', 'incomplete', 'MAX_TOKENS', 'length'].includes(out.stop)) throw Error('The reply was cut short at the token limit; lower the effort or try another model.');
       if (!out.text) throw Error(`The model returned no text${out.stop ? ` (${out.stop})` : ''}.`);
@@ -157,7 +160,7 @@ export async function renderGrading(target, {moduleId = '', embedded = false} = 
     let done = 0, failed = 0;
     try {
       for (const r of list) {
-        if (stop) break;
+        if (stop || currentUser()?.uid !== u.uid || !target.isConnected) break;
         $('grade-progress').textContent = `Reviewing ${done + failed + 1} of ${list.length}: ${r.title}…`;
         try { await reviewOne(r, s); done++; } catch (e) { failed++; console.warn(e); }
         await new Promise(res => setTimeout(res, 300));

@@ -1,5 +1,7 @@
+import {fmtDeadline, deadlineAt} from './deadlines.js';
 // Router + every page. Clean URLs (router.js) that work from any static host (stouras.com/ucd-blog/).
 import {route, navigate, rewrite, publicUrl, startRouter} from './router.js';
+import {faviconFor} from './canvas-icon.js';
 import {initStore, store, resetAccess} from './store.js';
 import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './auth.js';
 import {can, ROLES, rank, pastDeadline} from './permissions.js';
@@ -8,13 +10,12 @@ import {configurePlatform, blogDirectory, myModules, blogCanvas, blogActions, mo
 const renderPeople = async (...args) => (await import('./people.js')).renderPeople(...args);
 import {deleteWording} from './people-model.js';
 const renderGrading = async (...args) => (await import('./ai-grading.js')).renderGrading(...args);
-import {renderPeerAdmin, myPeerReviews, peerSidePanel} from './peer-review.js';
 import {mountFeedbackButton, renderFeedbackInbox} from './feedback.js';
 import {startWritingTimer} from './writing-time.js';
 import {renderCanvas, filterQuery} from './canvas.js';
 import {enhance} from './blocks.js';
 import {makeTablesSortable} from './sortable-tables.js';
-import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl, orgList, orgPhrase, fmtBytes} from './util.js';
+import {esc, fmtDate, fmtDateTime, monthKey, monthName, postPath, sanitize, plainText, wordCount, excerptOf, readingTime, by, groupBy, toast, shrinkImage, slugify, newId, pageHead, linkedinUrl, orgList, orgPhrase, fmtBytes, isReservedUrlName} from './util.js';
 const postWords = p => p.wordCount ?? wordCount(p.body || '');   // the text lives in its own record; the post record carries the count
 import {openShare, printPost} from './share.js';
 import {replyRulesOf, INDUSTRIES, MAX_INDUSTRIES, industryName} from './seed.js';
@@ -64,7 +65,7 @@ const routes = [
   [/^\/write\/([a-z0-9-]+)$/, moduleId => editorView(null,moduleId)],
   [/^\/edit\/([^/?]+)$/, editorView],
   [/^\/mine$/, mine],
-  [/^\/peer-review$/, () => myPeerReviews($app)],   // a student's assigned posts (study guide 5.3)
+  [/^\/peer-review$/, async () => (await import('./peer-review.js')).myPeerReviews($app)],   // a student's assigned posts (study guide 5.3)
   [/^\/profile$/, profileView],
   [/^\/review(?:\/[a-z]*)?(\?.*)?$/, q => navigate('/instructor' + (q || ''), {replace: true})],   // the address before 4 Nov 2026, with its tabs (/review/posts, /review/roster…)
   [/^\/instructor\/?([a-z]*)(?:\?(.*))?$/, lecturer],
@@ -83,11 +84,12 @@ async function doRender(quiet = false) {   // quiet: the page is redrawn where i
   const path = route();   // '/x?trend=y': the app route, whatever the site is mounted at
   liveView = null; $app.onclick = null; $app.onsubmit = null;
   resetAccess();   // who may read what is decided afresh for this navigation
+  BLOGS = [];
   try { BLOGS = !user() && path.split('?')[0] === '/' ? [] : await store.listBlogs({metadataOnly: true}); } catch (e) { console.warn('blogs', e); }
   // A blog's canvas, brief or post opened by a reader who belongs to none of its modules: the blog
   // is fetched on its own (one memoised read; a page name such as /posts reads as no blog).
   const first = (path.split('?')[0].match(/^\/([a-z0-9-]+)(?:\/brief|\/\d{4}\/\d{2}\/[^/?]+\/?)?$/) || [])[1];
-  VISITING = first && !BLOGS.some(b => b.id === first) ? await store.getBlog(first).catch(() => null) : null;
+  VISITING = first && !isReservedUrlName(first) && !BLOGS.some(b => b.id === first) ? await store.getBlog(first).catch(() => null) : null;
   if (VISITING) BLOGS = [...BLOGS, VISITING];
   if (!user() && !isPublic(path.split('?')[0])) { navigate('/', {replace: true}); toast('Log in to read the blog.'); return; }
   renderHeader(path);
@@ -122,28 +124,21 @@ matchMedia('(max-width: 700px)').addEventListener('change', e => { if (!e.matche
 // The masthead names the blog the reader is on (its title and description); elsewhere, the site.
 const blogOnPath = path => BLOGS.find(b => b.id === (path.match(/^\/([a-z0-9-]+)(?:[\/?#]|$)/) || [])[1]) || null;
 function renderHeader(path = route(), blog = blogOnPath(path)) {
+  const icon = document.getElementById('page-favicon');
+  const href = faviconFor(blog, new URL('.', import.meta.url).href);
+  if (icon.href !== href) icon.href = href;
   const u = user();
   const active = h => (h === '/' ? path === '/' : path.startsWith(h)) ? 'active' : '';
-  // Two rows. Top: the masthead with the account control on the right (the avatar menu, where
-  // everything personal lives). Under the rule: the site's public tabs on the left and search on
-  // the right. On a phone the tabs fold into a drawer that slides in from the left. On a blog's
-  // pages (its canvas, its brief, each of its posts) a signed-in reader gets a third row, the
-  // blog's actions (Write your blog post, The brief, and for its instructors Blog settings and
-  // Review posts), filled by platform.js blogActions once it knows the reader's modules.
   setNav(false);
-  // Signed in, the first tab is the person's own blog (or blogs; the admin explores them all),
-  // then All posts and search. A visitor on a blog (its canvas or one of its posts) gets the blog's
-  // own menu, its home alone: All posts and search are for readers, and the brief for members.
-  // On the front door (the welcome page) only the masthead and Log in are drawn.
   const own = BLOGS.filter(b => b !== VISITING);   // the menu names the reader's own blogs, not one they are visiting by its link
   const blogTab = !u ? null : u.role === 'admin' ? {href: '/blogs', label: 'Explore blogs'} : own.length === 1 ? {href: '/' + own[0].id, label: 'My blog'} : {href: '/blogs', label: 'My blogs'};
-  const tabs = u ? `<a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
+  const tabs = !blog && u ? `<a href="${esc(blogTab.href)}" class="${active(blogTab.href)}">${blogTab.label}</a><a href="/posts" class="${active('/posts')}">All posts</a>
       <form class="searchbox" role="search"><input name="q" placeholder="Search posts" aria-label="Search posts"><button aria-label="Search">⌕</button></form>`
-    : blog ? `<a href="/${esc(blog.id)}" class="${path.split('?')[0] === '/' + blog.id ? 'active' : ''}">Home</a>` : '';
+    : '';
   $header.innerHTML = `<div class="brand">
     ${tabs ? '<button type="button" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="site-nav"><span></span><span></span><span></span></button>' : ''}
     <div class="masthead">${blog ? `<h1><a href="/${esc(blog.id)}">${esc(blog.title)}</a></h1><p class="tagline">${esc(blog.description || S.tagline)}</p>` : `<h1><a href="/">${esc(S.title)}</a></h1><p class="tagline">${esc(S.tagline)}</p>`}</div>
-    <div class="account" id="account"></div></div>
+    <div class="masthead-actions">${u && blog ? '<span id="blog-write" hidden></span>' : ''}<div class="account" id="account"></div></div></div>
   <hr class="rule">
   ${tabs ? `<div class="sub">
     <nav id="site-nav" class="site-nav" aria-label="Site">
@@ -154,7 +149,7 @@ function renderHeader(path = route(), blog = blogOnPath(path)) {
   ${u && blog ? '<div class="blog-actions actions" id="blog-actions" hidden></div>' : ''}`;
   renderAccountControl($header.querySelector('#account'));   // includes "View as Instructor X" / "View as Student" when they apply
   const slot = $header.querySelector('#blog-actions');
-  if (slot) blogActions(blog.id, slot).catch(e => console.warn('blog actions', e));
+  if (slot) blogActions(blog.id, slot, $header.querySelector('#blog-write')).catch(e => console.warn('blog actions', e));
   const toggle = $header.querySelector('.nav-toggle'), nav = $header.querySelector('#site-nav'), backdrop = $header.querySelector('.nav-backdrop');
   if (!nav) return;
   toggle.onclick = () => { const open = !$header.classList.contains('nav-open'); setNav(open); if (open) nav.querySelector('a')?.focus(); };
@@ -234,8 +229,6 @@ const ICON = {
   heart: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.6-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.4-7 10-7 10Z"/></svg>',
   comment: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/></svg>',
   share: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 9l5-5 5 5M5 15v4h14v-4"/></svg>',
-  arrowLeft: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
-  arrowRight: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   star: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8Z"/></svg>',
   pdf: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 17v-4h1.6a1.4 1.4 0 0 1 0 2.8H8.5M12.6 13h1.2a2 2 0 0 1 0 4h-1.2zM16.4 17v-4h2.4M16.4 15h2"/></svg>',
 };
@@ -243,13 +236,13 @@ const ICON = {
 // the deadline is informational and the public byline shows only the title, pen name and date.
 function daysLate(p, module) {
   if (!module?.deadline || !p.publishedAt) return 0;
-  const end = new Date(module.deadline + 'T23:59:59');   // the deadline day counts in full, in the reader's time zone
-  return Math.max(0, Math.ceil((p.publishedAt - end.getTime()) / 86400000));
+  const end = deadlineAt(module.deadline);
+  return Math.max(0, Math.ceil((p.publishedAt - end) / 86400000));
 }
 function lateNote(p, module, u) {
   if (!u || u.uid !== p.authorId || p.status !== 'published') return '';
   const n = daysLate(p, module);
-  return n ? `<p class="notice late-note">Just so you know: this post went live ${n === 1 ? 'a day' : n + ' days'} after the module deadline of ${fmtDate(module.deadline)}. Only you can see this note.</p>` : '';
+  return n ? `<p class="notice late-note">Just so you know: this post went live ${n === 1 ? 'less than or equal to a day' : n + ' days'} after the module deadline of ${fmtDeadline(module.deadline)}. Only you can see this note.</p>` : '';
 }
 // The column beside the post: the author's own tools (status, Edit, Publish, Delete) and the
 // late note at the top, then the post's details for every reader. On a narrow screen the column
@@ -270,7 +263,7 @@ function postSideHtml(p, {u, module, blog, words, context, peer = null}) {
       ${row('Author', `<a href="/author/${esc(p.authorId || '')}">${esc(p.authorName || 'you')}</a>${p.organisation ? ` · ${esc(p.organisation)}` : ''}`)}
       ${row('Blog', blog ? `<a href="/${esc(blog.id)}">${esc(blog.title)}</a>` : '')}
       ${row('Module', module ? `${esc(module.code || module.title)}${module.code && module.title ? ` <span class="muted">${esc(module.title)}</span>` : ''}${p.academicYear ? ` <span class="muted">${esc(p.academicYear)}</span>` : ''}` : '')}
-      ${row('Deadline', editor && module?.deadline ? fmtDate(module.deadline) : '')}
+      ${row('Deadline', editor && module?.deadline ? fmtDeadline(module.deadline) : '')}
       ${row('Trend', p.category ? `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?trend=${esc(p.category)}">${esc(catName(p.category, p))}</a>` : '')}
       ${row('Industries', (p.industries || []).map(s => `<a href="${p.blogId ? '/' + esc(p.blogId) : '/posts'}?industry=${esc(s)}">${esc(industryName(s))}</a>`).join(', '))}
     </dl></aside>`;
@@ -301,22 +294,22 @@ async function postView(slug, blogId = null) {
   if (p && p.blogId && blogId !== p.blogId) { navigate(postPath(p), {replace: true}); return; }   // an old or mistyped address: the post's one real address
   if (!p || (p.status !== 'published' && !(u && can(u, 'edit', p, S)))) { $app.innerHTML = `<p class="empty">That post is not available. <a href="/">Back to the blog</a></p>`; return; }
   // The peer-review panel: an assigned reviewer's "Submit blog assessment", or the author's released feedback (peer-review.js).
-  const [module, blog, mine, peer] = await Promise.all([p.moduleId ? store.getModule(p.moduleId) : null, store.getBlog(p.blogId), u ? store.listMyModules() : [], peerSidePanel(p, u).catch(() => null)]);
+  const [module, blog, mine, peer, comments, likes, bookmarks] = await Promise.all([
+    p.moduleId ? store.getModule(p.moduleId) : null, blogOf(p) || store.getBlog(p.blogId), u ? store.listMyModules() : [],
+    u && p.moduleId ? import('./peer-review.js').then(m => m.peerSidePanel(p, u)).catch(() => null) : null,
+    store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}), store.listLikes(p.id), store.listBookmarks(p.id)
+  ]);
   // Cohort rules (approval, open/closed) come from the module; the comments policy from the blog.
   const context = {...S, ...(module || {}), allowComments: blog ? blog.allowComments !== false : true};
   // Students take part in their own module's posts only (the rules say the same); staff in the modules they teach and on the blogs they own.
   const canParticipate = u && (store.mode !== 'firebase' || u.emailVerified) && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId));
   const showModule = module && seesModule(u, module);   // the post's module: for its instructors, the blog's owners and the admin
   const shareModule = showModule || (u && u.uid === p.authorId) ? module : null;   // the share credit names the module for the author and those readers only
-  const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
-  const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
-  const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}), store.listLikes(p.id), store.listBookmarks(p.id)]);
   if (blog) renderHeader(route(), blog);   // a post's masthead is its blog's
   const words = wordCount(p.body);
   $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${showModule ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<div class="post-layout"><article class="post">
     ${articleHtml(p, {blog, words, likes, bookmarks, comments: comments.length, me: u})}
     <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
-    <div class="prevnext">${prev ? `<a class="btn nav-btn" href="${postPath(prev)}" title="${esc(prev.title)}">${ICON.arrowLeft}<span>Previous</span></a>` : '<span></span>'}${next ? `<a class="btn nav-btn" href="${postPath(next)}" title="${esc(next.title)}"><span>Next</span>${ICON.arrowRight}</a>` : '<span></span>'}</div>
     <section class="comments" id="comments"><h2>Discussion about this post</h2>
       ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? commentFormHtml(u, blog) : u ? '<p class="muted">The discussion under this post is for its author’s classmates and their instructors.</p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
       <p class="comment-count" id="comment-count"></p>
@@ -473,7 +466,7 @@ async function editorView(id, moduleId) {
   if (!module) { $app.innerHTML = '<p class="empty">Module not found.</p>'; return; }
   const blog = (await store.getBlog(module.blogId)) || {title: 'Blog', categories: [], checklist: []};
   const context = {...S, ...module, allowComments: blog.allowComments !== false};
-  if (p && !can(u, 'edit', p, context)) { $app.innerHTML = `<p class="empty">${p.status === 'published' && pastDeadline(context) ? `This post is published and the module deadline (${fmtDate(context.deadline)}) has passed, so it stays as it is. <a href="${postPath(p)}">Read it</a>` : 'You cannot edit this post.'}</p>`; return; }
+  if (p && !can(u, 'edit', p, context)) { $app.innerHTML = `<p class="empty">${p.status === 'published' && pastDeadline(context) ? `This post is published and the module deadline (${fmtDeadline(context.deadline)}) has passed, so it stays as it is. <a href="${postPath(p)}">Read it</a>` : 'You cannot edit this post.'}</p>`; return; }
   if (!p && !can(u, 'write', {moduleId, blogId: module.blogId}, context)) { $app.innerHTML = `<p class="empty">Submissions are closed for ${esc(module.title)}.</p>`; return; }
   if (store.mode === 'firebase' && !u.emailVerified) { $app.innerHTML='<p class="empty">Verify your sign-in email before writing. Use the account menu to resend or refresh verification.</p>';return; }
   if (!p && rank(u.role) < 1) {
@@ -508,7 +501,7 @@ async function editorView(id, moduleId) {
   </div>
   <dialog class="sheet" id="sheet"><form method="dialog" class="sheet-form" onsubmit="return false"><button type="button" class="close" data-close aria-label="Close">×</button>
     <h2>${draft.status === 'published' ? 'Update your post' : needsReview ? 'Submit for review' : 'Ready to publish?'}</h2>
-    <p class="muted small">${esc(blog.title)} · ${esc(module.code || module.title)}${module.deadline ? ' · deadline ' + fmtDate(module.deadline) : ''}</p>
+    <p class="muted small">${esc(blog.title)} · ${esc(module.code || module.title)}${module.deadline ? ' · deadline ' + fmtDeadline(module.deadline) : ''}</p>
     <div class="sheet-grid">
       <div>
         <h3>Featured image${req}</h3>
@@ -664,7 +657,7 @@ async function mine() {
   const u = user();
   if (!u) { $app.innerHTML = `<p class="empty">Log in to see your posts.</p>`; return; }
   const posts = (await store.listPosts({authorId: u.uid})).sort(by('updatedAt'));
-  $app.innerHTML = `<h1 class="page-title">My posts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="/profile">Edit profile</a></p>
+  $app.innerHTML = `<h1 class="page-title">My posts &amp; drafts</h1><p class="page-sub">Writing as <b>${esc(u.penName)}</b>. <a href="/profile">Edit profile</a></p>
     <p class="actions"><a class="btn primary" href="/write">Write a new post</a><a class="btn" href="/my-modules">My modules</a></p>
     ${posts.length ? `<table class="list"><thead><tr><th>Title</th><th>Blog</th><th>Status</th><th>Words</th><th>Megatrend</th><th>Updated</th><th></th></tr></thead><tbody>
       ${posts.map(p => `<tr><td><a href="/edit/${encodeURIComponent(p.id)}">${esc(p.title)}</a></td><td>${esc(blogOf(p)?.title || '')}</td><td><span class="badge ${p.status}">${p.status}</span></td><td>${postWords(p)}</td><td>${esc(catName(p.category, p))}</td><td>${fmtDateTime(p.updatedAt)}</td>
@@ -751,6 +744,14 @@ async function lecturer(_tab = '', query = '') {
   const u = user();
   const q = new URLSearchParams(query || ''), moduleId = q.get('module') || '', blogId = q.get('blog') || '', year = q.get('year') || '';
   if (!u || rank(u.role) < 1) { $app.innerHTML = `<p class="empty">Instructor access required.</p>`; return; }
+  if (_tab === 'peer') {
+    if (u.role !== 'lecturer' || !u.peerAccess || u.preview) { $app.innerHTML = '<p class="empty">Page unavailable.</p>'; return; }
+    await (await import('./peer-review.js')).renderInstructorPeer($app); return;
+  }
+  if (_tab === 'grading') {
+    if (u.role !== 'admin' && (!u.aiGrading || u.preview)) { $app.innerHTML = '<p class="empty">Page unavailable.</p>'; return; }
+    liveView = 'grading'; await renderGrading($app,{moduleId,embedded:true}); return;
+  }
   const canRoster = !moduleId || u.role === 'admin' || (u.managedModuleIds || []).includes(moduleId);   // blog owners see posts of guest modules, not their rosters
   const liveRoster = store.mode === 'firebase';   // the live roster and invitation records (people.js) load their own data
   let [posts, users, allModules] = await Promise.all([store.listAllPosts(), canRoster ? store.listUsers(moduleId) : Promise.resolve([]), store.listModules()]);
@@ -776,6 +777,8 @@ async function lecturer(_tab = '', query = '') {
   if (!liveRoster) { const students = users.filter(x => rank(x.role || 'student') === 0); const count = groupBy(posts, p => p.authorId); roster = pageHead('Module roster', 'Who is behind each pen name.', true) + `<table class="list sortable"><thead><tr><th>Pen name</th><th>Name</th><th>Student no.</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Posts</th><th data-nosort>Delete</th></tr></thead><tbody>${students.sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || '')).map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.studentId || '')}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td>${esc(roleLabel(x.role || 'student'))}</td><td>${(count[x.uid] || []).filter(p => p.status === 'published').length} / ${(count[x.uid] || []).length}</td><td><button type="button" class="linkish danger" data-del-member="${esc(x.uid)}" data-label="${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || x.penName || '')}">Delete</button></td></tr>`).join('')}</tbody></table>`; }
   const sel = (id, label, rows, value, all) => `<label class="field">${label}<select id="${id}"><option value="">${all}</option>${rows.map(([v, l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
   $app.innerHTML = `<div class="area-head"><h1 class="page-title">Instructor area</h1><p class="page-sub">Posts and rosters for your modules, by blog, module and academic year.</p>
+    ${u.peerAccess && u.role==='lecturer' ? '<a class="btn" href="/instructor/peer">Peer review</a>' : ''}
+    ${u.aiGrading && !u.preview ? '<p><a class="btn" href="/instructor/grading">AI grading</a></p>' : ''}
     <div class="review-filters">${sel('review-blog', 'Blog', myBlogs.map(b => [b.id, b.title]), blogId, 'All my blogs')}${sel('review-module', 'Module', teachingModules.filter(m => !blogId || m.blogId === blogId).map(m => [m.id, [m.code, m.title].filter(Boolean).join(' ') + (m.academicYear ? ` (${m.academicYear})` : '')]), moduleId, 'All modules')}${sel('review-year', 'Academic year', years.map(y => [y, y]), year, 'All years')}</div></div>
     <div class="area-body">${stats}${summary}${reviewPosts}${u.role === 'admin' ? '<div id="storage" class="storage muted">Measuring what the blog stores…</div>' : ''}<div id="roster">${roster}</div></div>`;
   const go = patch => { navigate('/instructor' + qs(patch)); };
@@ -835,18 +838,32 @@ async function admin(tab = 'users', moduleId = '') {
     // form, every invitation with who sent it, and the writing-time records.
     area.innerHTML = `${pageHead('People', 'Everyone who has signed in and their roles, every instructor and student invitation, and each student’s writing time. Instructors see only their own modules, in the Instructor area.', true)}
       <details class="invite-box" ${tab === 'invite' ? 'open' : ''}><summary>Invite an instructor</summary><div class="invite-body"></div></details><div class="people-body"></div>`;
-    await invitationsPage(area.querySelector('.invite-body'), true, {heading: false});
+    const invites = area.querySelector('.invite-box'), inviteBody = invites.querySelector('.invite-body');
+    const loadInvites = async () => {
+      if (!invites.open) return;
+      invites.removeEventListener('toggle', loadInvites);
+      try { await invitationsPage(inviteBody, true, {heading: false}); }
+      catch (err) { inviteBody.textContent = err.message; invites.addEventListener('toggle', loadInvites); }
+    };
+    invites.addEventListener('toggle', loadInvites);
+    void loadInvites();
     const people = area.querySelector('.people-body');
-    if (store.mode === 'firebase') { await renderPeople(people, {moduleId, admin: true, embedded: true, roles: true}); return; }
+    if (store.mode === 'firebase') {
+      // This report owns its container, so another tab can open while it finishes.
+      void renderPeople(people, {moduleId, admin: true, embedded: true, roles: true})
+        .catch(err => { people.textContent = err.message; });
+      return;
+    }
     const users = (await store.listUsers()).sort((a, b) => rank(b.role) - rank(a.role) || (a.penName || '').localeCompare(b.penName || ''));
     people.innerHTML = `<h2>Registered users (${users.length})</h2><p class="muted small">Invitation and sign-in records exist only on the live platform. Change a role in the Role column; you cannot change your own.</p>
-      <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Delete</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option value="${r}" ${(x.role || 'student') === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('')}</select></td><td>${x.uid === u.uid ? '—' : `<button type="button" class="linkish danger" data-del-account="${esc(x.uid)}" data-label="${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || x.penName || x.email || '')}">Delete</button>`}</td></tr>`).join('')}</tbody></table>`;
+      <table class="list"><thead><tr><th>Pen name</th><th>Name</th><th>E-mail</th><th>Programme</th><th>Role</th><th>Delete</th></tr></thead><tbody>${users.map(x => `<tr><td><b>${esc(x.penName || '—')}</b></td><td>${esc([x.firstName, x.lastName].filter(Boolean).join(' '))}</td><td>${esc(x.email || x.contactEmail || '')}</td><td>${esc(x.affiliation || '')}</td><td><select data-role="${x.uid}" ${x.uid === u.uid ? 'disabled title="You cannot change your own role."' : ''}>${ROLES.map(r => `<option value="${r}" ${(x.role || 'student') === r ? 'selected' : ''}>${roleLabel(r)}</option>`).join('')}</select>${x.role==='lecturer' ? ['peerAccess','aiGrading'].map(field=>`<label class="check"><input type="checkbox" data-grant="${field}" data-uid="${esc(x.uid)}" ${x[field]?'checked':''}>${field==='peerAccess'?'Peer review':'AI grading'}</label>`).join('') : ''}</td><td>${x.uid === u.uid ? '—' : `<button type="button" class="linkish danger" data-del-account="${esc(x.uid)}" data-label="${esc([x.firstName, x.lastName].filter(Boolean).join(' ') || x.penName || x.email || '')}">Delete</button>`}</td></tr>`).join('')}</tbody></table>`;
+    people.querySelectorAll('[data-grant]').forEach(box=>box.onchange=()=>store.setInstructorGrant(box.dataset.uid,box.dataset.grant,box.checked));
     people.querySelectorAll('[data-role]').forEach(sel => sel.onchange = async () => { try { await store.setRole(sel.dataset.role, sel.value); toast('Role updated.'); } catch (e) { toast(e.message, 'error'); } });
     people.querySelectorAll('[data-del-account]').forEach(b => b.onclick = async () => { if (!confirm(deleteWording.account(b.dataset.label))) return; b.disabled = true; try { await store.deleteAccount(b.dataset.delAccount); toast('Account deleted.'); } catch (e) { toast(e.message, 'error'); b.disabled = false; } });
     return;
   }
   if (tab === 'grading') { liveView = 'grading'; await renderGrading(area, {moduleId, embedded: true}); return; }
-  if (tab === 'peer') { liveView = 'peer'; await renderPeerAdmin(area, {moduleId, embedded: true}); return; }   // like the editor: a store notification must not rebuild the page mid-batch
+  if (tab === 'peer') { liveView = 'peer'; await (await import('./peer-review.js')).renderPeerAdmin(area, {moduleId, embedded: true}); return; }   // like the editor: a store notification must not rebuild the page mid-batch
   if (tab === 'feedback') { area.innerHTML = `${pageHead('Feedback inbox', 'What visitors, students and instructors sent with the Feedback button: notes, screenshots and voice notes.', true)}<div id="fb-inbox"></div>`; await renderFeedbackInbox(area.querySelector('#fb-inbox')); return; }
   if (tab === 'modules') { await myModules(area, true); return; }
   let body = '';
@@ -881,8 +898,18 @@ async function admin(tab = 'users', moduleId = '') {
   catch (e) { $app.innerHTML = `<p class="empty">The blog could not start: ${esc(e.message)}</p>`; return; }
   let identity = store.currentUser();
   store.onChange(why => {
+    if (why === 'masthead') {
+      S = store.settings();
+      renderHeader();
+      const tagline = $app.querySelector('.welcome [data-tagline]');
+      if (tagline) tagline.textContent = S.tagline;
+      const loginTitle = $app.querySelector('.welcome-card h3');
+      if (loginTitle) loginTitle.textContent = 'Log in to ' + S.title;
+      if (!user()) renderFooter();
+      return;
+    }
     const next = store.currentUser();
-    if (identity && (identity.uid !== next?.uid || identity.role !== next?.role)) {
+    if (identity && (identity.uid !== next?.uid || identity.role !== next?.role || identity.aiGrading !== next?.aiGrading || identity.peerAccess !== next?.peerAccess)) {
       document.querySelectorAll('dialog[open]').forEach(d => d.close());
       $app.replaceChildren(); $header.replaceChildren();
       location.reload();

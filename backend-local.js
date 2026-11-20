@@ -5,8 +5,10 @@
 // `?local` on a dev server without touching the live database.
 import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, SEED_BLOGS, SEED_MODULES, SEED_MEMBERSHIPS, DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
-import {reviewId, reviewerRelease} from './peer-review-model.js';
+import {reviewId, reviewerRelease, roundOpen, scheduledYear, scheduledDraw} from './peer-review-model.js';
 import {JOIN_CITIES, normalizeCode, isJoinCity, cityLabel, STANDING_EXPIRY} from './invitation-codes.js';
+
+import {gradingKeys} from './ai-providers.js';
 
 const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
 let state, listeners = new Set();
@@ -27,6 +29,33 @@ const me = () => local.currentUser();
 const staff = u => u && ['admin', 'lecturer'].includes(u.role);
 const teaches = (u, x) => u && (u.role === 'admin' || (x.teacherIds || []).includes(u.uid));
 
+function localGrader() {
+  const u = me();
+  if (u?.role === 'admin') return state;
+  if (u?.role !== 'lecturer' || !u.aiGrading) throw Error('Access required.');
+  const spaces = state.instructorGraders ||= {};
+  return spaces[u.uid] ||= {};
+}
+function drawDueRounds() {
+  let changed = false;
+  for (const module of state.modules) {
+    const year = scheduledYear(module, state.peerRounds?.[module.id]);
+    if (!year || !state.users.some(u=>module.teacherIds.includes(u.uid) && (u.role==='admin' || (u.role==='lecturer' && u.peerAccess)))) continue;
+    const members = new Set(state.memberships.filter(m => m.moduleId === module.id).map(m => m.uid));
+    const draw = scheduledDraw(module, year, state.posts.filter(p => p.moduleId === module.id), members);
+    if (!draw) continue;
+    const now = Date.now();
+    const rounds = state.peerRounds ||= {}, reviews = state.peerReviews ||= {};
+    for (const row of draw.assignments) {
+      const id = reviewId(module.id, row.postId, row.reviewerUid);
+      reviews[id] = {id, ...row, moduleId:module.id, blogId:module.blogId, assignedAt:now, updatedAt:now, grade:null, assessment:'', submittedAt:null};
+    }
+    rounds[module.id] = {moduleId:module.id, blogId:module.blogId, academicYear:year, status:'open', perStudent:4, seed:draw.seed, assignedBy:'scheduler', assignedAt:now};
+    changed = true;
+  }
+  if (changed) save();
+}
+
 export const local = {
   mode: 'local',
   async init() {
@@ -46,7 +75,7 @@ export const local = {
     if (!u) return null;
     return {...u, emailVerified: true, managedModuleIds: state.modules.filter(m => m.teacherIds.includes(uid)).map(m => m.id), managedBlogIds: state.blogs.filter(b => b.teacherIds.includes(uid)).map(b => b.id)};
   },
-  viewAs(uid) { if (uid) localStorage.setItem(VIEW, uid); else localStorage.removeItem(VIEW); listeners.forEach(fn => fn()); },
+  viewAs(uid) { gradingKeys(uid); if (uid) localStorage.setItem(VIEW, uid); else localStorage.removeItem(VIEW); listeners.forEach(fn => fn()); },
   users: () => state.users,
 
   // ---- blogs: a public canvas plus the exercise written on it ----
@@ -76,13 +105,14 @@ export const local = {
     const existing = data.id ? state.modules.find(m => m.id === data.id) : null;
     if (data.id && !existing) throw Error('Module not found.');
     if (existing && !teaches(u, existing)) throw Error('You cannot manage this module.');
+    if (data.peerReview && u.role !== 'admin' && !u.peerAccess) throw Error('Peer review access required.');
     let blogId = data.blogId;
     if (data.newBlog) blogId = (await this.saveBlog({title: data.newBlog.title, urlName: data.newBlog.urlName, description: data.description || ''})).id;
     const blog = state.blogs.find(b => b.id === blogId);
     if (!blog || !teaches(u, blog)) throw Error('Choose one of your own blogs for this module, or create a new one.');
     if (!existing && data.code && state.modules.some(m => m.code.toLowerCase() === String(data.code).trim().toLowerCase())) throw Error('A module with this code already exists. Open it from My modules instead: one module serves every academic year.');
     const id = existing?.id || uniqueId(state.modules, slugify(data.code || data.title));
-    const doc = {...(existing || {createdBy: u.uid, createdAt: Date.now(), teacherIds: [u.uid], teacherName: [u.firstName, u.lastName].filter(Boolean).join(' ')}), id, title: String(data.title || '').trim(), code: String(data.code || '').trim(), description: String(data.description || '').trim(), blogId, submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, deadline: data.deadline || '', brightspaceUrl: String(data.brightspaceUrl || '').trim(), peerReview: u.role === 'admin' && 'peerReview' in data ? !!data.peerReview : !!existing?.peerReview, peerDeadline: u.role === 'admin' && 'peerDeadline' in data ? String(data.peerDeadline || '') : (existing?.peerDeadline || ''), updatedAt: Date.now()};
+    const doc = {...(existing || {createdBy: u.uid, createdAt: Date.now(), teacherIds: [u.uid], teacherName: [u.firstName, u.lastName].filter(Boolean).join(' ')}), id, title: String(data.title || '').trim(), code: String(data.code || '').trim(), description: String(data.description || '').trim(), blogId, submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, deadline: data.deadline || '', brightspaceUrl: String(data.brightspaceUrl || '').trim(), peerReview: 'peerReview' in data ? !!data.peerReview : !!existing?.peerReview, peerDeadline: 'peerDeadline' in data ? (data.peerDeadline || '') : (existing?.peerDeadline || ''), updatedAt: Date.now()};
     if (!doc.title) throw Error('Enter a module title.');
     if (existing) Object.assign(existing, doc); else state.modules.push(doc);
     save(); return structuredClone(doc);
@@ -243,7 +273,12 @@ export const local = {
     state.comments.forEach(c => { if (c.authorId === uid) c.authorName = u.penName; });
     save(); return structuredClone(u);
   },
-  async setRole(uid, role) { const u = state.users.find(x => x.uid === uid); if (u) { u.role = role; save(); } },
+  async setInstructorGrant(uid, field, enabled) {
+    const instructor = state.users.find(x=>x.uid===uid && x.role==='lecturer');
+    if (me()?.role !== 'admin' || !instructor || !['aiGrading','peerAccess'].includes(field)) throw Error('Admin access required.');
+    instructor[field] = enabled; save();
+  },
+  async setRole(uid, role) { const u = state.users.find(x => x.uid === uid); if (u) { u.role = role; u.aiGrading = false; u.peerAccess = false; save(); } },
   // The Delete column of the People tables: a student leaves a module, an invitation goes, an account goes (its published posts stay).
   async removeMember(moduleId, uid) { const u = me(), m = state.modules.find(x => x.id === moduleId); if (!m || !teaches(u, m)) throw Error('You cannot manage this module.'); state.memberships = state.memberships.filter(x => !(x.uid === uid && x.moduleId === moduleId)); save(); },
   async deleteModuleInvite(id) { const i = (state.moduleInvites || []).find(x => x.id === id); if (!i) return; const m = state.modules.find(x => x.id === i.moduleId); if (!m || !teaches(me(), m)) throw Error('You cannot manage this module.'); state.moduleInvites = state.moduleInvites.filter(x => x.id !== id); save(); },
@@ -251,10 +286,21 @@ export const local = {
   async deleteAccount(uid) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); if (uid === u.uid) throw Error('You cannot delete your own account.'); state.users = state.users.filter(x => x.uid !== uid); state.memberships = state.memberships.filter(x => x.uid !== uid); state.posts = state.posts.filter(p => !(p.authorId === uid && p.status !== 'published')); save(); },
 
   // ---- AI grading assistant (admin only) ----
-  async getGraderConfig() { return delay(structuredClone(state.grader || null)); },
-  async saveGraderConfig(cfg) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.grader = {persona: String(cfg.persona || ''), instructions: String(cfg.instructions || ''), polish: String(cfg.polish || ''), updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.grader); },
-  async listAiReviews(moduleId = '') { const u = me(); if (u?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.aiReviews || {}).filter(r => !moduleId || r.moduleId === moduleId))); },
-  async saveAiReview(postId, patch) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.aiReviews = state.aiReviews || {}; state.aiReviews[postId] = {...(state.aiReviews[postId] || {}), ...patch, postId, updatedAt: Date.now()}; save(); return structuredClone(state.aiReviews[postId]); },
+  async getGraderConfig() { return delay(structuredClone(localGrader().grader || null)); },
+  async saveGraderConfig(cfg) {
+    const space = localGrader();
+    space.grader = {...cfg,updatedAt:Date.now(),updatedBy:me().uid}; save(); return structuredClone(space.grader);
+  },
+  async listAiReviews(moduleId='') {
+    const u=me();
+    return delay(structuredClone(Object.values(localGrader().aiReviews || {}).filter(r=>(!moduleId || r.moduleId===moduleId) && (u.role==='admin' || u.managedModuleIds.includes(r.moduleId)))));
+  },
+  async saveAiReview(postId,patch) {
+    const space=localGrader(), u=me(), post=state.posts.find(p=>p.id===postId);
+    if (!post || (u.role!=='admin' && (!u.managedModuleIds.includes(post.moduleId) || post.moduleId!==patch.moduleId))) throw Error('Module access required.');
+    const reviews=space.aiReviews ||= {};
+    reviews[postId]={...reviews[postId],...patch,postId,updatedAt:Date.now()}; save(); return structuredClone(reviews[postId]);
+  },
   // ---- peer review (study guide 5.3): rounds, assignments, the reviews written on them, notes and released summaries ----
   async googleAccessToken() { const u = me(); if (!u) throw Error('Sign in first.'); return delay({accessToken: 'demo', email: u.email || '', name: [u.firstName, u.lastName].filter(Boolean).join(' ')}); },   // nothing is sent in the prototype
   async getPeerPrompts() { if (me()?.role !== 'admin') return null; return delay(structuredClone(state.peerPrompts || null)); },
@@ -262,10 +308,10 @@ export const local = {
   async getPeerRound(moduleId) { return delay(structuredClone((state.peerRounds || {})[moduleId] || null)); },
   async savePeerRound(moduleId, patch) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.peerRounds = state.peerRounds || {}; state.peerRounds[moduleId] = {...(state.peerRounds[moduleId] || {}), ...patch, id: moduleId, moduleId, updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.peerRounds[moduleId]); },
   async assignPeerReviews(moduleId, rows) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.peerReviews = state.peerReviews || {}; const now = Date.now(); for (const r of rows) { const id = reviewId(moduleId, r.postId, r.reviewerUid); state.peerReviews[id] = {id, moduleId, blogId: r.blogId || '', postId: r.postId, authorId: r.authorId, reviewerUid: r.reviewerUid, reviewerName: r.reviewerName || '', order: r.order || 0, assignedAt: now, grade: null, assessment: '', submittedAt: null, updatedAt: now}; } save(); },
-  async listPeerReviews(moduleId) { if (me()?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.moduleId === moduleId))); },
-  async listMyPeerReviews() { const u = me(); if (!u) return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.reviewerUid === u.uid))); },
+  async listPeerReviews(moduleId) { drawDueRounds(); if (!staff(me()) || !teaches(me(),state.modules.find(m => m.id === moduleId))) return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.moduleId === moduleId))); },
+  async listMyPeerReviews() { drawDueRounds(); const u = me(); if (!u) return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.reviewerUid === u.uid))); },
   async getPeerReview(id) { const u = me(), r = (state.peerReviews || {})[id]; return delay(r && u && (r.reviewerUid === u.uid || u.role === 'admin') ? structuredClone(r) : null); },
-  async submitPeerReview(id, {grade, assessment}) { const u = me(), r = (state.peerReviews || {})[id]; if (!u || !r || r.reviewerUid !== u.uid) throw Error('This post is not assigned to you.'); if ((state.peerRounds || {})[r.moduleId]?.status !== 'open') throw Error('The review round is closed.'); Object.assign(r, {grade, assessment, submittedAt: Date.now(), updatedAt: Date.now()}); save(); return structuredClone(r); },
+  async submitPeerReview(id, {grade, assessment}) { const u = me(), r = (state.peerReviews || {})[id]; if (!u || !r || r.reviewerUid !== u.uid) throw Error('This post is not assigned to you.'); const module = state.modules.find(m => m.id === r.moduleId); if (!module?.peerReview || !roundOpen(state.peerRounds?.[r.moduleId], module)) throw Error('The review round is closed.'); Object.assign(r, {grade, assessment, submittedAt: Date.now(), updatedAt: Date.now()}); save(); return structuredClone(r); },
   async savePeerReview(id, patch) { if (me()?.role !== 'admin') throw Error('Admin access required.'); const r = (state.peerReviews || {})[id]; if (!r) throw Error('Review not found.'); Object.assign(r, patch, {updatedAt: Date.now()}); save(); return structuredClone(r); },
   async deletePeerRound(moduleId) { if (me()?.role !== 'admin') throw Error('Admin access required.'); for (const k of ['peerReviews', 'peerReviewerNotes', 'peerReviewerReleases', 'peerSummaries']) state[k] = Object.fromEntries(Object.entries(state[k] || {}).filter(([, r]) => r.moduleId !== moduleId)); delete (state.peerRounds || {})[moduleId]; save(); },
   async savePeerReviewerNote(moduleId, reviewerUid, patch) {
@@ -279,7 +325,7 @@ export const local = {
   },
   async listPeerReviewerNotes(moduleId) { if (me()?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.peerReviewerNotes || {}).filter(n => n.moduleId === moduleId))); },
   async getMyPeerReviewerNote(moduleId) { const u = me(); if (!u) return null; return delay(structuredClone((state.peerReviewerReleases || {})[`${moduleId}_${u.uid}`] || null)); },
-  async releasePeerSummaries(rows) { if (me()?.role !== 'admin') throw Error('Admin access required.'); state.peerSummaries = state.peerSummaries || {}; const now = Date.now(); for (const r of rows) state.peerSummaries[r.postId] = {...r, id: r.postId, releasedAt: now, updatedAt: now}; save(); },
+  async releasePeerSummaries(rows) { const u=me(); if (u?.role !== 'admin' && !(u?.role==='lecturer' && u.peerAccess && rows.every(r=>u.managedModuleIds.includes(r.moduleId)))) throw Error('Admin access required.'); state.peerSummaries = state.peerSummaries || {}; const now = Date.now(); for (const r of rows) state.peerSummaries[r.postId] = {...r, id: r.postId, releasedAt: now, updatedAt: now}; save(); },
   async listPeerSummaries(moduleId) { if (me()?.role !== 'admin') return []; return delay(structuredClone(Object.values(state.peerSummaries || {}).filter(s => s.moduleId === moduleId))); },
   async getPeerSummary(postId) { const u = me(), s = (state.peerSummaries || {})[postId]; return delay(s && u && (s.authorId === u.uid || u.role === 'admin') ? structuredClone(s) : null); },
 

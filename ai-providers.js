@@ -1,5 +1,12 @@
 // Grading keys last only for the current admin page session.
-export const gradingKeys = {};
+let keyOwner, keys = {};
+export function gradingKeys(uid) {
+  if (uid !== keyOwner) {
+    for (const provider of Object.keys(keys)) delete keys[provider];
+    keys = {}; keyOwner = uid;
+  }
+  return keys;
+}
 try { globalThis.localStorage?.removeItem('ucd-blog.aiKeys'); } catch {}
 // AI providers for the admin-only grading assistant. Pure request building and
 // response parsing so the shapes can be unit-tested without the network; the

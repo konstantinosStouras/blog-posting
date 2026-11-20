@@ -1,3 +1,4 @@
+import {deadlineAt, deadlineInput} from './deadlines.js';
 // Peer review of blogs (study guide section 5.3, "Others' blog assessment"): after the
 // deadline each student is assigned the posts of four classmates, grades each from 1 to
 // 10 with a paragraph of constructive feedback, and the admin aggregates the four reviews
@@ -67,6 +68,18 @@ export function peerCohort({posts = [], students = [], year = academicYearOf()} 
   const authors = [...new Set(pool.map(p => p.authorId))];
   const extras = students.filter(m => !authors.includes(m.uid) && academicYearOf(m.joinedAt) === year).map(m => m.uid);
   return {year, posts: pool, authors, extras};
+}
+
+export function scheduledYear(module, prior, now = Date.now()) {
+  if (!module?.peerReview || !module.deadline || !(now > deadlineAt(module.deadline))) return null;
+  const year = academicYearOf(Date.parse((typeof module.deadline === 'string' ? module.deadline : deadlineInput(module.deadline).local.slice(0, 10)) + 'T12:00:00'));
+  return prior && (!prior.academicYear || prior.academicYear === year) ? null : year;
+}
+export function scheduledDraw(module, year, posts, members) {
+  const cutoff = deadlineAt(module.deadline);
+  const eligible = reviewablePosts(posts.filter(p => members.has(p.authorId) && p.publishedAt &&
+    p.publishedAt <= cutoff && (p.academicYear || academicYearOf(p.publishedAt)) === year));
+  return eligible.length > PER_STUDENT ? assignPeerReviews({posts:eligible}) : null;
 }
 
 // The draw. `posts`: the module's posts; `extraReviewers`: uids of students with no post
@@ -142,8 +155,8 @@ export function validateReview({grade, assessment}) {
   if (a.length > MAX_CHARS) throw Error(`Keep the feedback under ${MAX_CHARS} characters.`);
   return {grade: g, assessment: a};
 }
-// A round takes submissions while it is open and, if the module names a peer-review deadline, until the end of that day.
-export const roundOpen = (round, module = null, now = Date.now()) => { const due = module?.peerDeadline || ''; return !!round && round.status === 'open' && (!due || now <= new Date(due + 'T23:59:59').getTime()); };
+// A round takes submissions while it is open and, if the module names a peer-review deadline, until that instant.
+export const roundOpen = (round, module = null, now = Date.now()) => { const due = module?.peerDeadline || ''; return !!round && round.status === 'open' && (!due || now <= deadlineAt(due)); };
 
 // ---------- aggregation ----------
 const mean = xs => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;

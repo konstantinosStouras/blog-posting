@@ -2,7 +2,7 @@ import {before,after,beforeEach,test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {initializeTestEnvironment,assertSucceeds,assertFails} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,getDocs,collection,query,where,updateDoc,deleteDoc,writeBatch,arrayUnion,arrayRemove} from 'firebase/firestore';
+import {doc,setDoc,getDoc,getDocs,collection,collectionGroup,query,where,updateDoc,deleteDoc,writeBatch,arrayUnion,arrayRemove} from 'firebase/firestore';
 let env;
 const time=Date.now();
 const profile=(email='student@ucdconnect.ie')=>({firstName:'Student',lastName:'Example',penName:'quiet-heron-482',studentId:'12345678',contactEmail:email,affiliation:'Example University',registrationKind:'student'});
@@ -142,6 +142,7 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await env.withSecurityRulesDisabled(async c=>{
   const d=c.firestore();
   await setDoc(doc(d,'modules/one/members/other'),{...member('other'),email:'other@ucd.ie',contactEmail:'other@ucd.ie'});
+  await updateDoc(doc(d,'modules/one'),{peerReview:true});
   await setDoc(doc(d,'posts/other-published'),post('one','other','published'));
   await setDoc(doc(d,'posts/other-published/content/body'),{body:'<p>Other content</p>'});
   await setDoc(doc(d,'peerRounds/one'),{moduleId:'one',blogId:'pm',status:'open',perStudent:4,seed:'abc',academicYear:'2026/27',assignedAt:time,assignedBy:'admin',updatedAt:time,updatedBy:'admin'});
@@ -172,6 +173,8 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await assertSucceeds(getDocs(query(collection(admin,'peerReviews'),where('moduleId','==','one'))));
  await assertFails(getDoc(doc(author,'peerReviews/'+id)));
  await assertFails(getDoc(doc(teacher,'peerReviews/'+id)));
+ await assertSucceeds(updateDoc(doc(admin,'roles/teacher-one'),{peerAccess:true}));
+ await assertSucceeds(getDoc(doc(teacher,'peerReviews/'+id)));
  await assertFails(getDocs(query(collection(db('peer','peer@ucd.ie'),'peerReviews'),where('moduleId','==','one'))));
  // submitting: the reviewer, a whole-number grade from 1 to 10, feedback of any length, nothing else changed
  const text='This post explains the organisation and its megatrend clearly. '.repeat(5);
@@ -209,7 +212,8 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  const summary={postId:'other-published',moduleId:'one',authorId:'other',count:1,mean:8,adjustedMean:8,feedback:'Merged feedback',assessments:[{grade:8,assessment:text}],releasedAt:time,updatedAt:time};
  await assertSucceeds(setDoc(doc(admin,'peerSummaries/other-published'),summary));
  await assertFails(setDoc(doc(admin,'peerSummaries/missing'),{...summary,postId:'missing'}));
- await assertFails(setDoc(doc(teacher,'peerSummaries/other-published'),summary));
+ await assertSucceeds(setDoc(doc(teacher,'peerSummaries/other-published'),summary));
+ await assertFails(setDoc(doc(teacher,'peerSummaries/other-published'),{...summary,authorId:'someone-else'}));
  await assertSucceeds(getDoc(doc(author,'peerSummaries/other-published')));
  await assertFails(getDoc(doc(student,'peerSummaries/other-published')));
  await assertFails(getDoc(doc(teacher,'peerSummaries/other-published')));
@@ -251,8 +255,9 @@ test('named student invitations can only be read and redeemed by the intended un
 });
 test('signed-out visitors read blog and module titles and published posts with their text: no comments, drafts, rosters, profiles or invites',async()=>{
  const d=env.unauthenticatedContext().firestore();
- await assertSucceeds(getDocs(collection(d,'blogs')));
- await assertSucceeds(getDocs(collection(d,'modules')));
+ await assertFails(getDocs(collection(d,'blogs')));
+ await assertFails(getDocs(collection(d,'modules')));
+ await assertSucceeds(getDoc(doc(d,'blogs/pm')));
  await assertSucceeds(getDocs(query(collection(d,'posts'),where('status','==','published'))));
  await assertSucceeds(getDocs(query(collection(d,'posts'),where('blogId','==','pm'),where('status','==','published'))));
  await assertSucceeds(getDoc(doc(d,'posts/published')));
@@ -348,8 +353,10 @@ test('teachers create blogs and modules on their own blogs only; nobody appoints
  await assertFails(setDoc(doc(d,'modules/no-such-blog'),mod('teacher-one','missing')));
  await assertFails(updateDoc(doc(d,'modules/one'),{blogId:'ops'}));
  await assertSucceeds(updateDoc(doc(d,'modules/one'),{academicYear:'2027/28',deadline:'2027-11-30'}));
- await assertFails(updateDoc(doc(d,'modules/one'),{peerReview:true,peerDeadline:'2027-12-14'}));   // the peer-review option is the admin's alone
- await assertFails(setDoc(doc(d,'modules/six'),{...mod('teacher-one','pm'),peerReview:true}));
+ await assertSucceeds(updateDoc(doc(db('admin','kstouras@gmail.com'),'roles/teacher-one'),{peerAccess:true}));
+ await assertSucceeds(updateDoc(doc(d,'modules/one'),{peerReview:true,peerDeadline:'2027-12-14'}));
+ await assertSucceeds(setDoc(doc(d,'modules/six'),{...mod('teacher-one','pm'),peerReview:true}));
+ await assertFails(updateDoc(doc(d,'modules/two'),{peerReview:true}));
  await assertFails(updateDoc(doc(d,'modules/one'),{teacherIds:['teacher-one','other']}));
  await assertFails(updateDoc(doc(d,'blogs/pm'),{teacherIds:['teacher-one','other']}));
  await assertFails(setDoc(doc(db('student'),'modules/stolen'),mod('student')));
@@ -695,4 +702,50 @@ test('signed-out clients cannot create or edit posts, content, or editing histor
   uid:'student',postId:'draft',moduleId:'one',seconds:1,
   startedAt,lastActivityAt:startedAt+1000,lastRecordedAt:startedAt+1000
  }));
+});
+
+test('instructor directories, independent grants and private graders',async()=>{
+ const d=db('teacher-one'),admin=db('admin','kstouras@gmail.com');
+ for(const name of ['modules','blogs']){
+   await assertFails(getDocs(collection(d,name)));
+   await assertSucceeds(getDocs(collection(admin,name)));
+   await assertSucceeds(getDocs(query(collection(d,name),where('teacherIds','array-contains','teacher-one'))));
+ }
+ await assertSucceeds(getDocs(query(collection(d,'modules'),where('blogId','==','pm'))));
+ await assertFails(getDoc(doc(d,'modules/two')));
+ await assertSucceeds(getDoc(doc(d,'modules/not-yet-created')));
+ await assertSucceeds(getDoc(doc(d,'blogs/ops')));
+ await assertSucceeds(getDocs(query(collectionGroup(d,'members'),where('uid','==','teacher-one'))));
+ await assertFails(getDocs(query(collectionGroup(d,'members'),where('uid','==','student'))));
+ const role=doc(admin,'roles/teacher-one'),review=doc(d,'instructorGraders/teacher-one/reviews/draft');
+ const data={moduleId:'one',postId:'draft',grade:8};
+ await assertFails(updateDoc(doc(d,'roles/teacher-one'),{aiGrading:true}));
+ await assertFails(setDoc(review,data));
+ await assertFails(updateDoc(doc(d,'modules/one'),{peerReview:true}));
+ await assertSucceeds(updateDoc(role,{peerAccess:true}));
+ await assertSucceeds(updateDoc(doc(d,'modules/one'),{peerReview:true}));
+ await assertFails(setDoc(review,data));
+ await assertSucceeds(updateDoc(role,{peerAccess:false,aiGrading:true}));
+ await assertSucceeds(setDoc(review,data));
+ await assertFails(updateDoc(doc(d,'modules/three'),{peerReview:true}));
+ await assertFails(setDoc(doc(d,'instructorGraders/teacher-one/reviews/other-draft'),{...data,postId:'other-draft'}));
+ await assertFails(getDoc(doc(d,'adminContent/grader')));
+ await assertFails(getDoc(doc(d,'aiReviews/draft')));
+ await assertFails(getDoc(doc(db('teacher-two'),'instructorGraders/teacher-one/reviews/draft')));
+ await assertSucceeds(updateDoc(role,{aiGrading:false}));
+ await assertFails(getDoc(review));
+});
+
+test('activation copies exactly the two permissions set by the inviting admin',async()=>{
+ const d=db('invited','invited@ucd.ie'), admin=db('admin','kstouras@gmail.com');
+ const id='with-peer';
+ await assertSucceeds(setDoc(doc(admin,'teacherInvites/'+id),invite({peerAccess:true,aiGrading:false})));
+ const activate=(aiGrading)=>{
+   const b=writeBatch(d);
+   b.set(doc(d,'roles/invited'),{role:'lecturer',inviteId:id,setBy:'invitation',setAt:time,peerAccess:true,aiGrading});
+   b.update(doc(d,'teacherInvites/'+id),{acceptedBy:'invited'});
+   return b.commit();
+ };
+ await assertFails(activate(true));
+ await assertSucceeds(activate(false));
 });

@@ -24,6 +24,7 @@ export function editBrief({html = '', title = 'The brief', blogTitle = '', actio
     dialog.setAttribute('aria-labelledby', 'brief-title');
     dialog.innerHTML = `<form method="dialog" class="sheet-form" onsubmit="return false"><button type="button" class="close" data-close aria-label="Close">×</button>
       <h2 id="brief-title">${esc(title)}</h2><p class="muted small">${esc(blogTitle)}${blogTitle ? ' · ' : ''}${esc(note)}</p>
+      <p class="hint">Use the first heading for the challenge title. Type <code>/thisYear</code> for the current year, <code>/wordTarget</code> for the word range in Blog settings, or <code>/blogTitle</code> for the blog name.</p>
       <div class="brief-editor" id="brief-editor"></div>
       <div class="notice brief-discard" id="brief-discard" hidden><p role="alert">Discard your changes to the brief?</p><div class="actions"><button type="button" class="btn" id="brief-keep">Keep editing</button><button type="button" class="btn danger" id="brief-discard-confirm">Discard changes</button></div></div>
       <div class="actions sheet-actions"><button type="button" class="btn primary" id="brief-save">${esc(action)}</button><button type="button" class="btn ghost" data-close>Cancel</button><span class="status-line" id="brief-status" aria-live="polite"></span></div></form>`;

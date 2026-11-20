@@ -1,11 +1,11 @@
+import {deadlineAt} from './deadlines.js';
 // The three levels. Each level has everything the one below it has, plus more.
 // This mirrors firestore.rules, which is the real authorisation; the browser
 // copy only decides what is DRAWN. Keep the two in step.
 export const ROLES = ['student', 'lecturer', 'admin'];
 export const rank = role => Math.max(0, ROLES.indexOf(role || 'student'));
 
-// The deadline day counts in full, in the reader's time zone (the same reading as the author's late note).
-export const pastDeadline = settings => !!settings?.deadline && Date.now() > new Date(settings.deadline + 'T23:59:59').getTime();
+export const pastDeadline = settings => !!settings?.deadline && Date.now() > deadlineAt(settings.deadline);
 
 export function can(user, action, post, settings = {}) {
   if (!user) return action === 'read';

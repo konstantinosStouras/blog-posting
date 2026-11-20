@@ -1,15 +1,14 @@
 // Picks the backend once: Firebase when firebase-config.js is filled in, otherwise local.
 import {firebaseEnabled} from './firebase-config.js';
-import {local} from './backend-local.js';
 
-let backend = local;
+let backend;
 const listeners = new Set(), emit = why => listeners.forEach(fn => fn(why));
 const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 
 export async function initStore() {
   // Older builds persisted private drafts and peer reviews alongside the previous identity.
   try { localStorage.removeItem('ucd-blog:snapshot'); } catch {}
-  backend = firebaseEnabled() ? (await import('./backend-firebase.js')).firebase : local;
+  backend = firebaseEnabled() ? (await import('./backend-firebase.js')).firebase : (await import('./backend-local.js')).local;
   await backend.init();
   backend.onChange(emit);
   return backend;
@@ -22,7 +21,7 @@ export async function initStore() {
 let preview = null;
 export const setStorePreview = p => { preview = p; access = null; };
 const WRITES = new Set(['register', 'completeRegistration', 'saveBlog', 'saveModule', 'deleteModule', 'joinModule', 'createModuleInvite', 'revokeModuleInvite', 'createTeacherInvite', 'revokeTeacherInvite', 'acceptTeacherInvite',
-  'editComment', 'saveWritingHistory', 'savePost', 'deletePost', 'deletePosts', 'slimPosts', 'votePoll', 'toggleLike', 'toggleCommentLike', 'toggleBookmark', 'addComment', 'deleteComment', 'saveGraderConfig', 'saveAiReview', 'savePeerRound', 'assignPeerReviews', 'submitPeerReview', 'savePeerReview', 'deletePeerRound', 'savePeerReviewerNote', 'releasePeerSummaries', 'savePeerPrompts', 'saveProfile', 'setRole', 'removeMember', 'deleteModuleInvite', 'deleteTeacherInvite', 'deleteAccount', 'updateFeedback', 'deleteFeedback', 'saveSettings', 'resetDemo']);
+  'editComment', 'saveWritingHistory', 'savePost', 'deletePost', 'deletePosts', 'slimPosts', 'votePoll', 'toggleLike', 'toggleCommentLike', 'toggleBookmark', 'addComment', 'deleteComment', 'saveGraderConfig', 'saveAiReview', 'savePeerRound', 'assignPeerReviews', 'submitPeerReview', 'savePeerReview', 'deletePeerRound', 'savePeerReviewerNote', 'releasePeerSummaries', 'savePeerPrompts', 'saveProfile', 'setInstructorGrant', 'setRole', 'removeMember', 'deleteModuleInvite', 'deleteTeacherInvite', 'deleteAccount', 'updateFeedback', 'deleteFeedback', 'saveSettings', 'resetDemo']);
 const scopeModules = (rows, p) => p.kind === 'student' ? rows.filter(m => m.id === p.moduleId).map(m => ({...m, teaching: false})) : rows.filter(m => (m.teacherIds || []).includes(p.uid)).map(m => ({...m, teaching: true}));
 // Who may read what. Signed out: every blog's canvas (its title, description and the modules
 // writing on it; the blogs and modules collections are public) and the published posts of any
@@ -59,9 +58,17 @@ export const memberOfBlog = async id => { const a = await allowed(); return a.al
 const reads = (a, x) => !!x && (a.modules.has(x.moduleId) || a.ownedBlogs.has(x.blogId));   // a post, or a comment (which carries its post's module and blog)
 const readsPost = (a, p) => !!p && (p.status === 'published' || (!a.visitor && (p.authorId === a.uid || a.taught.has(p.moduleId) || a.ownedBlogs.has(p.blogId))));
 const SCOPED = {
-  listBlogs: (rows, a) => a.visitor ? rows : rows.filter(b => a.blogs.has(b.id)),
-  listPosts: (rows, a) => rows.filter(p => readsPost(a, p)),
-  listAllPosts: (rows, a) => rows.filter(p => readsPost(a, p)),
+  listModules: (rows,a) => rows.filter(m=>a.modules.has(m.id) || a.ownedBlogs.has(m.blogId)),
+  getModule: (m,a) => m && (a.modules.has(m.id) || a.ownedBlogs.has(m.blogId)) ? m : null,
+  getBlog: (b,a) => {
+    if (!b || a.blogs.has(b.id)) return b;
+    const {brief,...publicBlog} = b;
+    return publicBlog;
+  },
+  listMyBlogs: (rows,a) => rows.filter(b=>a.ownedBlogs.has(b.id)),
+  listBlogs: (rows,a) => rows.filter(b=>a.blogs.has(b.id)),
+  listPosts: (rows,a,[f={}]) => rows.filter(p=>readsPost(a,p) && (a.blogs.has(p.blogId) || f.blogId === p.blogId || p.authorId === a.uid)),
+  listAllPosts: (rows,a) => rows.filter(p=>a.taught?.has(p.moduleId) || a.ownedBlogs.has(p.blogId)),
   listComments: (rows, a) => rows.filter(c => reads(a, c)),
   recentComments: (rows, a) => rows.filter(c => reads(a, c)),
   getPost: (p, a) => readsPost(a, p) ? p : null,
@@ -72,8 +79,9 @@ export const store = new Proxy({}, {get: (_, k) => {
   const v = backend[k];
   if (typeof v !== 'function') return v;
   const call = v.bind(backend);
-  if (SCOPED[k]) return async (...a) => { const [out, acc] = await Promise.all([call(...a), allowed()]); return acc.all ? out : SCOPED[k](out, acc); };
+  if (SCOPED[k]) return async (...a) => { const [out, acc] = await Promise.all([call(...a), allowed()]); return acc.all ? out : SCOPED[k](out, acc, a); };
   if (preview && WRITES.has(k)) return async () => { throw Error('You are viewing the site as someone else. Close the preview (× in the account menu) to make changes.'); };
+  if (preview?.kind === 'instructor' && k === 'peopleReport') return moduleId=>call(moduleId,preview.uid);
   if (preview && k === 'listMyModules') return async (...a) => scopeModules(await call(...a), preview);
   return call;
 }});

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
-import {PROVIDERS, PROVIDER_IDS, callProvider} from '../ai-providers.js';
+import {gradingKeys, PROVIDERS, PROVIDER_IDS, callProvider} from '../ai-providers.js';
 import {createSheetWorkbook} from '../roster-export.js';
 import {DEFAULT_GRADER, REVIEW_SCHEMA, htmlToText, buildReview, buildPolish, parseReview, clampGrade, gradingRows, fill, GRADING_COLUMNS} from '../ai-grading-model.js';
 
@@ -111,4 +111,12 @@ test('the grading sheet keeps the old spreadsheet columns, bold headings and tex
   assert.ok(headings.includes('AI feedback') && headings.includes('Manual FINAL feedback') && headings.includes('Blog grade'));
   assert.equal(ws.getCell('A1').font.bold, true); assert.equal(ws.getCell('A2').value, '00123'); assert.equal(ws.getCell('A2').numFmt, '@');
   assert.equal(ws.getRow(2).getCell(headings.indexOf('AI grade') + 1).value, '7.5');
+});
+
+test('switching accounts and signing out discard provider keys, including old page references',()=>{
+ const admin=gradingKeys('admin'); admin.openai='sample-admin';
+ assert.equal(gradingKeys('admin').openai,'sample-admin');
+ const teacher=gradingKeys('instructor'); assert.equal(teacher.openai,undefined); assert.equal(admin.openai,undefined);
+ teacher.openai='sample-instructor'; gradingKeys(undefined);
+ assert.equal(teacher.openai,undefined); assert.equal(gradingKeys('admin').openai,undefined);
 });

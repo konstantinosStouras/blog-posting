@@ -1,17 +1,19 @@
+import {fmtDeadline, deadlineInput, makeDeadline, deadlineAt} from './deadlines.js';
 // Blogs, modules and invitations.
 //   A BLOG is a public canvas plus the exercise written on it (brief, categories,
 //   word target, outline, checklist, comments policy). It is owned by instructors.
 //   A MODULE is a cohort: code, academic year, roster, invitations, deadline and
 //   moderation settings. Every module posts to exactly one blog, and several
 //   modules of the same instructor may share one blog canvas.
+import {can} from './permissions.js';
 import {store, memberOfBlog} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
-import {esc, toast, slugify, fmtDate, fmtDateTime, sanitize, pageHead} from './util.js';
+import {esc, toast, slugify, fmtDate, fmtDateTime, toDom, pageHead} from './util.js';
 import {JOIN_CITIES, cityLabel, isRetiredStudentCode} from './invitation-codes.js';
 import {DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
-import {peerCardLine} from './peer-review.js';
+
 const editBrief = async options => (await import('./brief-editor.js')).editBrief(options);
 import {enhance} from './blocks.js';
 
@@ -29,24 +31,43 @@ export async function blogDirectory() {
   if (!u) { app.innerHTML = renderWelcome(); bindWelcome(app); return; }   // the front door: no blogs, posts or comments before signing in
   const [blogs, modules, mine] = await Promise.all([store.listBlogs({metadataOnly: true}), store.listModules(), store.listMyModules()]);
   // The whole card opens the blog (a cover link beneath the buttons, as on the post canvas), and lights up on hover (styles.css, .module-card.linked).
-  const card = b => { const here = m => m.blogId === b.id, ms = instructs(u, b) || mine.some(m => here(m) && isTeaching(m)) ? modules.filter(here) : mine.filter(here); return `<article class="module-card linked"><a class="cover" href="/${esc(b.id)}" aria-hidden="true" tabindex="-1"></a><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/${esc(b.id)}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions"><a class="btn small" href="/${esc(b.id)}">Open blog</a>${instructs(u, b) ? `<a class="btn small" href="/blogs/edit/${esc(b.id)}">Blog settings</a>` : ''}</div></article>`; };
+  const card = b => {
+    const id = esc(b.id);
+    const owner = instructs(u, b);
+    const here = m => m.blogId === b.id;
+    const ms = owner || mine.some(m => here(m) && isTeaching(m)) ? modules.filter(here) : mine.filter(here);
+    const actions = owner
+      ? `<a class="btn" href="/${id}/brief">The brief</a>
+         <a class="btn" href="/blogs/edit/${id}">Blog settings</a>
+         <a class="btn" href="/instructor?blog=${id}#posts">Review posts</a>`
+      : `<a class="btn small" href="/${id}">Open blog</a>`;
+    return `<article class="module-card linked"><a class="cover" href="/${id}" aria-hidden="true" tabindex="-1"></a><p class="page-sub">${ms.length ? esc(ms.map(m => m.code || m.title).join(' · ')) : 'Blog'}</p><h2><a href="/${id}">${esc(b.title)}</a></h2><p>${esc(b.description || '')}</p><div class="actions">${actions}</div></article>`;
+  };
   // Each person sees the blogs they belong to; the admin sees them all.
   app.innerHTML = `<h1 class="page-title">${u.role === 'admin' ? 'Explore blogs' : 'My blogs'}</h1><p class="page-sub">${u.role === 'admin' ? 'Every blog on the platform, with the modules writing on it.' : 'The blogs your modules write on, with the posts of your own module.'}</p>
     <p class="actions"><a class="btn" href="/my-modules">My modules</a>${staff(u) ? '<a class="btn primary" href="/modules/new">Create module</a>' : ''}${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
-    ${blogs.length ? `<div class="module-grid">${blogs.map(card).join('')}</div>` : `<p class="empty">${u.role === 'admin' ? 'No blogs have been created yet.' : 'You are not a member of any blog yet. Enter your invitation code from <a href="/my-modules">My modules</a>.'}</p>`}`;
+    ${blogs.length ? `<div class="module-grid">${blogs.map(card).join('')}</div>` : `<p class="empty">${u.role === 'admin' ? 'No blogs have been created yet.' : staff(u) ? 'Choose Create module to set up your first blog canvas.' : 'You are not a member of any blog yet. Enter your invitation code from <a href="/my-modules">My modules</a>.'}</p>`}`;
+}
+
+function peerCardLine(reviews, module) {
+  if (!module.peerReview) return '';
+  const rows = reviews.filter(r => r.moduleId === module.id);
+  if (!rows.length) return ' Review assignments appear here after the writing deadline.';
+  const done = rows.filter(r => r.grade != null).length;
+  return ` Peer review: <b>${done} of ${rows.length}</b> assessments submitted${module.peerDeadline ? `, due by <b>${fmtDeadline(module.peerDeadline)}</b>` : ''}. <a href="/peer-review">Your assigned posts</a>.`;
 }
 
 // ---------- my modules: a student's way in, an instructor's control room ----------
 export async function myModules(target = app, embedded = false) {
   const u = currentUser();
   if (!u) { target.innerHTML = '<p class="empty">Sign in to see your modules.</p>'; if (store.mode === 'firebase') openAuthModal(); return; }
-  const [mine, blogs] = await Promise.all([store.listMyModules(), store.listBlogs()]);
+  const [mine, blogs] = await Promise.all([store.listMyModules(), store.listBlogs({metadataOnly: true})]);
   const blogOf = id => blogs.find(b => b.id === id);
   if (!staff(u)) {
     // Students: the blog(s) of the module(s) they belong to, the way to write, and their peer-review assignments.
     const peerMine = await store.listMyPeerReviews().catch(() => []);
     target.innerHTML = `${pageHead('My modules', `Writing as <b>${esc(u.penName)}</b> · <a href="/profile">Edit profile</a>`, embedded)}
-      ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDate(m.deadline)}</b>.` : ''}${peerCardLine(peerMine, m)}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/${esc(b.id)}">Open blog</a><a class="btn small" href="/${esc(b.id)}/brief">The brief</a>` : ''}${m.brightspaceUrl ? `<a class="btn small" href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Brightspace</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
+      ${mine.length ? `<div class="module-grid">${mine.map(m => { const b = blogOf(m.blogId); return `<article class="module-card"><p class="page-sub">${esc(m.code || 'Module')}</p><h2>${esc(m.title)}</h2><p>${b ? `Posts go to the <a href="/${esc(b.id)}">${esc(b.title)}</a> blog.` : 'This module has no blog yet.'}${m.deadline ? ` Deadline <b>${fmtDeadline(m.deadline)}</b>.` : ''}${peerCardLine(peerMine, m)}</p><div class="actions">${b ? `<a class="btn primary" href="/write/${esc(m.id)}">Write your blog post</a><a class="btn" href="/${esc(b.id)}">Open blog</a><a class="btn small" href="/${esc(b.id)}/brief">The brief</a>` : ''}${m.brightspaceUrl ? `<a class="btn small" href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Brightspace</a>` : ''}</div></article>`; }).join('')}</div>` : '<p class="empty">You have not joined a module yet. Enter the invitation code from your instructor.</p>'}
       <p class="actions"><a class="btn" href="/mine">My posts</a><button class="btn" id="platform-register">Enter an invitation code</button></p>`;
     target.querySelector('#platform-register')?.addEventListener('click', () => openAuthModal('register'));
     return;
@@ -54,7 +75,7 @@ export async function myModules(target = app, embedded = false) {
   const teaching = mine.filter(isTeaching), byBlog = new Map();
   for (const m of teaching) (byBlog.get(m.blogId || '') || byBlog.set(m.blogId || '', []).get(m.blogId || '')).push(m);
   const section = (blogId, ms) => { const b = blogOf(blogId); return `<section class="blog-group"><h2 class="group-title">${b ? `<a href="/${esc(b.id)}">${esc(b.title)}</a>` : 'Modules without a blog'}</h2>${b ? `<p class="actions small"><a href="/blogs/edit/${esc(b.id)}">Blog settings</a><a href="/${esc(b.id)}/brief">Brief</a><a href="/instructor?blog=${esc(b.id)}#posts">Review posts</a><button class="linkish" data-copy="${esc(blogUrl(b.id))}">Copy public link</button></p>` : '<p class="muted small">Open each module’s settings to attach it to a blog.</p>'}
-    <table class="list"><thead><tr><th>Module</th><th>Deadline</th><th>Submissions</th><th></th></tr></thead><tbody>${ms.map(m => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${m.deadline ? fmtDate(m.deadline) : '—'}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.requireApproval ? ' · approval' : ''}</td><td class="actions"><a href="/modules/edit/${esc(m.id)}">Settings</a><a href="/modules/invite/${esc(m.id)}">Invite students</a><a href="/instructor?module=${esc(m.id)}#roster">Roster</a><a href="/instructor?module=${esc(m.id)}#posts">Posts</a><button class="linkish danger" data-delete-module="${esc(m.id)}" data-label="${esc(moduleLabel(m))}" title="Delete this module and its roster">Delete</button></td></tr>`).join('')}</tbody></table></section>`; };
+    <table class="list"><thead><tr><th>Module</th><th>Deadline</th><th>Submissions</th><th></th></tr></thead><tbody>${ms.map(m => `<tr><td><b>${esc(m.code || '')}</b> ${esc(m.title)}</td><td>${m.deadline ? fmtDeadline(m.deadline) : '—'}</td><td>${m.submissionsOpen === false ? 'Closed' : 'Open'}${m.requireApproval ? ' · approval' : ''}</td><td class="actions"><a href="/modules/edit/${esc(m.id)}">Settings</a><a href="/modules/invite/${esc(m.id)}">Invite students</a><a href="/instructor?module=${esc(m.id)}#roster">Roster</a><a href="/instructor?module=${esc(m.id)}#posts">Posts</a><button class="linkish danger" data-delete-module="${esc(m.id)}" data-label="${esc(moduleLabel(m))}" title="Delete this module and its roster">Delete</button></td></tr>`).join('')}</tbody></table></section>`; };
   target.innerHTML = `${pageHead(embedded ? 'Manage modules' : 'My modules', 'Your teaching modules, grouped by the blog they write on.', embedded)}
     <p class="actions"><a class="btn primary" href="/modules/new">Create module</a><a class="btn" href="/blogs">Explore blogs</a><a class="btn" href="/instructor">Instructor area</a>${u.role === 'admin' ? '<a class="btn" href="/admin/invite">Invite instructor</a>' : ''}</p>
     ${teaching.length ? [...byBlog.entries()].map(([id, ms]) => section(id, ms)).join('') : '<p class="empty">Create your first module. You will choose a new blog for it, or reuse one of your existing blogs.</p>'}`;
@@ -69,20 +90,24 @@ export async function myModules(target = app, embedded = false) {
 }
 
 // ---------- the blog's action row ----------
-// Under the masthead of every page of a blog (its canvas, its brief and each of its posts), for a
-// signed-in reader: Write your blog post (or Enter invitation code for a reader who belongs to no
-// module on it), The brief, and for the blog's instructors Blog settings and Review posts. app.js
-// renderHeader leaves the slot and calls this to fill it; a visitor gets no row.
-export async function blogActions(id, el) {
+export async function blogActions(id, el, writeSlot) {
   const u = currentUser();
   if (!u) return;
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), store.listMyModules()]);
   if (!blog || !el.isConnected) return;   // a later navigation has redrawn the header
   const onBlog = modules.filter(m => m.blogId === id), preview = u.studentPreview;   // an instructor seeing the blog as a student of one module
-  const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
+  const myHere = preview ? onBlog.filter(m => m.id === preview.moduleId) : mine.filter(m => m.blogId === id);
   const owner = instructs(u, blog) || myHere.some(isTeaching);
-  el.innerHTML = `${writing ? `<a class="btn primary" href="/write/${esc(writing.id)}">Write your blog post</a>` : '<button class="btn primary" id="join-module">Enter invitation code</button>'}${blog.brief && (owner || myHere.length || preview) ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/instructor?blog=${esc(id)}#posts">Review posts</a>` : ''}`;
-  el.hidden = false;
+  const writable = (instructs(u, blog) ? onBlog : myHere).filter(m => can(u, 'write', {moduleId: m.id, blogId: id}, m));
+  const label = '+ Write<span class="write-long"> a post</span>';
+  if (writable.length && (store.mode !== 'firebase' || u.emailVerified)) {
+    writeSlot.innerHTML = writable.length === 1
+      ? `<a class="btn primary" href="/write/${esc(writable[0].id)}">${label}</a>`
+      : `<details class="module-writer"><summary class="btn primary">${label}</summary><div class="module-choices"><b>Choose a module</b>${writable.map(m => `<a href="/write/${esc(m.id)}">${esc(moduleLabel(m))} ${esc(m.academicYear || '')}</a>`).join('')}</div></details>`;
+    writeSlot.hidden = false;
+  }
+  el.innerHTML = `${!myHere.length && !owner ? '<button class="btn primary" id="join-module">Enter invitation code</button>' : ''}${blog.brief && (owner || myHere.length || preview) ? `<a class="btn" href="/${esc(id)}/brief">The brief</a>` : ''}${owner ? `<a class="btn" href="/blogs/edit/${esc(id)}">Blog settings</a><a class="btn" href="/instructor?blog=${esc(id)}#posts">Review posts</a>` : ''}`;
+  el.hidden = !el.childElementCount;
   el.querySelector('#join-module')?.addEventListener('click', () => openAuthModal('register'));
 }
 
@@ -96,7 +121,7 @@ export async function blogActions(id, el) {
 // the blog is offered the invitation code instead of the Write button.
 export async function blogCanvas(id, metadata) {
   const u = currentUser();
-  const [blog, modules, posts, mine] = await Promise.all([metadata || store.getBlog(id), store.listModules(),
+  const [blog, modules, posts, mine] = await Promise.all([metadata || store.getBlog(id), u ? store.listModules() : [],
     store.listPosts({status: 'published', blogId: id}).catch(e => { if (u) throw e; console.warn('visitor posts', e); return null; }),
     u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found. <a href="/blogs">Explore blogs</a></p>'; return; }
@@ -104,18 +129,18 @@ export async function blogCanvas(id, metadata) {
   if (!u) {
     // The posts alone, with nothing above them: no module line, no brief, no button row. Until the
     // rules that open published posts to visitors are deployed, the read fails and the page says so.
-    app.innerHTML = posts ? canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})
+    app.innerHTML = posts ? canvas(posts, {groupByTheme: true, categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})
       : `<section class="coming-soon" aria-label="Posts"><h2>Coming soon</h2><p>Posts by this blog’s students will appear here as they are published.</p></section>`;
     return;
   }
   const preview = u?.studentPreview;   // an instructor seeing the blog as a student of one module
-  const myHere = preview ? [] : mine.filter(m => m.blogId === id), writing = preview ? onBlog.find(m => m.id === preview.moduleId) : myHere.find(m => !m.teaching) || myHere[0];
+  const myHere = preview ? [] : mine.filter(m => m.blogId === id);
   const owner = instructs(u, blog) || myHere.some(isTeaching);
   // The action row (Write your blog post, The brief, …) is the header's, drawn by blogActions above.
   // The module line above the canvas is the owner's: a student sees no module here, not even their own.
   app.innerHTML = `${owner ? `<p class="page-sub">${esc(onBlog.map(m => m.code || m.title).filter(Boolean).join(' · ') || 'Blog')}</p>` : ''}
     ${owner && onBlog.length ? `<p class="muted small">Modules on this blog: ${onBlog.map(m => `<a href="/modules/edit/${esc(m.id)}">${esc(moduleLabel(m))}</a>`).join(' · ')}</p>` : ''}
-    <p class="muted small">${owner ? 'Published posts are public and every module’s students see them all; each module’s discussion is its own, and the instructors on this blog see everything.' : 'Published posts are public. The discussion under each post is for its author’s classmates and their instructors.'}</p>${canvas(posts, {categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
+    <p class="muted small">${owner ? 'Published posts are public and every module’s students see them all; each module’s discussion is its own, and the instructors on this blog see everything.' : 'Published posts are public. The discussion under each post is for its author’s classmates and their instructors.'}</p>${canvas(posts, {groupByTheme: true, categories: blog.categories || [], categoryLabel: blog.categoryLabel || 'Category', modules: onBlog, blogs: [blog], emptyText: 'No posts here yet.'})}`;
 }
 
 // Old `/module/<id>` links land on the module's blog.
@@ -128,6 +153,21 @@ export async function moduleRedirect(id) {
 
 // ---------- the brief: a blog's exercise, with the reader's own deadlines ----------
 // For the blog's members and instructors only: unlike the canvas, a visitor is asked to log in.
+function briefContent(html, blog) {
+  const range = [blog.minWords, blog.maxWords].filter(Boolean).map(n => Number(n).toLocaleString('en-IE')).join('–');
+  const target = range ? (!blog.minWords ? 'up to ' : !blog.maxWords ? 'at least ' : '') + range + ' words' : 'no word target';
+  const body = toDom(html);
+  const tokens = {thisYear: String(new Date().getFullYear()), wordTarget: target, blogTitle: blog.title};
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const text = walker.currentNode;
+    text.data = text.data.replace(/\/(thisYear|wordTarget|blogTitle)\b/g, (_, name) => tokens[name]);
+  }
+  const heading = body.firstElementChild;
+  const title = heading?.matches('h1, h2') ? heading.textContent : 'The brief';
+  if (heading?.matches('h1, h2')) heading.remove();
+  return {title, html: body.innerHTML, range};
+}
 export async function briefPage(id) {
   const u = currentUser();
   if (!u) { app.innerHTML = '<p class="empty">This brief is for the members of its blog. <button class="btn primary" id="brief-signin">Log in</button></p>'; app.querySelector('#brief-signin').addEventListener('click', () => openAuthModal()); return; }
@@ -135,21 +175,24 @@ export async function briefPage(id) {
   const [blog, modules, mine] = await Promise.all([store.getBlog(id), store.listModules(), u ? store.listMyModules() : []]);
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
   const preview = u?.studentPreview, myHere = preview ? modules.filter(m => m.id === preview.moduleId && m.blogId === id) : mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;
-  const words = blog.minWords && blog.maxWords ? `${blog.minWords}–${blog.maxWords} words` : blog.maxWords ? `up to ${blog.maxWords} words` : '';
+  const brief = briefContent(blog.brief, blog);
+  const reviewModules = (myHere.length || preview ? myHere : modules.filter(m => m.blogId === id && instructs(u, m))).filter(m => m.peerReview);
+  const words = blog.minWords && blog.maxWords ? `${brief.range} words` : blog.maxWords ? `up to ${brief.range} words` : '';
   const editable = instructs(u, blog);   // the blog's instructors and the admin edit the brief here, in the post editor's sheet (brief-editor.js); a student preview reads it as a student
-  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/${esc(id)}">${esc(blog.title)}</a></p><h1 class="page-title">The brief</h1>
+  app.innerHTML = `<div class="guide challenge-guide"><h1 class="page-title">${esc(brief.title)}</h1>
     ${editable ? '<p class="actions brief-tools"><button type="button" class="btn small" id="brief-edit">Edit the brief</button></p>' : ''}
-    ${blog.brief ? `<div class="body brief-body">${sanitize(blog.brief)}</div>` : `<p class="muted">${editable ? 'There is no brief yet: <b>Edit the brief</b> opens the editor.' : 'The instructor has not written a brief for this blog yet.'}</p>`}
+    ${blog.brief ? `<div class="body brief-body">${brief.html}</div>` : `<p class="muted">${editable ? 'There is no brief yet: <b>Edit the brief</b> opens the editor.' : 'The instructor has not written a brief for this blog yet.'}</p>`}
+    ${reviewModules.map(m => `<section class="notice"><h2>Peer review · ${esc(moduleLabel(m))}</h2><p>After the writing deadline${m.deadline ? ' on ' + fmtDeadline(m.deadline) : ''}, open <a href="/peer-review">Your assigned posts</a>. Each student who published by the deadline reviews four different classmates, and each eligible post receives four reviewers. If you published more than once, your latest eligible post counts. At least five student authors are needed.</p><p>Rate each post from 1 to 10 and write a short paragraph of constructive feedback${m.peerDeadline ? ' by ' + fmtDeadline(m.peerDeadline) : ''}. Your name is hidden from the author.</p></section>`).join('')}
     <h2 class="page-title" style="font-size:20px;margin-top:30px">How publishing works here</h2>
     <ol class="steps">
       <li><b>Log in.</b> Your posts and comments appear under an <b>alias</b> generated at random when your account was created, with the date of publication; your instructor alone sees who is behind it.</li>
       <li><b>Write</b> your post in the editor: a title, a subtitle and the text, with hyperlinks to your sources, images and tables.${words ? ` The word meter follows the ${words} target (tables and captions are not counted).` : ''}</li>
       <li><b>Save a draft</b> as often as you like. Drafts are private to you and your instructor.</li>
       <li><b>Publish</b> when you are done.${cohort?.requireApproval ? ' Your instructor checks each post before it appears on the blog.' : ' Your post appears on the blog immediately and its address never changes.'}</li>
-      <li><b>Discuss.</b> Read the other posts from your module and answer the open questions they raise in the comments. A published post is public, and the discussion under it is for the students of its module and their instructors.</li>
+      <li><b>Discuss.</b> Read the other posts from your module and discuss their findings in the comments. A published post is public, and the discussion under it is for the students of its module and their instructors.</li>
     </ol>
-    ${myHere.filter(m => m.deadline || m.brightspaceUrl).map(m => `<div class="notice">${esc(moduleLabel(m))}${m.deadline ? `: deadline <b>${fmtDate(m.deadline)}</b>` : ''}${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}${m.brightspaceUrl ? ` · <a href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Module page on Brightspace</a>` : ''}</div>`).join('')}
-    ${cohort ? `<p><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : ''}
+    ${myHere.filter(m => m.deadline || m.brightspaceUrl).map(m => `<div class="notice">${esc(moduleLabel(m))}${m.deadline ? `: deadline <b>${fmtDeadline(m.deadline)}</b>` : ''}${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}${m.brightspaceUrl ? ` · <a href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Module page on Brightspace</a>` : ''}</div>`).join('')}
+    ${cohort ? `<p class="brief-start"><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : ''}
     ${instructs(u, blog) || mine.some(m => m.blogId === id && isTeaching(m)) ? `<p class="muted small">Modules writing on this blog: ${esc(modules.filter(m => m.blogId === id).map(moduleLabel).join(' · ') || 'none yet')}.</p>` : ''}</div>`;
   enhance(app.querySelector('.brief-body'));   // code blocks, LaTeX and the other rich blocks of the editor render as on a post
   // Save writes the brief alone to the blog; the store's change notice then redraws this page with it.
@@ -157,11 +200,27 @@ export async function briefPage(id) {
 }
 
 // ---------- module settings: cohort + which blog it writes on ----------
+function deadlineFields(name, label, value) {
+  const {local, zone} = deadlineInput(value);
+  const zones = [...new Set(['UTC', zone, ...Intl.supportedValuesOf('timeZone')])].sort();
+  return `<fieldset class="field"><legend>${label} (optional)</legend>
+    <label class="field">Date and time<input name="${name}" type="datetime-local" value="${esc(local)}"></label>
+    <label class="field">Time zone<select name="${name}Zone">${zones.map(z => `<option value="${esc(z)}" ${z === zone ? 'selected' : ''}>${esc(z.replaceAll('_', ' '))}</option>`).join('')}</select></label></fieldset>`;
+}
+
+function readDeadline(data, name, previous) {
+  const {local, zone} = deadlineInput(previous);
+  if (previous && local === data[name] && zone === data[name + 'Zone']) return previous;
+  return makeDeadline(data[name], data[name + 'Zone']);
+}
+
 export async function manageModule(id) {
   const u = currentUser();
   if (!staff(u)) { app.innerHTML = '<p class="empty">Instructor access required.</p>'; return; }
   const [m, myBlogs] = await Promise.all([id ? store.getModule(id) : null, store.listMyBlogs()]);
   if (id && (!m || !instructs(u, m))) { app.innerHTML = '<p class="empty">You cannot manage this module.</p>'; return; }
+  const peerAllowed = u.role === 'admin' || u.peerAccess === true;
+  const reviews = peerAllowed && m?.peerReview ? await store.listPeerReviews(m.id) : [];
   const existingBlogs = myBlogs.filter(b => b.id !== '');
   const chooseExisting = existingBlogs.length > 0 && (!m || !!m.blogId);
   app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is a course you teach: its students and their deadline. Create it once and reuse it every year; each post is stamped with the academic year it was published in, so a blog can be filtered by year. Its posts appear on a blog that it may share with your other modules.</p>
@@ -177,13 +236,15 @@ export async function manageModule(id) {
       <div class="indent new-blog"><label class="field">Blog title<input name="blogTitle" maxlength="160" placeholder="e.g. Operations"></label>
       <label class="field">Public URL name<input name="blogUrl" minlength="2" maxlength="80" pattern="[a-z0-9][a-z0-9\\-]+" placeholder="e.g. operations"><p class="hint">${esc(publicUrl('/'))}<b>url-name</b> — lowercase letters, numbers and hyphens; fixed after creation. A few names belong to pages of the site (posts, blogs, admin…). The brief, categories and word target are set afterwards in Blog settings.</p></label></div>
     </fieldset>
-    <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(m?.deadline || '')}"><p class="hint">For information only: shown to students on their module card, in the brief and in your modules list. It does not lock anything. Students can write, publish and edit their posts until you untick <b>Students can write, publish and edit their posts</b> below, which you would normally do once the deadline has passed.</p></label>
+    ${deadlineFields("deadline", "Blog post deadline", m?.deadline)}
+    <p class="hint">Students see this deadline on their module card and in the brief. After the deadline, published posts are closed to student edits.</p>
     <label class="check"><input type="checkbox" name="submissionsOpen" ${m?.submissionsOpen !== false ? 'checked' : ''}> Students can write, publish and edit their posts</label>
     <p class="hint indent">Normally ticked until the deadline has passed. Untick to close submissions: students can still read the blog, but not write, edit or publish.</p>
-    ${u.role === 'admin' ? `<fieldset class="field peer-option"><legend>Peer review of classmates’ posts</legend>
+    ${peerAllowed ? `<fieldset class="field peer-option"><legend>Peer review of classmates’ posts</legend>
       <label class="check"><input type="checkbox" name="peerReview" ${m?.peerReview ? 'checked' : ''}> Students assess each other’s posts in this module</label>
-      <p class="hint indent">Your option alone, off unless you turn it on for a given module and year. Once submissions are closed, assign the posts at <a href="/admin/peer${m ? '?module=' + esc(m.id) : ''}">Peer review</a>.</p>
-      <label class="field indent">Peer review deadline<input name="peerDeadline" type="date" value="${esc(m?.peerDeadline || '')}"><p class="hint">Shown to students once their posts are assigned; assessments close at the end of that day, or when you close the round. For a new academic year, set both deadlines here, reopen submissions, and delete last year’s round before assigning again.</p></label></fieldset>` : ''}
+      <p class="hint indent">Off by default. After the writing deadline, students find four assigned posts in My modules. The draw needs at least five student authors and uses each author’s latest eligible post.</p>
+      ${deadlineFields("peerDeadline", "Review deadline", m?.peerDeadline)}</fieldset>` : ''}
+    ${peerAllowed && m?.peerReview ? `<p class="hint">${reviews.length ? esc(reviews.filter(r => r.submittedAt).length + ' of ' + reviews.length + ' assigned reviews submitted.') : 'No posts assigned yet. If the deadline has passed, check that at least five enrolled students published on time.'}</p>` : ''}
     <p class="actions"><button class="btn primary">${m ? 'Save module' : 'Create module'}</button><a class="btn" href="/my-modules">Cancel</a></p><p class="auth-msg" aria-live="polite"></p></form>
     ${m ? `<section class="blog-group"><h2 class="group-title">Delete this module</h2><p class="hint">Removes the module and its roster; its invitation code is retired. The blog stays, as do the posts of any other module on it. A module with posts cannot be deleted: delete its posts from Review posts first, or keep the module and reuse it next year.</p><p class="actions"><button class="btn danger" id="delete-module">Delete module</button></p><p class="auth-msg" id="delete-msg" aria-live="polite"></p></section>` : ''}</div>`;
   app.querySelector('#delete-module')?.addEventListener('click', async e => {
@@ -201,8 +262,10 @@ export async function manageModule(id) {
   form.onsubmit = async e => {
     e.preventDefault(); const d = Object.fromEntries(new FormData(form)), button = form.querySelector('button'); button.disabled = true;
     try {
-      const data = {id: m?.id, title: d.title, code: d.code, description: d.description, deadline: d.deadline || '', brightspaceUrl: d.brightspaceUrl || '', submissionsOpen: !!d.submissionsOpen, requireApproval: false};   // posts go live when a student publishes; there is no moderation step
-      if (u.role === 'admin') { data.peerReview = !!d.peerReview; data.peerDeadline = d.peerDeadline || ''; }   // the peer-review option is the admin's alone; other instructors' saves leave it as it is
+      const data = {id: m?.id, title: d.title, code: d.code, description: d.description, deadline: readDeadline(d, 'deadline', m?.deadline), brightspaceUrl: d.brightspaceUrl || '', submissionsOpen: !!d.submissionsOpen, requireApproval: false};   // posts go live when a student publishes; there is no moderation step
+      if (peerAllowed) { data.peerReview = !!d.peerReview; data.peerDeadline = readDeadline(d, 'peerDeadline', m?.peerDeadline); }
+      if (data.peerReview && !data.deadline) throw Error('Set the writing deadline for the automatic draw.');
+      if (data.peerReview && data.peerDeadline && deadlineAt(data.peerDeadline) <= deadlineAt(data.deadline)) throw Error('Choose a review deadline after the writing deadline.');
       if ((d.blogMode || 'new') === 'new') { if (!d.blogTitle?.trim() || !d.blogUrl?.trim()) throw Error('Give the new blog a title and a URL name.'); data.newBlog = {title: d.blogTitle.trim(), urlName: d.blogUrl.trim()}; }
       else data.blogId = d.blogId;
       const saved = await store.saveModule(data);
@@ -213,7 +276,6 @@ export async function manageModule(id) {
 }
 
 // ---------- blog settings: the exercise ----------
-const briefPreview = html => html ? `<div class="body">${sanitize(html)}</div>` : '<p class="muted">No brief yet.</p>';
 export async function manageBlog(id) {
   const u = currentUser();
   const [b, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
@@ -224,9 +286,8 @@ export async function manageBlog(id) {
     <label class="field">Blog title<input name="title" required maxlength="160" value="${esc(b.title)}"></label>
     <label class="field">Description (shown above the canvas)<textarea name="description" maxlength="1200" rows="3">${esc(b.description || '')}</textarea></label>
     <div class="field brief-field"><span class="field-label">The brief (shown on “The brief” and linked from the editor)</span>
-      <div class="brief-preview" id="brief-preview">${briefPreview(b.brief)}</div>
-      <p class="actions"><button type="button" class="btn small" id="brief-edit">${b.brief ? 'Edit the brief' : 'Write the brief'}</button><span class="hint" id="brief-hint">Opens the editor. The brief is saved with the rest of the settings by <b>Save blog</b>.</span></p>
-      <input type="hidden" name="brief" value="${esc(b.brief || '')}"></div>
+      <div class="brief-editor" id="settings-brief-editor"></div>
+      <p class="hint">Use <code>/thisYear</code>, <code>/wordTarget</code> and <code>/blogTitle</code> for values that update automatically. Choose <b>Save blog</b> to save your edits.</p></div>
     <div class="two-col">
       <div><label class="field">Category label<input name="categoryLabel" maxlength="40" placeholder="e.g. Megatrend" value="${esc(b.categoryLabel || '')}"></label>
       <label class="field">Categories (one per line: <code>slug | Name</code>; leave empty for none)<textarea name="categories" rows="7">${esc((b.categories || []).map(c => c.slug + ' | ' + c.name).join('\n'))}</textarea></label>
@@ -240,20 +301,21 @@ export async function manageBlog(id) {
     <p class="actions"><button class="btn primary">Save blog</button><a class="btn" href="/${esc(id)}">Back to the blog</a></p><p class="auth-msg" aria-live="polite"></p></form>
     <h2 class="page-title" style="font-size:20px;margin-top:30px">Modules writing on this blog</h2>
     ${modules.filter(m => m.blogId === id).map(m => `<p>${esc(moduleLabel(m))}${instructs(u, m) ? ` · <a href="/modules/edit/${esc(m.id)}">Settings</a> · <a href="/modules/invite/${esc(m.id)}">Invite students</a>` : ''}</p>`).join('') || '<p class="muted">None yet. <a href="/modules/new">Create a module</a> and choose this blog.</p>'}</div>`;
-  // The brief is edited in the post editor's sheet (brief-editor.js); Done puts the HTML in the hidden
-  // field and the preview, and Save blog stores it with everything else, so a half-edited form is kept.
-  app.querySelector('#brief-edit').onclick = () => {
-    const field = app.querySelector('#blog-form').elements.brief;
-    editBrief({html: field.value, blogTitle: b.title, action: 'Done', note: 'Click Done, then Save blog to keep the new brief.', save: html => {
-      field.value = html; app.querySelector('#brief-preview').innerHTML = briefPreview(html); app.querySelector('#brief-edit').textContent = html ? 'Edit the brief' : 'Write the brief';
-      app.querySelector('#brief-hint').innerHTML = '<b>Changed.</b> Click <b>Save blog</b> below to keep it.';
-    }});
-  };
+  const host = app.querySelector('#settings-brief-editor');
+  const [{mountEditor}, {briefTooLong}] = await Promise.all([import('./editor.js'), import('./brief-editor.js')]);
+  if (!host.isConnected) return;
+  const editor = mountEditor(host, {html: b.brief || '', placeholder: 'Write the assignment brief…'});
+  const surface = host.querySelector('.surface');
+  surface.setAttribute('role', 'textbox');
+  surface.setAttribute('aria-label', 'Assignment brief');
+  surface.setAttribute('aria-multiline', 'true');
   app.querySelector('#blog-form').onsubmit = async e => {
     e.preventDefault(); const f = e.target, d = Object.fromEntries(new FormData(f)), button = f.querySelector('button[type=submit], button:not([type])'); button.disabled = true;
     try {
+      const brief = editor.getHTML(), problem = briefTooLong(brief);
+      if (problem) throw Error(problem);
       if (+d.minWords > +d.maxWords && +d.maxWords > 0) throw Error('The minimum word count cannot exceed the maximum.');
-      await store.saveBlog({id, title: d.title.trim(), description: d.description.trim(), brief: d.brief, categoryLabel: d.categoryLabel.trim() || 'Category', organisationLabel: d.organisationLabel.trim(), minWords: +d.minWords || 0, maxWords: +d.maxWords || 0, outline: d.outline, allowComments: !!d.allowComments, replyRules: d.replyRules.trim(),
+      await store.saveBlog({id, title: d.title.trim(), description: d.description.trim(), brief, categoryLabel: d.categoryLabel.trim() || 'Category', organisationLabel: d.organisationLabel.trim(), minWords: +d.minWords || 0, maxWords: +d.maxWords || 0, outline: d.outline, allowComments: !!d.allowComments, replyRules: d.replyRules.trim(),
         categories: d.categories.split('\n').map(l => l.split('|')).filter(a => a[0]?.trim()).map(a => ({slug: slugify(a[0]), name: (a[1] || a[0]).trim()})).slice(0, 30),
         checklist: d.checklist.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 12)});
       toast('Blog saved.'); navigate('/' + id);
@@ -266,7 +328,7 @@ export async function invitationsPage(target = app, embedded = false, {heading =
   if(currentUser()?.role!=='admin'){target.innerHTML='<p class="empty">Admin access required.</p>';return;}
   const invites=await store.listTeacherInvites();
   target.innerHTML=`${heading ? pageHead('Invite an instructor', 'Generate an invitation code and invitation link for one instructor. It expires after seven days and is tied to the email addresses below.', embedded) : '<p class="section-sub">Generate an invitation code and invitation link for one instructor. It expires after seven days and is tied to the email addresses below.</p>'}
-    <form id="invite-form" class="guide"><label class="field">Instructor’s university email<input type="email" name="universityEmail" required maxlength="200"></label><label class="field">Instructor’s Gmail for Google sign-in (optional)<input type="email" name="gmail" maxlength="200"></label><button class="btn primary">Generate invitation code and invitation</button><p class="auth-msg" aria-live="polite"></p></form>
+    <form id="invite-form" class="guide"><label class="field">Instructor’s university email<input type="email" name="universityEmail" required maxlength="200"></label><label class="field">Instructor’s Gmail for Google sign-in (optional)<input type="email" name="gmail" maxlength="200"></label><label class="check"><input type="checkbox" name="peerAccess"> Allow peer review</label><label class="check"><input type="checkbox" name="aiGrading"> Allow AI grading with this instructor’s own API keys</label><button class="btn primary">Generate invitation code and invitation</button><p class="auth-msg" aria-live="polite"></p></form>
     <div id="new-invite" aria-live="polite"></div><h2>Invitations</h2><table class="list"><thead><tr><th>University email</th><th>Invitation code</th><th>Status</th><th>Expires</th><th></th></tr></thead><tbody>${invites.map(i=>`<tr><td>${esc(i.ucdEmail)}</td><td>${esc(i.code||'—')}</td><td>${i.revoked?'Revoked':i.acceptedBy?'Accepted':i.expiresAt<Date.now()?'Expired':'Pending'}</td><td>${fmtDateTime(i.expiresAt)}</td><td>${!i.acceptedBy&&!i.revoked?`<button class="linkish" data-revoke="${esc(i.id)}">Revoke</button>`:''}</td></tr>`).join('')}</tbody></table>`;
   target.querySelector('#invite-form').onsubmit=async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;try{const invite=await store.createTeacherInvite(Object.fromEntries(new FormData(f)));await invitationsPage(target, embedded, {heading});const url=publicUrl(invitationRoute({kind:'instructor',inviteId:invite.id,code:invite.code.toLowerCase()}));target.querySelector('#new-invite').innerHTML=`<div class="notice ok"><b>Invitation code: ${esc(invite.code)}</b><label class="field">Instructor registration link<input readonly value="${esc(url)}" onclick="this.select()"></label><p class="small">The code is prefilled by this link. Share it only with the invited instructor.</p></div>`;}catch(err){f.querySelector('.auth-msg').textContent=err.message;}finally{b.disabled=false;}};
   target.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{try{await store.revokeTeacherInvite(b.dataset.revoke);await invitationsPage(target, embedded, {heading});}catch(e){toast(e.message,'error');}});
@@ -278,8 +340,8 @@ export async function acceptInvitationPage(ref,code='',kind='instructor') {
   const u=currentUser();
   let info;try{info=await store.resolveRegistrationCode(code);if(info.kind!==kind||(kind==='instructor'?info.inviteId:info.blogId)!==ref)throw Error(kind==='student'?'This invitation link is not the one for this blog.':'The invitation link and invitation code do not match.');}catch(e){app.innerHTML=`<p class="empty">${esc(e.message)} ${kind==='student'?'Ask your instructor for the module’s current invitation link, or use Register to enter your invitation code.':'Use Register to enter your invitation code.'}</p>`;return;}
   const module=kind==='student'?await store.getModule(info.moduleId):null;
-  const blog=module?.blogId?await store.getBlog(module.blogId):null;
-  app.innerHTML=`<div class="guide"><h1 class="page-title">${kind==='instructor'?'Instructor invitation':esc(module?.title||'Module invitation')}</h1><p>Invitation code: <b>${esc(info.code)}</b>. ${kind==='instructor'?'Use the university email or Gmail address your admin invited.':`This invitation enrols you in ${esc(moduleLabel(module||{}))}${blog?`, which writes on the <b>${esc(blog.title)}</b> blog`:''}.`}</p>
+  const blog=info.blogId?await store.getBlog(info.blogId):null;
+  app.innerHTML=`<div class="guide"><h1 class="page-title">${kind==='instructor'?'Instructor invitation':esc(module?.title||'Module invitation')}</h1><p>Invitation code: <b>${esc(info.code)}</b>. ${kind==='instructor'?'Use the university email or Gmail address your admin invited.':`This invitation enrols you in ${esc(module ? moduleLabel(module) : 'the invited module')}${blog?`, which writes on the <b>${esc(blog.title)}</b> blog`:''}.`}</p>
     ${!u?'<p class="actions"><button class="btn primary" id="instructor-register">Register with this invitation</button><button class="btn" id="instructor-login">I already have an account</button></p>':`<p>Signed in as <b>${esc(u.email)}</b>.</p><p class="actions"><button class="btn" id="instructor-details">Complete profile</button><button class="btn primary" id="accept-invite">${kind==='instructor'?'Activate instructor access':'Join the module'}</button></p>${!u.emailVerified?'<p class="notice">Verify your sign-in email first. Use your account menu to resend the verification email and refresh verification.</p>':''}`}
     <p class="auth-msg" aria-live="polite"></p></div>`;
   app.querySelector('#instructor-register')?.addEventListener('click',()=>openAuthModal('register',info));

@@ -20,9 +20,19 @@ import {startPresence} from './presence.js';
 import {randomAlias} from './aliases.js';
 import {reviewId, reviewerRelease} from './peer-review-model.js';
 
+import {gradingKeys} from './ai-providers.js';
+
 const V = '13.0.0', cdn = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
 let app, auth, db, A, F, user = null, profile = null, role = 'student', settings = {...DEFAULT_SETTINGS};
 let registration = null;
+let grants = {}, stopGrantWatch;
+const graderRef = () => role === 'admin' ? F.doc(db,'adminContent','grader') : F.doc(db,'instructorGraders',user.uid);
+const reviewCollection = () => role === 'admin' ? F.collection(db,'aiReviews') : F.collection(db,'instructorGraders',user.uid,'reviews');
+async function ownedRows(name) {
+  if (!user?.emailVerified || !['admin','lecturer'].includes(role)) return [];
+  const col = F.collection(db,name);
+  return (await getDocs(role === 'admin' ? col : F.query(col,F.where('teacherIds','array-contains',user.uid)))).docs.map(norm);
+}
 // The account's reach: the modules it teaches, the blogs it owns and the modules it belongs to
 // as a student. Posts and comments are fetched one module (or owned blog) at a time, because the
 // rules let a reader list a module's published posts only when the query names that module.
@@ -54,9 +64,11 @@ function trackPresence(self) {
   void presenceReady.catch(error=>console.warn('presence',error?.code||error?.message));
 }
 function selectAccount(next) {
+  gradingKeys(next?.uid);
   const previous = user;
   if (user !== next) {
-    profile = null;
+    stopGrantWatch?.(); stopGrantWatch = null;
+    profile = null; grants = {};
     role = next?.emailVerified && next.email === ADMIN_EMAIL ? 'admin' : 'student';
     managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = [];
     if (previous?.uid !== next?.uid || !next?.emailVerified) { presence?.stop(); presence = null; }
@@ -67,11 +79,12 @@ function selectAccount(next) {
 async function refreshManaged(self) {
   if (!user) { managedModuleIds = []; managedBlogIds = []; memberModuleIds = []; myBlogIds = []; return; }
   const account = user;
-  const [modules, blogs] = await Promise.all([self.listModules(), self.listBlogs({metadataOnly: true})]);
+  forget();
+  const blogs = await ownedRows('blogs');
   if (user !== account) return;
-  managedModuleIds = modules.filter(m => m.teacherIds.includes(user.uid)).map(m => m.id);
-  managedBlogIds = blogs.filter(b => b.teacherIds.includes(user.uid)).map(b => b.id);
-  await self.listMyModules();   // sets memberModuleIds
+  managedBlogIds = blogs.map(b=>b.id);
+  const mine = await self.listMyModules();
+  if (user === account) managedModuleIds = mine.filter(m=>m.teacherIds.includes(account.uid)).map(m=>m.id);
 }
 // Reading a module's posts or comments: the query that the rules admit for this account.
 const readScope = f => ({
@@ -132,7 +145,7 @@ async function createCodedInvite(kind, data) {
 async function loadRole(uid, email, verified) {
   if (!verified) return 'student';
   if (email === ADMIN_EMAIL) return 'admin';
-  try { const snap = await getDoc(F.doc(db, 'roles', uid)); if (snap.exists() && snap.data().role) return snap.data().role; } catch {}
+  try { const snap = await getDoc(F.doc(db, 'roles', uid)); if (snap.exists() && snap.data().role) { if (user?.uid === uid) grants = snap.data(); return snap.data().role; } } catch {}
   return (verified && email === ADMIN_EMAIL) ? 'admin' : 'student';
 }
 async function ensureProfile(u) {
@@ -177,11 +190,21 @@ async function touchDirectory(u, p) {
 // the next reload. Now the role, which for the admin needs no read, is kept whatever the other
 // reads did, and the load is tried again in the background (retryAccount) until it is in.
 async function loadAccount(self, u) {
-  const [p, r, m] = await Promise.allSettled([ensureProfile(u), loadRole(u.uid, u.email, u.emailVerified), refreshManaged(self)]);
+  const [p, r] = await Promise.allSettled([ensureProfile(u), loadRole(u.uid, u.email, u.emailVerified)]);
   if (user !== u) return;
   if (r.status === 'fulfilled') role = r.value;
   if (p.status === 'fulfilled') profile = p.value;
-  if (p.status === 'rejected' || m.status === 'rejected') throw (p.reason || m.reason);
+  if (p.status === 'rejected') throw p.reason;
+  await refreshManaged(self);
+  if (user !== u) return;
+  if (u.emailVerified && u.email !== ADMIN_EMAIL && !stopGrantWatch) {
+    stopGrantWatch = F.onSnapshot(F.doc(db,'roles',u.uid),{includeMetadataChanges:true},snap=>{
+      if (user !== u || snap.metadata.fromCache || snap.metadata.hasPendingWrites) return;
+      const next = snap.data() || {};
+      if ((next.role || 'student') === role && !!next.aiGrading === !!grants.aiGrading && !!next.peerAccess === !!grants.peerAccess) return;
+      grants = next; role = next.role || 'student'; notify();
+    },e=>console.warn('Role refresh',e.code));
+  }
   touchDirectory(u, profile).catch(e => console.warn('directory', e.code || e.message));
 }
 const RETRY = [800, 2500, 6000];
@@ -240,20 +263,31 @@ export const firebase = {
     A = authM; F = fsM;
     app = appM.initializeApp(firebaseConfig); auth = A.getAuth(app);
     db = F.getFirestore(app);
-    const site = getDoc(F.doc(db, 'settings', 'site')).then(s => { if (s.exists()) settings = {...DEFAULT_SETTINGS, ...s.data()}; }).catch(e => console.warn('settings', e));
     let initializing = true;
+    const site = getDoc(F.doc(db, 'settings', 'site')).then(s => {
+      if (!s.exists()) return;
+      const previous = settings;
+      settings = {...DEFAULT_SETTINGS, ...s.data()};
+      if (!initializing && (previous.title !== settings.title || previous.tagline !== settings.tagline)) {
+        listeners.forEach(fn => fn('masthead'));
+      }
+    }).catch(e => console.warn('settings', e));
     await new Promise(resolve => {
       A.onAuthStateChanged(auth, async u => {
         selectAccount(u);
         const startingRole = role;
-        if (u) { try { await loadAccount(this, u); } catch (e) { accountFailed(this, u, e); } }
+        let accountLoaded = false;
+        if (u) {
+          try { await loadAccount(this, u); accountLoaded = true; }
+          catch (e) { accountFailed(this, u, e); }
+        }
         if (user !== u) return;
         trackPresence(this);
-        await site;
+        if (u) await site;
         if (user !== u) return;
-        // During initial startup the UI has no subscribers yet. Reuse the admin directory
-        // reads made for this same account and role when drawing the first page.
-        if (!initializing || startingRole !== 'admin' || role !== startingRole) notify();
+        // A successful initial load already checked this account's memberships on the
+        // server. Reuse those answers for the first page when the role also matches.
+        if (!initializing || !accountLoaded || role !== startingRole) notify();
         initializing = false;
         resolve();
       });
@@ -264,7 +298,7 @@ export const firebase = {
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
 
   // ---- auth ----
-  currentUser() { return user ? {uid: user.uid, email: user.email || '', emailVerified: user.emailVerified, displayName: user.displayName || '', photoURL: user.photoURL || profile?.photo || '', providerId: user.providerData?.[0]?.providerId || 'password', ...profile, role, managedModuleIds, managedBlogIds} : null; },
+  currentUser() { return user ? {uid: user.uid, email: user.email || '', emailVerified: user.emailVerified, displayName: user.displayName || '', photoURL: user.photoURL || profile?.photo || '', providerId: user.providerData?.[0]?.providerId || 'password', ...profile, role, aiGrading: grants.aiGrading === true, peerAccess: grants.peerAccess === true, managedModuleIds, managedBlogIds} : null; },
   async signIn(provider, {email, password, googleEmail} = {}) {
     let cred;
     if (provider === 'google.com') {
@@ -304,16 +338,30 @@ export const firebase = {
   async refreshVerification() {
     if (!user) return;
     await A.reload(user); await A.getIdToken(user, true);
-    role = await loadRole(user.uid, user.email, user.emailVerified); if (!presence) trackPresence(this); notify();
+    await loadAccount(this,user); if (!presence) trackPresence(this); notify();
     return user.emailVerified;
   },
   async signOut() { await presenceReady; await presence?.signOut(); presence?.stop(); presence = null; await A.signOut(auth); },
 
   // Public module metadata is separate from private enrolment/roster records.
-  async listModules() { const s = await getDocs(F.collection(db, 'modules')); return s.docs.map(norm).sort((a,b) => a.title.localeCompare(b.title)); },
-  async getModule(id) { const s = await getDoc(F.doc(db, 'modules', id)); return s.exists() ? norm(s) : null; },
-  // ---- blogs: the public canvas and the exercise written on it ----
-  async listBlogs({metadataOnly = false} = {}) { const s = await getDocs(F.collection(db, 'blogs')); const rows = s.docs.map(norm).sort((a, b) => a.title.localeCompare(b.title)); return role === 'admin' && !metadataOnly ? Promise.all(rows.map(withBrief)) : rows.map(({brief, ...metadata}) => metadata); },
+  async listModules() {
+    const mine = (await this.listMyModules()).map(({teaching,...m})=>m);
+    if (role === 'admin') return mine;
+    const shared = await gather(managedBlogIds.map(id=>F.query(F.collection(db,'modules'),F.where('blogId','==',id))));
+    return [...new Map([...shared,...mine].map(m=>[m.id,m])).values()].sort((a,b)=>a.title.localeCompare(b.title));
+  },
+  async getModule(id) {
+    try { const s = await getDoc(F.doc(db,'modules',id)); return s.exists() ? norm(s) : null; }
+    catch(e) { if(e.code === 'permission-denied') return null; throw e; }
+  },
+  async listBlogs({metadataOnly = false} = {}) {
+    const owned = await ownedRows('blogs');
+    const ids = new Set((await this.listMyModules()).map(m=>m.blogId).filter(Boolean));
+    for (const b of owned) ids.delete(b.id);
+    const linked = await Promise.all([...ids].map(id=>getDoc(F.doc(db,'blogs',id))));
+    const rows = [...owned,...linked.filter(s=>s.exists()).map(norm)].sort((a,b)=>a.title.localeCompare(b.title));
+    return metadataOnly ? rows.map(({brief,...meta})=>meta) : Promise.all(rows.map(withBrief));
+  },
   async getBlog(id) { if (!id) return null; const s = await getDoc(F.doc(db, 'blogs', id)); return s.exists() ? withBrief(norm(s)) : null; },
   async listMyBlogs() { if (!user) return []; return (await this.listBlogs()).filter(b => role === 'admin' || b.teacherIds.includes(user.uid)); },
   async saveBlog(data) {
@@ -342,18 +390,24 @@ export const firebase = {
     if (!user || !['admin','lecturer'].includes(role)) throw Error('Instructor access required.');
     const existing = data.id ? await this.getModule(data.id) : null;
     if (data.id && !existing) throw Error('Module not found.');
-    let blogId = data.blogId || existing?.blogId || '';
-    if (data.newBlog) blogId = (await this.saveBlog({title: data.newBlog.title, urlName: data.newBlog.urlName, description: data.description || ''})).id;
-    const blog = await this.getBlog(blogId);
-    if (!blog || !(role === 'admin' || blog.teacherIds.includes(user.uid))) throw Error('Choose one of your own blogs for this module, or create a new one.');
     let id = existing?.id;
     if (!id && data.code && (await this.listModules()).some(m => m.code.toLowerCase() === String(data.code).trim().toLowerCase())) throw Error('A module with this code already exists. Open it from My modules instead: one module serves every academic year.');
     if (!id) {
       const base = slugify(data.code || data.title).slice(0, 72);
       if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(base)) throw Error('Enter a module title.');
-      id = base; for (let n = 2; await this.getModule(id); n++) id = base + '-' + n;
+      id = base;
+      for (let n = 2; ; n++) {
+        try { if (!(await getDoc(F.doc(db,'modules',id))).exists()) break; }
+        catch (e) { if (e.code !== 'permission-denied') throw e; if (!data.code) { id = base + '-' + crypto.randomUUID().slice(0,6); break; } }
+        if (data.code) throw Error('This module code is already in use.');
+        id = base + '-' + n;
+      }
     }
-    const doc = {title: String(data.title || '').trim(), code: String(data.code || '').trim(), description: String(data.description || '').trim(), blogId, deadline: String(data.deadline || ''), brightspaceUrl: String(data.brightspaceUrl || '').trim(), teacherName: existing?.teacherName || [profile?.firstName, profile?.lastName].filter(Boolean).join(' '), teacherIds: existing?.teacherIds || [user.uid], createdBy: existing?.createdBy || user.uid, createdAt: existing?.createdAt || Date.now(), updatedAt: Date.now(), submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, peerReview: role === 'admin' && 'peerReview' in data ? !!data.peerReview : !!existing?.peerReview, peerDeadline: role === 'admin' && 'peerDeadline' in data ? String(data.peerDeadline || '') : (existing?.peerDeadline || '')};
+    let blogId = data.blogId || existing?.blogId || '';
+    if (data.newBlog) blogId = (await this.saveBlog({title: data.newBlog.title, urlName: data.newBlog.urlName, description: data.description || ''})).id;
+    const blog = await this.getBlog(blogId);
+    if (!blog || !(role === 'admin' || blog.teacherIds.includes(user.uid))) throw Error('Choose one of your own blogs for this module, or create a new one.');
+    const doc = {title: String(data.title || '').trim(), code: String(data.code || '').trim(), description: String(data.description || '').trim(), blogId, deadline: data.deadline || '', brightspaceUrl: String(data.brightspaceUrl || '').trim(), teacherName: existing?.teacherName || [profile?.firstName, profile?.lastName].filter(Boolean).join(' '), teacherIds: existing?.teacherIds || [user.uid], createdBy: existing?.createdBy || user.uid, createdAt: existing?.createdAt || Date.now(), updatedAt: Date.now(), submissionsOpen: data.submissionsOpen !== false, requireApproval: !!data.requireApproval, peerReview: 'peerReview' in data ? !!data.peerReview : !!existing?.peerReview, peerDeadline: 'peerDeadline' in data ? (data.peerDeadline || '') : (existing?.peerDeadline || '')};
     if (!doc.title) throw Error('Enter a module title.');
     await F.setDoc(F.doc(db, 'modules', id), doc);
     await F.setDoc(F.doc(db, 'blogs', blogId, 'members', user.uid), {uid: user.uid, moduleId: id, joinedAt: Date.now()}).catch(e => console.warn('blog membership', e.code || e.message));
@@ -387,12 +441,14 @@ export const firebase = {
   async listMyModules() {
     if (!user) return [];
     const account = user;
-    const modules = await this.listModules();
-    const rows = (await Promise.all(modules.map(async m => {
-      if (m.teacherIds.includes(account.uid) || role === 'admin') return {...m, teaching: true};
-      const member = await getDoc(F.doc(db, 'modules', m.id, 'members', account.uid));
-      return member.exists() ? {...m, teaching: false} : null;
-    }))).filter(Boolean);
+    const taught = await ownedRows('modules');
+    const rows = taught.map(m=>({...m,teaching:true}));
+    if (role !== 'admin' && account.emailVerified) {
+      const memberships = await getDocs(F.query(F.collectionGroup(db,'members'),F.where('uid','==',account.uid)));
+      const refs = memberships.docs.map(d=>d.ref.parent.parent).filter(ref=>ref.parent.id==='modules' && !taught.some(m=>m.id===ref.id));
+      const enrolled = await Promise.all(refs.map(getDoc));
+      rows.push(...enrolled.filter(s=>s.exists()).map(s=>({...norm(s),teaching:false})));
+    }
     if (user !== account) return [];
     memberModuleIds = rows.filter(m => !m.teaching).map(m => m.id);
     myBlogIds = [...new Set([...rows.map(m => m.blogId), ...managedBlogIds].filter(Boolean))];
@@ -402,20 +458,22 @@ export const firebase = {
     if (!user) throw Error('Sign in to join a module.');
     if (!user.emailVerified) throw Error('Verify your sign-in email first, then refresh verification from the account menu.');
     await A.getIdToken(user, true).catch(() => {});   // the email_verified claim may lag the account flag
-    const m = await this.getModule(id); if (!m) throw Error('Module not found.');
-    if (m.teacherIds.includes(user.uid) || role === 'admin') return;
+    const m = await this.getModule(id);
+    if (m?.teacherIds.includes(user.uid) || role === 'admin') return;
+    let blogId = m?.blogId;
     const ref=F.doc(db,'modules',id,'members',user.uid),existing=await getDoc(ref);
     inviteId=existing.data()?.inviteId || inviteId || '';
     if(!inviteId)throw Error('An invitation from your instructor is required to join this module.');
     if(!existing.exists()){
       const invite=await getDoc(F.doc(db,'moduleInvites',inviteId)).catch(()=>null);
       if(!invite?.exists() || invite.data().moduleId!==id || invite.data().revoked || invite.data().expiresAt<Date.now())throw Error('This module invitation has expired or is not valid.');
+      blogId = invite.data().blogId;
     }
     const details = registrationProfile(profile, ['teacher','instructor'].includes(profile?.registrationKind));
     const now=Date.now(), joinedAt = existing.data()?.joinedAt || now;
     const batch = F.writeBatch(db);
     batch.set(ref, {uid:user.uid, ...details, penName:profile.penName, email:user.email, joinedAt,inviteId,lastSeenAt:now,lastSignInAt:Date.parse(user.metadata?.lastSignInTime || '') || now});
-    if (m.blogId) batch.set(F.doc(db,'blogs',m.blogId,'members',user.uid), {uid:user.uid, moduleId:id, joinedAt});
+    if (blogId) batch.set(F.doc(db,'blogs',blogId,'members',user.uid), {uid:user.uid, moduleId:id, joinedAt});
     await batch.commit();
     notify(); await refreshManaged(this);   // the new module's posts are now within reach
   },
@@ -457,11 +515,11 @@ export const firebase = {
   },
   async listModuleInvites(moduleId) {const s=await getDocs(F.query(F.collection(db,'moduleInvites'),F.where('moduleId','==',moduleId)));return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt);},
   async revokeModuleInvite(id) {const ref=F.doc(db,'moduleInvites',id),s=await getDoc(ref),batch=F.writeBatch(db);batch.update(ref,{revoked:true});if(s.data()?.code)batch.update(F.doc(db,'registrationCodes',s.data().code),{revoked:true});await batch.commit();},
-  async createTeacherInvite({universityEmail, ucdEmail, gmail}) {
+  async createTeacherInvite({universityEmail, ucdEmail, gmail, peerAccess, aiGrading}) {
     const email = String(universityEmail || ucdEmail || '').trim().toLowerCase(), googleEmail = String(gmail || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Error('Enter the instructor’s university email.');
     if (googleEmail && !/^[^\s@]+@gmail\.com$/.test(googleEmail)) throw Error('Enter a Gmail address or leave it blank.');
-    const doc = {ucdEmail:email, gmail:googleEmail, createdBy:user.uid, createdAt:Date.now(), expiresAt:Date.now()+7*86400000, acceptedBy:'', revoked:false};
+    const doc = {ucdEmail:email, gmail:googleEmail, peerAccess:!!peerAccess, aiGrading:!!aiGrading, createdBy:user.uid, createdAt:Date.now(), expiresAt:Date.now()+7*86400000, acceptedBy:'', revoked:false};
     return createCodedInvite('instructor',doc);
   },
   async listTeacherInvites() { const s = await getDocs(F.collection(db,'teacherInvites')); return s.docs.map(norm).sort((a,b)=>b.createdAt-a.createdAt); },
@@ -473,14 +531,15 @@ export const firebase = {
     if (!s?.exists()) throw Error('Invitation not found, or it was issued to a different email address.');
     const invite = s.data();
     if (invite.revoked || invite.expiresAt < Date.now()) throw Error('This invitation has expired or was revoked. Ask the admin for a new link.');
+    if (invite.acceptedBy === user.uid && role === 'lecturer') return invite;
     if (invite.acceptedBy) throw Error('This invitation has already been used. Open My modules if your instructor account is active.');
     if (![invite.ucdEmail, invite.gmail].filter(Boolean).includes(user.email.toLowerCase())) throw Error('Sign in with the university email or Gmail address specified in your invitation.');
     const details = registrationProfile(profile,true);
     if (details.contactEmail !== invite.ucdEmail) throw Error('Your university email must match the invitation. Update your profile.');
     const batch = F.writeBatch(db);
-    batch.set(F.doc(db,'roles',user.uid),{role:'lecturer',inviteId:id,setBy:'invitation',setAt:Date.now()});
+    batch.set(F.doc(db,'roles',user.uid),{role:'lecturer',peerAccess:invite.peerAccess === true,aiGrading:invite.aiGrading === true,inviteId:id,setBy:'invitation',setAt:Date.now()});
     batch.update(ref,{acceptedBy:user.uid}); await batch.commit();
-    role = 'lecturer'; notify(); return invite;
+    role = 'lecturer'; grants = invite; await refreshManaged(this); notify(); return invite;
   },
 
   // ---- posts ----
@@ -699,29 +758,34 @@ export const firebase = {
       return [...new Map(lists.flat().map(x=>[x.uid,x])).values()];
     }
     const [dir, roles, profiles] = await Promise.all([getDocs(F.collection(db, 'userDirectory')), getDocs(F.collection(db, 'roles')), getDocs(F.collection(db, 'profiles'))]);
-    const r = {}; roles.forEach(d => r[d.id] = d.data().role);
+    const r = {}; roles.forEach(d => r[d.id] = d.data());
     const p = {}; profiles.forEach(d => p[d.id] = d.data());
     const directory=Object.fromEntries(dir.docs.map(d=>[d.id,d.data()]));
-    return [...new Set([...Object.keys(p),...Object.keys(directory)])].map(uid=>({uid,...p[uid],...directory[uid],role:directory[uid]?.email===ADMIN_EMAIL?'admin':r[uid] || 'student'}));
+    return [...new Set([...Object.keys(p),...Object.keys(directory)])].map(uid=>({uid,...p[uid],...directory[uid],peerAccess:r[uid]?.peerAccess === true,aiGrading:r[uid]?.aiGrading === true,role:directory[uid]?.email===ADMIN_EMAIL?'admin':r[uid]?.role || 'student'}));
   },
-  async peopleReport(moduleId='') {
+  async peopleReport(moduleId='', previewUid='') {
     if(!user?.emailVerified || !['admin','lecturer'].includes(role))throw Error('Admin or instructor access required.');
     const all=await this.listModules();
-    const modules=all.filter(m=>(!moduleId || m.id===moduleId) && (role==='admin' || m.teacherIds.includes(user.uid)));
+    const modules=all.filter(m=>(!moduleId || m.id===moduleId) && ((role==='admin' && !previewUid) || m.teacherIds.includes(previewUid || user.uid)));
     if(moduleId&&!modules.length)throw Error('You do not have access to this module’s records.');
-    const memberships=(await Promise.all(modules.map(async m=>{
-      const s=await getDocs(F.collection(db,'modules',m.id,'members'));
-      return s.docs.map(d=>({uid:d.id,...d.data(),moduleId:m.id}));
-    }))).flat();
-    const [users,instructorInvites,studentInvites]=await Promise.all([
-      role==='admin'&&!moduleId?this.listUsers():Promise.resolve([]),
-      role==='admin'&&!moduleId?this.listTeacherInvites():Promise.resolve([]),
-      Promise.all(modules.map(m=>this.listModuleInvites(m.id))).then(a=>a.flat())
+    const platformWide = role === 'admin' && !moduleId && !previewUid;
+    const [memberGroups, users, instructorInvites, inviteGroups, posts, legacy, history, visits] = await Promise.all([
+      Promise.all(modules.map(async m => {
+        const snapshot = await getDocs(F.collection(db, 'modules', m.id, 'members'));
+        return snapshot.docs.map(d => ({uid: d.id, ...d.data(), moduleId: m.id}));
+      })),
+      platformWide ? this.listUsers() : [],
+      platformWide ? this.listTeacherInvites() : [],
+      Promise.all(modules.map(m => this.listModuleInvites(m.id))),
+      this.listAllPosts(), this.listWritingSessions(moduleId), this.listWritingHistory(moduleId), this.listPresence(moduleId)
     ]);
-    const report=buildPeopleReport({users,memberships,modules,instructorInvites,studentInvites,includePlatformUsers:role==='admin'&&!moduleId});
-    const [posts,legacy,history,visits]=await Promise.all([this.listAllPosts(),this.listWritingSessions(moduleId),this.listWritingHistory(moduleId),this.listPresence(moduleId)]);
+    const memberships = memberGroups.flat();
+    const report = buildPeopleReport({users, memberships, modules, instructorInvites, studentInvites: inviteGroups.flat(), includePlatformUsers: platformWide});
     const sessions=[...legacy.map(s=>({...s,id:'legacy-'+s.id})),...history];
-    report.writing=writingReport(posts,sessions,modules,report.users,Date.now(),visits);report.sessions=sessionHistoryReport(posts,sessions,modules,report.users);report.moduleTotals=moduleWritingTotals(report.writing,memberships,modules,report.users);return report;
+    const scope = new Set(modules.map(m=>m.id));
+    const scopedPosts = posts.filter(p=>scope.has(p.moduleId));
+    const scopedSessions = sessions.filter(s=>scope.has(s.moduleId));
+    report.writing=writingReport(scopedPosts,scopedSessions,modules,report.users,Date.now(),visits.filter(v=>scope.has(v.moduleId) || platformWide));report.sessions=sessionHistoryReport(scopedPosts,scopedSessions,modules,report.users);report.moduleTotals=moduleWritingTotals(report.writing,memberships,modules,report.users);return report;
   },
   // ---- the Delete column of the People tables (people.js) ----
   // A student is removed from a module by its staff: the module membership and the blog membership it
@@ -757,10 +821,11 @@ export const firebase = {
   },
   async getAdminGuide(){const s=await getDoc(F.doc(db,'adminContent','guide'));if(!s.exists())throw Error('The admin guide is not available yet.');return s.data().html;},
   // ---- AI grading assistant (admin only; keys never reach the database) ----
-  async getGraderConfig(){const s=await getDoc(F.doc(db,'adminContent','grader'));return s.exists()?s.data():null;},
-  async saveGraderConfig(cfg){if(role!=='admin')throw Error('Admin access required.');const doc={persona:String(cfg.persona||''),instructions:String(cfg.instructions||''),polish:String(cfg.polish||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(F.doc(db,'adminContent','grader'),doc);return doc;},
-  async listAiReviews(moduleId=''){if(role!=='admin')return [];const col=F.collection(db,'aiReviews');const s=await getDocs(moduleId?F.query(col,F.where('moduleId','==',moduleId)):col);return s.docs.map(d=>({id:d.id,...d.data()}));},
-  async saveAiReview(postId,patch){if(role!=='admin')throw Error('Admin access required.');const ref=F.doc(db,'aiReviews',postId);await F.setDoc(ref,{...patch,postId,updatedAt:Date.now()},{merge:true});const s=await getDoc(ref);return {id:postId,...s.data()};},
+  async getGraderConfig(){const s=await getDoc(graderRef());return s.exists()?s.data():null;},
+  async saveGraderConfig(cfg){if(role!=='admin' && !grants.aiGrading)throw Error('Admin access required.');const doc={persona:String(cfg.persona||''),instructions:String(cfg.instructions||''),polish:String(cfg.polish||''),updatedAt:Date.now(),updatedBy:user.uid};await F.setDoc(graderRef(),doc);return doc;},
+  async listAiReviews(moduleId=''){if(role!=='admin' && !grants.aiGrading)return [];const col=reviewCollection();
+    if(role!=='admin' && !moduleId) return gather(managedModuleIds.map(id=>F.query(col,F.where('moduleId','==',id))));const s=await getDocs(moduleId?F.query(col,F.where('moduleId','==',moduleId)):col);return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async saveAiReview(postId,patch){if(role!=='admin' && !grants.aiGrading)throw Error('Access required.');const ref=F.doc(reviewCollection(),postId);await F.setDoc(ref,{...patch,postId,updatedAt:Date.now()},{merge:true});const s=await getDoc(ref);return {id:postId,...s.data()};},
   // ---- peer review (study guide 5.3): one round per module, one record per reviewer and post ----
   // peerRounds/{moduleId}: the round's state (open/closed, deadline, seed), written by the admin.
   // peerReviews/{moduleId_postId_reviewerUid}: the assignment, filled in by the reviewer (grade,
@@ -783,7 +848,7 @@ export const firebase = {
   async assignPeerReviews(moduleId,rows){if(role!=='admin')throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;
     for(const r of rows){b.set(F.doc(db,'peerReviews',reviewId(moduleId,r.postId,r.reviewerUid)),{moduleId,blogId:r.blogId||'',postId:r.postId,authorId:r.authorId,reviewerUid:r.reviewerUid,reviewerName:r.reviewerName||'',order:r.order||0,assignedAt:now,grade:null,assessment:'',submittedAt:null,updatedAt:now});if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}
     if(n)await b.commit();notify();},
-  async listPeerReviews(moduleId){if(role!=='admin')return [];const s=await getDocs(F.query(F.collection(db,'peerReviews'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
+  async listPeerReviews(moduleId){if(!user || !['lecturer','admin'].includes(role))return [];const s=await getDocs(F.query(F.collection(db,'peerReviews'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
   async listMyPeerReviews(){if(!user)return [];const s=await getDocs(F.query(F.collection(db,'peerReviews'),F.where('reviewerUid','==',user.uid)));return s.docs.map(d=>({id:d.id,...d.data()}));},
   async getPeerReview(id){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerReviews',id));return s.exists()?{id,...s.data()}:null;}catch{return null;}},
   async submitPeerReview(id,{grade,assessment}){if(!user?.emailVerified)throw Error('Verify your sign-in email before submitting a review.');const now=Date.now();await F.updateDoc(F.doc(db,'peerReviews',id),{grade,assessment,submittedAt:now,updatedAt:now});notify();return this.getPeerReview(id);},
@@ -811,7 +876,7 @@ export const firebase = {
   },
   async listPeerReviewerNotes(moduleId){if(role!=='admin')return [];const s=await getDocs(F.query(F.collection(db,'peerReviewerNotes'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
   async getMyPeerReviewerNote(moduleId){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerReviewerReleases',`${moduleId}_${user.uid}`));return s.exists()?{id:s.id,...s.data()}:null;}catch{return null;}},
-  async releasePeerSummaries(rows){if(role!=='admin')throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;for(const r of rows){b.set(F.doc(db,'peerSummaries',r.postId),{...r,releasedAt:now,updatedAt:now});if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}if(n)await b.commit();notify();},
+  async releasePeerSummaries(rows){if(role!=='admin' && !(role==='lecturer' && grants.peerAccess))throw Error('Admin access required.');const now=Date.now();let b=F.writeBatch(db),n=0;for(const r of rows){b.set(F.doc(db,'peerSummaries',r.postId),{...r,releasedAt:now,updatedAt:now});if(++n===450){await b.commit();b=F.writeBatch(db);n=0;}}if(n)await b.commit();notify();},
   async listPeerSummaries(moduleId){if(role!=='admin')return [];const s=await getDocs(F.query(F.collection(db,'peerSummaries'),F.where('moduleId','==',moduleId)));return s.docs.map(d=>({id:d.id,...d.data()}));},
   async getPeerSummary(postId){if(!user)return null;try{const s=await getDoc(F.doc(db,'peerSummaries',postId));return s.exists()?{id:postId,...s.data()}:null;}catch{return null;}},
   async getProfile(uid) { const s = await getDoc(F.doc(db, 'profiles', uid)); return s.exists() ? {uid, ...s.data()} : null; },
@@ -825,6 +890,10 @@ export const firebase = {
       }
     }
     notify(); return {uid, ...profile};
+  },
+  async setInstructorGrant(uid, field, enabled) {
+    if (role !== 'admin' || !['peerAccess','aiGrading'].includes(field)) throw Error('Admin access required.');
+    await F.updateDoc(F.doc(db,'roles',uid),{[field]:enabled}); notify();
   },
   async setRole(uid, newRole) { await F.setDoc(F.doc(db, 'roles', uid), {role: newRole, setBy: user?.uid || '', setAt: Date.now()}); notify(); },
 
