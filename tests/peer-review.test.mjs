@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededShuffle, validateReview, roundOpen, peerPostRows, peerReviewerRows, summaryFor, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, PER_STUDENT, reviewId, peerCohort, buildNotice, mailtoLink, noticeSheet, ASSIGNMENT_COLUMNS, assignmentSheet} from '../peer-review-model.js';
+import {makeDeadline, deadlineInput, deadlineAt, fmtDeadline} from '../deadlines.js';
+import {scheduledYear, scheduledDraw, assignPeerReviews, verifyAssignments, fillGaps, reviewablePosts, seededShuffle, validateReview, roundOpen, peerPostRows, peerReviewerRows, summaryFor, buildSynthesis, buildReviewerAssessment, parseSynthesis, parseReviewerAssessment, peerPostSheet, peerReviewerSheet, PEER_POST_COLUMNS, PEER_REVIEWER_COLUMNS, PER_STUDENT, reviewId, peerCohort, buildNotice, mailtoLink, noticeSheet, ASSIGNMENT_COLUMNS, assignmentSheet} from '../peer-review-model.js';
 
 const posts = n => Array.from({length: n}, (_, i) => ({id: 'p' + i, authorId: 'u' + i, authorName: 'pen-' + i, title: 'Post ' + i, status: 'published', publishedAt: 1000 + i, body: '<p>' + 'Analysis of the organisation. '.repeat(30) + '</p>'}));
 
@@ -216,4 +217,31 @@ test('the assignments sheet has one row per reviewer with the author and the lin
   const r1 = sheet[rows.findIndex(r => r.reviewerUid === 'r1')];
   assert.deepEqual(r1, {studentId: '', name: 'Rae One', email: '', n1: 'Ann Author', u1: 'https://x/p1', n2: 'pen-b', u2: 'https://x/p2'});   // the author's name from the roster, else their pen name
   assert.deepEqual(ASSIGNMENT_COLUMNS.map(c => c[0]), ['Student ID', 'Student Name', 'UCD Email', 'Name 1', 'Blog URL 1', 'Name 2', 'Blog URL 2', 'Name 3', 'Blog URL 3', 'Name 4', 'Blog URL 4']);
+});
+
+test('zoned deadlines retain the instructor’s wall time and compare by instant', () => {
+  const due = makeDeadline('2026-09-01T00:15', 'Asia/Kathmandu');
+  assert.equal(due.at, Date.parse('2026-08-31T18:30:00Z'));
+  assert.deepEqual(deadlineInput(due), {zone:'Asia/Kathmandu', local:'2026-09-01T00:15'});
+  assert.equal(deadlineInput('').zone, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  assert.match(fmtDeadline(due), /00:15.*5:45/);
+  const module = {peerReview:true, deadline:due, peerDeadline:due};
+  assert.equal(scheduledYear(module, null, due.at), null);
+  assert.equal(scheduledYear(module, null, due.at + 1), '2026/27');
+  assert.equal(roundOpen({status:'open'}, module, due.at), true);
+  assert.equal(roundOpen({status:'open'}, module, due.at + 1), false);
+  const pool = posts(5).map(p => ({...p, academicYear:'2026/27', publishedAt:due.at}));
+  const members = new Set(pool.map(p => p.authorId));
+  assert.ok(scheduledDraw(module, '2026/27', pool, members));
+  pool[0].publishedAt++;
+  assert.equal(scheduledDraw(module, '2026/27', pool, members), null);
+  assert.equal(deadlineAt('2026-07-01'), Date.parse('2026-07-01T22:59:59.999Z'));
+});
+
+test('clock changes require an unambiguous local time', () => {
+  const zone = 'America/New_York';
+  assert.throws(() => makeDeadline('2026-03-08T02:30', zone), /skipped/);
+  assert.throws(() => makeDeadline('2026-11-01T01:30', zone), /twice/);
+  assert.equal(makeDeadline('2026-07-08T12:00', zone).at, Date.parse('2026-07-08T16:00Z'));
+  assert.equal(makeDeadline('2026-12-08T12:00', zone).at, Date.parse('2026-12-08T17:00Z'));
 });

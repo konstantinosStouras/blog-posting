@@ -186,6 +186,10 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await assertFails(updateDoc(doc(author,'peerReviews/'+id),{grade:10,assessment:text,submittedAt:time,updatedAt:time}));
  await assertSucceeds(updateDoc(doc(student,'peerReviews/'+id),{grade:7,assessment:'Nice.',submittedAt:time,updatedAt:time}));   // no minimum length
  await assertSucceeds(updateDoc(doc(student,'peerReviews/'+id),{grade:8,assessment:text+' Revised.',submittedAt:time+1,updatedAt:time+1}));
+ await assertSucceeds(updateDoc(doc(admin,'modules/one'),{peerDeadline:{at:Date.now()-60000,zone:'Asia/Tokyo'}}));
+ await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:9,assessment:text,submittedAt:time,updatedAt:time}));
+ await assertSucceeds(updateDoc(doc(admin,'modules/one'),{peerDeadline:{at:Date.now()+86400000,zone:'Asia/Tokyo'}}));
+ await assertSucceeds(updateDoc(doc(student,'peerReviews/'+id),{grade:9,assessment:text,submittedAt:time,updatedAt:time}));
  await assertSucceeds(setDoc(doc(admin,'peerReviews/'+id),{aiScore:8,aiNote:'Specific and fair'},{merge:true}));
  await assertSucceeds(setDoc(doc(admin,'peerRounds/one'),{status:'closed',closedAt:time},{merge:true}));
  await assertFails(updateDoc(doc(student,'peerReviews/'+id),{grade:9,assessment:text,submittedAt:time+2,updatedAt:time+2}));

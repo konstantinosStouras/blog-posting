@@ -242,7 +242,7 @@ function daysLate(p, module) {
 function lateNote(p, module, u) {
   if (!u || u.uid !== p.authorId || p.status !== 'published') return '';
   const n = daysLate(p, module);
-  return n ? `<p class="notice late-note">Just so you know: this post went live ${n === 1 ? 'less than or equal to a day' : n + ' days'} after the module deadline of ${fmtDeadline(module.deadline)}. Only you can see this note.</p>` : '';
+  return n ? `<p class="notice late-note">Just so you know: this post went live ${n === 1 ? 'within a day' : n + ' days'} after the module deadline of ${fmtDeadline(module.deadline)}. Only you can see this note.</p>` : '';
 }
 // The column beside the post: the author's own tools (status, Edit, Publish, Delete) and the
 // late note at the top, then the post's details for every reader. On a narrow screen the column

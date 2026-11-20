@@ -9,7 +9,7 @@ import {can} from './permissions.js';
 import {store, memberOfBlog} from './store.js';
 import {currentUser, openAuthModal, invitationRoute} from './auth.js';
 import {renderWelcome, bindWelcome} from './welcome.js';
-import {esc, toast, slugify, fmtDate, fmtDateTime, toDom, pageHead} from './util.js';
+import {esc, toast, slugify, fmtDateTime, toDom, pageHead} from './util.js';
 import {JOIN_CITIES, cityLabel, isRetiredStudentCode} from './invitation-codes.js';
 import {DEFAULT_REPLY_RULES} from './seed.js';
 import {route, navigate, publicUrl} from './router.js';
