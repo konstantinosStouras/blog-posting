@@ -156,18 +156,20 @@ export async function briefPage(id) {
   if (!blog) { app.innerHTML = '<p class="empty">Blog not found.</p>'; return; }
   const preview = u?.studentPreview, myHere = preview ? modules.filter(m => m.id === preview.moduleId && m.blogId === id) : mine.filter(m => m.blogId === id && !m.teaching), cohort = myHere[0] || null;
   const brief = briefContent(blog.brief, blog);
+  const reviewModules = (myHere.length || preview ? myHere : modules.filter(m => m.blogId === id && instructs(u, m))).filter(m => m.peerReview);
   const words = blog.minWords && blog.maxWords ? `${brief.range} words` : blog.maxWords ? `up to ${brief.range} words` : '';
   const editable = instructs(u, blog);   // the blog's instructors and the admin edit the brief here, in the post editor's sheet (brief-editor.js); a student preview reads it as a student
   app.innerHTML = `<div class="guide challenge-guide"><h1 class="page-title">${esc(brief.title)}</h1>
     ${editable ? '<p class="actions brief-tools"><button type="button" class="btn small" id="brief-edit">Edit the brief</button></p>' : ''}
     ${blog.brief ? `<div class="body brief-body">${brief.html}</div>` : `<p class="muted">${editable ? 'There is no brief yet: <b>Edit the brief</b> opens the editor.' : 'The instructor has not written a brief for this blog yet.'}</p>`}
+    ${reviewModules.map(m => `<section class="notice"><h2>Peer review · ${esc(moduleLabel(m))}</h2><p>After the writing deadline${m.deadline ? ' on ' + fmtDate(m.deadline) : ''} (Irish time), open <a href="/peer-review">Your assigned posts</a>. Each student who published by the deadline reviews four different classmates, and each eligible post receives four reviewers. If you published more than once, your latest eligible post counts. At least five student authors are needed.</p><p>Rate each post from 1 to 10 and write a short paragraph of constructive feedback${m.peerDeadline ? ' by ' + fmtDate(m.peerDeadline) : ''}. Your name is hidden from the author.</p></section>`).join('')}
     <h2 class="page-title" style="font-size:20px;margin-top:30px">How publishing works here</h2>
     <ol class="steps">
       <li><b>Log in.</b> Your posts and comments appear under an <b>alias</b> generated at random when your account was created, with the date of publication; your instructor alone sees who is behind it.</li>
       <li><b>Write</b> your post in the editor: a title, a subtitle and the text, with hyperlinks to your sources, images and tables.${words ? ` The word meter follows the ${words} target (tables and captions are not counted).` : ''}</li>
       <li><b>Save a draft</b> as often as you like. Drafts are private to you and your instructor.</li>
       <li><b>Publish</b> when you are done.${cohort?.requireApproval ? ' Your instructor checks each post before it appears on the blog.' : ' Your post appears on the blog immediately and its address never changes.'}</li>
-      <li><b>Discuss.</b> Read the other posts from your module and answer the open questions they raise in the comments. A published post is public, and the discussion under it is for the students of its module and their instructors.</li>
+      <li><b>Discuss.</b> Read the other posts from your module and discuss their findings in the comments. A published post is public, and the discussion under it is for the students of its module and their instructors.</li>
     </ol>
     ${myHere.filter(m => m.deadline || m.brightspaceUrl).map(m => `<div class="notice">${esc(moduleLabel(m))}${m.deadline ? `: deadline <b>${fmtDate(m.deadline)}</b>` : ''}${m.submissionsOpen === false ? ' — submissions are now closed.' : ''}${m.brightspaceUrl ? ` · <a href="${esc(m.brightspaceUrl)}" target="_blank" rel="noopener">Module page on Brightspace</a>` : ''}</div>`).join('')}
     ${cohort ? `<p><a class="btn primary" href="/write/${esc(cohort.id)}">Start writing</a></p>` : ''}
@@ -183,6 +185,7 @@ export async function manageModule(id) {
   if (!staff(u)) { app.innerHTML = '<p class="empty">Instructor access required.</p>'; return; }
   const [m, myBlogs] = await Promise.all([id ? store.getModule(id) : null, store.listMyBlogs()]);
   if (id && (!m || !instructs(u, m))) { app.innerHTML = '<p class="empty">You cannot manage this module.</p>'; return; }
+  const reviews = m?.peerReview ? await store.listPeerReviews(m.id) : [];
   const existingBlogs = myBlogs.filter(b => b.id !== '');
   const chooseExisting = existingBlogs.length > 0 && (!m || !!m.blogId);
   app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is a course you teach: its students and their deadline. Create it once and reuse it every year; each post is stamped with the academic year it was published in, so a blog can be filtered by year. Its posts appear on a blog that it may share with your other modules.</p>
@@ -198,13 +201,14 @@ export async function manageModule(id) {
       <div class="indent new-blog"><label class="field">Blog title<input name="blogTitle" maxlength="160" placeholder="e.g. Operations"></label>
       <label class="field">Public URL name<input name="blogUrl" minlength="2" maxlength="80" pattern="[a-z0-9][a-z0-9\\-]+" placeholder="e.g. operations"><p class="hint">${esc(publicUrl('/'))}<b>url-name</b> — lowercase letters, numbers and hyphens; fixed after creation. A few names belong to pages of the site (posts, blogs, admin…). The brief, categories and word target are set afterwards in Blog settings.</p></label></div>
     </fieldset>
-    <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(m?.deadline || '')}"><p class="hint">For information only: shown to students on their module card, in the brief and in your modules list. It does not lock anything. Students can write, publish and edit their posts until you untick <b>Students can write, publish and edit their posts</b> below, which you would normally do once the deadline has passed.</p></label>
+    <label class="field">Deadline (optional)<input name="deadline" type="date" value="${esc(m?.deadline || '')}"><p class="hint">Shown to students on their module card, in the brief and in your modules list. It does not lock anything. Students can write, publish and edit their posts until you untick <b>Students can write, publish and edit their posts</b> below, which you would normally do once the deadline has passed.</p></label>
     <label class="check"><input type="checkbox" name="submissionsOpen" ${m?.submissionsOpen !== false ? 'checked' : ''}> Students can write, publish and edit their posts</label>
     <p class="hint indent">Normally ticked until the deadline has passed. Untick to close submissions: students can still read the blog, but not write, edit or publish.</p>
-    ${u.role === 'admin' ? `<fieldset class="field peer-option"><legend>Peer review of classmates’ posts</legend>
+    <fieldset class="field peer-option"><legend>Peer review of classmates’ posts</legend>
       <label class="check"><input type="checkbox" name="peerReview" ${m?.peerReview ? 'checked' : ''}> Students assess each other’s posts in this module</label>
-      <p class="hint indent">Your option alone, off unless you turn it on for a given module and year. Once submissions are closed, assign the posts at <a href="/admin/peer${m ? '?module=' + esc(m.id) : ''}">Peer review</a>.</p>
-      <label class="field indent">Peer review deadline<input name="peerDeadline" type="date" value="${esc(m?.peerDeadline || '')}"><p class="hint">Shown to students once their posts are assigned; assessments close at the end of that day, or when you close the round. For a new academic year, set both deadlines here, reopen submissions, and delete last year’s round before assigning again.</p></label></fieldset>` : ''}
+      <p class="hint indent">Off by default. After the writing deadline (end of day in Ireland), students find four assigned posts in My modules. The draw needs at least five student authors and uses each author’s latest eligible post.</p>
+      <label class="field indent">Deadline for completing reviews (optional)<input name="peerDeadline" type="date" value="${esc(m?.peerDeadline || '')}"></label></fieldset>
+    ${m?.peerReview ? `<p class="hint">${reviews.length ? esc(reviews.filter(r => r.submittedAt).length + ' of ' + reviews.length + ' assigned reviews submitted.') : 'No posts assigned yet. If the deadline has passed, check that at least five enrolled students published on time.'}</p>` : ''}
     <p class="actions"><button class="btn primary">${m ? 'Save module' : 'Create module'}</button><a class="btn" href="/my-modules">Cancel</a></p><p class="auth-msg" aria-live="polite"></p></form>
     ${m ? `<section class="blog-group"><h2 class="group-title">Delete this module</h2><p class="hint">Removes the module and its roster; its invitation code is retired. The blog stays, as do the posts of any other module on it. A module with posts cannot be deleted: delete its posts from Review posts first, or keep the module and reuse it next year.</p><p class="actions"><button class="btn danger" id="delete-module">Delete module</button></p><p class="auth-msg" id="delete-msg" aria-live="polite"></p></section>` : ''}</div>`;
   app.querySelector('#delete-module')?.addEventListener('click', async e => {
@@ -223,7 +227,10 @@ export async function manageModule(id) {
     e.preventDefault(); const d = Object.fromEntries(new FormData(form)), button = form.querySelector('button'); button.disabled = true;
     try {
       const data = {id: m?.id, title: d.title, code: d.code, description: d.description, deadline: d.deadline || '', brightspaceUrl: d.brightspaceUrl || '', submissionsOpen: !!d.submissionsOpen, requireApproval: false};   // posts go live when a student publishes; there is no moderation step
-      if (u.role === 'admin') { data.peerReview = !!d.peerReview; data.peerDeadline = d.peerDeadline || ''; }   // the peer-review option is the admin's alone; other instructors' saves leave it as it is
+      data.peerReview = !!d.peerReview;
+      data.peerDeadline = d.peerDeadline || '';
+      if (data.peerReview && !data.deadline) throw Error('Set the writing deadline for the automatic draw.');
+      if (data.peerReview && data.peerDeadline && data.peerDeadline <= data.deadline) throw Error('Choose a review deadline after the writing deadline.');
       if ((d.blogMode || 'new') === 'new') { if (!d.blogTitle?.trim() || !d.blogUrl?.trim()) throw Error('Give the new blog a title and a URL name.'); data.newBlog = {title: d.blogTitle.trim(), urlName: d.blogUrl.trim()}; }
       else data.blogId = d.blogId;
       const saved = await store.saveModule(data);

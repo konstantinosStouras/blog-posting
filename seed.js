@@ -91,7 +91,6 @@ export const PM_EXERCISE = {
 <li>Convert the completed Word template to PDF.</li>
 <li>Upload the PDF to the relevant Assignment on Brightspace. Multiple submissions are allowed; I will normally grade the most recent one unless you say otherwise in the comments.</li>
 </ol>
-<p>Your classmates will read and assess your post in the next phase of the assignment (the assessment of others' blogs), so make sure it is published and not left as a draft.</p>
 <h2>Evaluation criteria</h2>
 <p>Your blog post will be evaluated according to the following criteria:</p>
 <ul>
@@ -101,7 +100,7 @@ export const PM_EXERCISE = {
 <li>Are there any concerns about the content, such as inaccuracies, unrealistic recommendations or the presence of fake information?</li>
 <li>Is the analysis grounded in rigorous, high-quality research from top outlets such as FT50 journals, <em>Harvard Business Review</em>, <em>MIT Sloan Management Review</em> or <em>The Economist</em>, and does the post clearly reflect and build on those insights rather than merely citing them in passing?</li>
 </ul>
-<p>Overall, this exercise lets you synthesise the knowledge gained from our module and combine it with your own experience and research. Peer review stays anonymous: your post appears under the alias generated for your account.</p>`,
+<p>Overall, this exercise lets you synthesise the knowledge gained from our module and combine it with your own experience and research.</p>`,
   // {organisation} and {category} are filled in from the post's side panel.
   outline: `<p><em>Introduce {organisation} in a few sentences: what it does, where, and why it is worth studying in the context of {category}.</em></p>
 <h2>Why {category} matters to {organisation}'s management</h2><p></p>

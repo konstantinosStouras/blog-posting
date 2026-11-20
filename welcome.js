@@ -83,7 +83,7 @@ export function renderWelcome() {
         <button class="btn outline" id="welcome-register">Create new account</button>
         <p class="muted small">Registration needs the invitation code from your instructor.</p></div>`;
   return `<section class="welcome" aria-label="Welcome"><div class="welcome-art">${SKETCH}
-    <h2 class="welcome-title">Read, write and <span>review</span>.</h2>
+    <h2 class="welcome-title">Read, write and <span>discuss</span>.</h2>
     <p class="welcome-sub">${esc(S.tagline)}: posts on the megatrends shaping business and society. Your module's invitation lets you read, write and comment on its blog.</p></div>${card}</section>`;
 }
 

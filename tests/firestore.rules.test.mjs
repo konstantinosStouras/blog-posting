@@ -142,6 +142,7 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await env.withSecurityRulesDisabled(async c=>{
   const d=c.firestore();
   await setDoc(doc(d,'modules/one/members/other'),{...member('other'),email:'other@ucd.ie',contactEmail:'other@ucd.ie'});
+  await updateDoc(doc(d,'modules/one'),{peerReview:true});
   await setDoc(doc(d,'posts/other-published'),post('one','other','published'));
   await setDoc(doc(d,'posts/other-published/content/body'),{body:'<p>Other content</p>'});
   await setDoc(doc(d,'peerRounds/one'),{moduleId:'one',blogId:'pm',status:'open',perStudent:4,seed:'abc',academicYear:'2026/27',assignedAt:time,assignedBy:'admin',updatedAt:time,updatedBy:'admin'});
@@ -171,7 +172,7 @@ test('peer review: the admin assigns, the reviewer alone grades while the round 
  await assertSucceeds(getDocs(query(collection(student,'peerReviews'),where('reviewerUid','==','student'))));
  await assertSucceeds(getDocs(query(collection(admin,'peerReviews'),where('moduleId','==','one'))));
  await assertFails(getDoc(doc(author,'peerReviews/'+id)));
- await assertFails(getDoc(doc(teacher,'peerReviews/'+id)));
+ await assertSucceeds(getDoc(doc(teacher,'peerReviews/'+id)));
  await assertFails(getDocs(query(collection(db('peer','peer@ucd.ie'),'peerReviews'),where('moduleId','==','one'))));
  // submitting: the reviewer, a whole-number grade from 1 to 10, feedback of any length, nothing else changed
  const text='This post explains the organisation and its megatrend clearly. '.repeat(5);
@@ -348,8 +349,9 @@ test('teachers create blogs and modules on their own blogs only; nobody appoints
  await assertFails(setDoc(doc(d,'modules/no-such-blog'),mod('teacher-one','missing')));
  await assertFails(updateDoc(doc(d,'modules/one'),{blogId:'ops'}));
  await assertSucceeds(updateDoc(doc(d,'modules/one'),{academicYear:'2027/28',deadline:'2027-11-30'}));
- await assertFails(updateDoc(doc(d,'modules/one'),{peerReview:true,peerDeadline:'2027-12-14'}));   // the peer-review option is the admin's alone
- await assertFails(setDoc(doc(d,'modules/six'),{...mod('teacher-one','pm'),peerReview:true}));
+ await assertSucceeds(updateDoc(doc(d,'modules/one'),{peerReview:true,peerDeadline:'2027-12-14'}));
+ await assertSucceeds(setDoc(doc(d,'modules/six'),{...mod('teacher-one','pm'),peerReview:true}));
+ await assertFails(updateDoc(doc(d,'modules/two'),{peerReview:true}));
  await assertFails(updateDoc(doc(d,'modules/one'),{teacherIds:['teacher-one','other']}));
  await assertFails(updateDoc(doc(d,'blogs/pm'),{teacherIds:['teacher-one','other']}));
  await assertFails(setDoc(doc(db('student'),'modules/stolen'),mod('student')));
