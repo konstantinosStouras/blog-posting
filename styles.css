@@ -199,9 +199,6 @@ dialog .close { position: absolute; right: 10px; top: 8px; border: 0; background
 .post-facts dd { margin: 0; color: var(--ink); line-height: 1.45; overflow-wrap: anywhere; }
 .authorbox { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 0; margin: 24px 0; font-size: 13px; display: flex; gap: 12px; align-items: center; }
 .authorbox .avatar { width: 36px; height: 36px; font-size: 15px; }
-.prevnext { display: flex; justify-content: space-between; gap: 16px; margin: 26px 0 40px; font-family: var(--ui); }
-.nav-btn { display: inline-flex; align-items: center; gap: 10px; padding: 12px 22px; border: 0; border-radius: 6px; background: var(--soft); color: var(--ink); font-size: 16px; font-weight: 600; }
-.nav-btn:hover { background: #ebebe8; text-decoration: none; }
 /* The discussion: the comment box first, then the threads. */
 .comments { font-family: var(--ui); }
 .comments h2 { font: 700 22px var(--ui); color: var(--ink); margin: 0 0 18px; }
@@ -875,7 +872,7 @@ dialog.share-sheet { width: min(520px, 94vw); border: 0; border-radius: 12px; bo
 @media print {
   body.printing-post { background: #fff; color: #222; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
   body.printing-post .site-header, body.printing-post .site-footer, body.printing-post .page-sub, body.printing-post .post-actions, body.printing-post .post-actions-row,
-  body.printing-post .post-side, body.printing-post .late-note, body.printing-post .authorbox, body.printing-post .prevnext, body.printing-post .comments, body.printing-post .notice, body.printing-post #toast, body.printing-post dialog { display: none !important; }
+  body.printing-post .post-side, body.printing-post .late-note, body.printing-post .authorbox, body.printing-post .comments, body.printing-post .notice, body.printing-post #toast, body.printing-post dialog { display: none !important; }
   body.printing-post .app, body.printing-post .post { max-width: none; margin: 0; padding: 0; }
   body.printing-post .post-layout { display: block; }
   body.printing-post .post .cat { font-size: 9pt; letter-spacing: .08em; text-transform: uppercase; color: #777; margin: 0 0 6pt; }

@@ -224,8 +224,6 @@ const ICON = {
   heart: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.6-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.4-7 10-7 10Z"/></svg>',
   comment: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/></svg>',
   share: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 9l5-5 5 5M5 15v4h14v-4"/></svg>',
-  arrowLeft: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
-  arrowRight: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   star: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8Z"/></svg>',
   pdf: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 17v-4h1.6a1.4 1.4 0 0 1 0 2.8H8.5M12.6 13h1.2a2 2 0 0 1 0 4h-1.2zM16.4 17v-4h2.4M16.4 15h2"/></svg>',
 };
@@ -298,15 +296,12 @@ async function postView(slug, blogId = null) {
   const canParticipate = u && (store.mode !== 'firebase' || u.emailVerified) && (rank(u.role) >= 2 || (u.managedModuleIds || []).includes(p.moduleId) || (u.managedBlogIds || []).includes(p.blogId) || mine.some(m => m.id === p.moduleId));
   const showModule = module && seesModule(u, module);   // the post's module: for its instructors, the blog's owners and the admin
   const shareModule = showModule || (u && u.uid === p.authorId) ? module : null;   // the share credit names the module for the author and those readers only
-  const all = (await store.listPosts({status: 'published', blogId: p.blogId})).sort(by('publishedAt', 1));
-  const i = all.findIndex(x => x.id === p.id), prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
   const [comments, likes, bookmarks] = await Promise.all([store.listComments(p.id, {moduleId: p.moduleId, blogId: p.blogId}), (u || store.mode === 'local' ? store.listLikes(p.id).catch(() => null) : null), store.listBookmarks(p.id)]);
   if (blog) renderHeader(route(), blog);   // a post's masthead is its blog's
   const words = wordCount(p.body);
   $app.innerHTML = `${blog ? `<p class="page-sub"><a href="/${esc(blog.id)}">${esc(blog.title)}</a>${showModule ? ` · ${esc(module.code || module.title)}${p.academicYear ? ' ' + esc(p.academicYear) : ''}` : ''}</p>` : ''}<div class="post-layout"><article class="post">
     ${articleHtml(p, {blog, words, likes, bookmarks, comments: comments.length, me: u})}
     <div class="authorbox"><span class="avatar">${esc((p.authorName || '?')[0].toUpperCase())}</span><div>Written by <a href="/author/${esc(p.authorId)}"><b>${esc(p.authorName)}</b></a>${blog ? ` for the <a href="/${esc(blog.id)}">${esc(blog.title)}</a> blog` : ''}.<br><span class="muted">The author's open questions at the end are an invitation. Leave a comment.</span></div></div>
-    <div class="prevnext">${prev ? `<a class="btn nav-btn" href="${postPath(prev)}" title="${esc(prev.title)}">${ICON.arrowLeft}<span>Previous</span></a>` : '<span></span>'}${next ? `<a class="btn nav-btn" href="${postPath(next)}" title="${esc(next.title)}"><span>Next</span>${ICON.arrowRight}</a>` : '<span></span>'}</div>
     <section class="comments" id="comments"><h2>Discussion about this post</h2>
       ${context.allowComments === false ? '<p class="muted">Comments are closed.</p>' : canParticipate ? commentFormHtml(u, blog) : u ? '<p class="muted">The discussion under this post is for its author’s classmates and their instructors.</p>' : `<p class="muted">You must be <button class="linkish" id="login-to-comment">logged in</button> with a module invitation to post a comment.</p>`}
       <p class="comment-count" id="comment-count"></p>
