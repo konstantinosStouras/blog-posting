@@ -963,7 +963,9 @@ label.field.check input { width: auto; margin: 3px 0 0; }
 .brief-field .toolbar { position: relative; justify-content: center; background: white; border-radius: 8px 8px 0 0; }
 .brief-field .surface { min-height: 14rem; max-height: 50vh; overflow-y: auto; }
 .brief-field .surface:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-.brief-tools { margin: 4px 0 14px; }
+.brief-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; margin: 6px 0 16px; }
+.brief-heading .page-title { flex: 1 1 14rem; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.brief-heading .btn { flex: none; margin-inline-start: auto; min-height: 36px; }
 .brief-field { display: block; font-size: 13px; margin: 14px 0; color: var(--ink); }
 .brief-field .field-label { display: block; }
 .brief-preview { border: 1px solid #cfcfcf; border-radius: 8px; background: #fff; padding: 14px 18px; margin: 6px 0 8px; max-height: 320px; overflow-y: auto; }

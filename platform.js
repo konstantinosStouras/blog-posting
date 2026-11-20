@@ -179,8 +179,10 @@ export async function briefPage(id) {
   const reviewModules = (myHere.length || preview ? myHere : modules.filter(m => m.blogId === id && instructs(u, m))).filter(m => m.peerReview);
   const words = blog.minWords && blog.maxWords ? `${brief.range} words` : blog.maxWords ? `up to ${brief.range} words` : '';
   const editable = instructs(u, blog);   // the blog's instructors and the admin edit the brief here, in the post editor's sheet (brief-editor.js); a student preview reads it as a student
-  app.innerHTML = `<div class="guide challenge-guide"><h1 class="page-title">${esc(brief.title)}</h1>
-    ${editable ? '<p class="actions brief-tools"><button type="button" class="btn small" id="brief-edit">Edit the brief</button></p>' : ''}
+  app.innerHTML = `<div class="guide challenge-guide"><header class="brief-heading">
+    <h1 class="page-title">${esc(brief.title)}</h1>
+    ${editable ? '<button type="button" class="btn small" id="brief-edit">Edit the brief</button>' : ''}
+    </header>
     ${blog.brief ? `<div class="body brief-body">${brief.html}</div>` : `<p class="muted">${editable ? 'There is no brief yet: <b>Edit the brief</b> opens the editor.' : 'The instructor has not written a brief for this blog yet.'}</p>`}
     ${reviewModules.map(m => `<section class="notice"><h2>Peer review · ${esc(moduleLabel(m))}</h2><p>After the writing deadline${m.deadline ? ' on ' + fmtDeadline(m.deadline) : ''}, open <a href="/peer-review">Your assigned posts</a>. Each student who published by the deadline reviews four different classmates, and each eligible post receives four reviewers. If you published more than once, your latest eligible post counts. At least five student authors are needed.</p><p>Rate each post from 1 to 10 and write a short paragraph of constructive feedback${m.peerDeadline ? ' by ' + fmtDeadline(m.peerDeadline) : ''}. Your name is hidden from the author.</p></section>`).join('')}
     <h2 class="page-title" style="font-size:20px;margin-top:30px">How publishing works here</h2>
