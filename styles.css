@@ -930,6 +930,7 @@ label.field.check input { width: auto; margin: 3px 0 0; }
 /* ---- the brief: edited in the post editor's sheet (brief-editor.js), previewed on Blog settings ---- */
 .challenge-guide .brief-start { display: flex; justify-content: center; margin: clamp(2rem, 5vw, 3.5rem) 0 1.5rem; }
 .brief-field .brief-editor { margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; }
+.brief-field .brief-editor + .hint { margin-top: 12px; }
 .brief-field .toolbar { position: relative; justify-content: center; background: white; border-radius: 8px 8px 0 0; }
 .brief-field .surface { min-height: 14rem; max-height: 50vh; overflow-y: auto; }
 .brief-field .surface:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
