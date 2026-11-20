@@ -223,8 +223,8 @@ export async function manageModule(id) {
   const reviews = peerAllowed && m?.peerReview ? await store.listPeerReviews(m.id) : [];
   const existingBlogs = myBlogs.filter(b => b.id !== '');
   const chooseExisting = existingBlogs.length > 0 && (!m || !!m.blogId);
-  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is a course you teach: its students and their deadline. Create it once and reuse it every year; each post is stamped with the academic year it was published in, so a blog can be filtered by year. Its posts appear on a blog that it may share with your other modules.</p>
-    <form id="module-form">
+  app.innerHTML = `<div class="guide module-settings"><p class="page-sub crumb"><a href="/my-modules">My modules</a></p><h1 class="page-title">${m ? 'Module settings' : 'Create a module'}</h1><p class="page-sub">A module is a course you teach: its students and their deadline. Create it once and reuse it every year; each post is stamped with the academic year it was published in, so a blog can be filtered by year. Its posts appear on a blog that it may share with your other modules.</p>
+    <form class="settings-form" id="module-form">
     <label class="field">Module code<input name="code" maxlength="40" placeholder="e.g. BMGT45540" value="${esc(m?.code || '')}"></label>
     <label class="field">Module title<input name="title" required maxlength="160" placeholder="e.g. Managing Innovative Projects" value="${esc(m?.title || '')}"></label>
     <label class="field">Description for students (optional)<textarea name="description" maxlength="1200" rows="3">${esc(m?.description || '')}</textarea></label>
@@ -281,8 +281,8 @@ export async function manageBlog(id) {
   const [b, modules] = await Promise.all([store.getBlog(id), store.listModules()]);
   if (!b || !instructs(u, b)) { app.innerHTML = '<p class="empty">Only this blog’s instructor can change its settings.</p>'; return; }
   const lines = arr => (arr || []).join('\n');
-  app.innerHTML = `<div class="guide"><p class="page-sub crumb"><a href="/${esc(id)}">${esc(b.title)}</a></p><h1 class="page-title">Blog settings</h1><p class="page-sub">What every module writing on this blog shares: the brief, the categories, the word target and the comments policy. Public link: <a href="${esc(blogUrl(id))}">${esc(blogUrl(id))}</a></p>
-    <form id="blog-form">
+  app.innerHTML = `<div class="guide blog-settings"><p class="page-sub crumb"><a href="/${esc(id)}">${esc(b.title)}</a></p><h1 class="page-title">Blog settings</h1><p class="page-sub">What every module writing on this blog shares: the brief, the categories, the word target and the comments policy. Public link: <a href="${esc(blogUrl(id))}">${esc(blogUrl(id))}</a></p>
+    <form class="settings-form" id="blog-form">
     <label class="field">Blog title<input name="title" required maxlength="160" value="${esc(b.title)}"></label>
     <label class="field">Description (shown above the canvas)<textarea name="description" maxlength="1200" rows="3">${esc(b.description || '')}</textarea></label>
     <div class="field brief-field"><span class="field-label">The brief (shown on “The brief” and linked from the editor)</span>
@@ -290,14 +290,14 @@ export async function manageBlog(id) {
       <p class="hint">Use <code>/thisYear</code>, <code>/wordTarget</code> and <code>/blogTitle</code> for values that update automatically. Choose <b>Save blog</b> to save your edits.</p></div>
     <div class="two-col">
       <div><label class="field">Category label<input name="categoryLabel" maxlength="40" placeholder="e.g. Megatrend" value="${esc(b.categoryLabel || '')}"></label>
-      <label class="field">Categories (one per line: <code>slug | Name</code>; leave empty for none)<textarea name="categories" rows="7">${esc((b.categories || []).map(c => c.slug + ' | ' + c.name).join('\n'))}</textarea></label>
+      <label class="field">Categories (one per line: <code>slug | Name</code>; leave empty for none)<textarea name="categories" rows="9">${esc((b.categories || []).map(c => c.slug + ' | ' + c.name).join('\n'))}</textarea></label>
       <label class="field">Organisation field label (empty hides the field)<input name="organisationLabel" maxlength="60" placeholder="e.g. Organisation(s) studied" value="${esc(b.organisationLabel || '')}"></label></div>
-      <div><label class="field">Word target (min and max; 0 for none)<span style="display:flex;gap:8px"><input name="minWords" type="number" min="0" value="${b.minWords || 0}"><input name="maxWords" type="number" min="0" value="${b.maxWords || 0}"></span></label>
-      <label class="field">Checklist shown beside the editor (one item per line)<textarea name="checklist" rows="7">${esc(lines(b.checklist))}</textarea></label>
+      <div><label class="field">Word target (min and max; 0 for none)<span class="word-target-range"><input name="minWords" aria-label="Minimum word target" type="number" min="0" value="${b.minWords || 0}"><input name="maxWords" aria-label="Maximum word target" type="number" min="0" value="${b.maxWords || 0}"></span></label>
+      <label class="field">Checklist shown beside the editor (one item per line)<textarea name="checklist" rows="9">${esc(lines(b.checklist))}</textarea></label>
       <label class="check"><input type="checkbox" name="allowComments" ${b.allowComments !== false ? 'checked' : ''}> Allow comments on published posts</label></div>
     </div>
-    <label class="field">Reply rules (shown under the comment box on every post of this blog; empty restores the default)<textarea name="replyRules" maxlength="1000" rows="3" placeholder="${esc(DEFAULT_REPLY_RULES)}">${esc(b.replyRules || '')}</textarea></label>
-    <label class="field">Outline the student can insert (HTML; <code>{organisation}</code> and <code>{category}</code> are filled in)<textarea name="outline" rows="8">${esc(b.outline || '')}</textarea></label>
+    <label class="field">Reply rules (shown under the comment box on every post of this blog; empty restores the default)<textarea name="replyRules" maxlength="1000" rows="5" placeholder="${esc(DEFAULT_REPLY_RULES)}">${esc(b.replyRules || '')}</textarea></label>
+    <label class="field">Outline the student can insert (HTML; <code>{organisation}</code> and <code>{category}</code> are filled in)<textarea name="outline" rows="10">${esc(b.outline || '')}</textarea></label>
     <p class="actions"><button class="btn primary">Save blog</button><a class="btn" href="/${esc(id)}">Back to the blog</a></p><p class="auth-msg" aria-live="polite"></p></form>
     <h2 class="page-title" style="font-size:20px;margin-top:30px">Modules writing on this blog</h2>
     ${modules.filter(m => m.blogId === id).map(m => `<p>${esc(moduleLabel(m))}${instructs(u, m) ? ` · <a href="/modules/edit/${esc(m.id)}">Settings</a> · <a href="/modules/invite/${esc(m.id)}">Invite students</a>` : ''}</p>`).join('') || '<p class="muted">None yet. <a href="/modules/new">Create a module</a> and choose this blog.</p>'}</div>`;
