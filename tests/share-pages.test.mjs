@@ -19,7 +19,7 @@ test('a post page carries the blog card headed with the post title and hands the
   assert.match(html, /property="og:image" content="https:\/\/www\.stouras\.com\/ucd-blog\/og-image\.jpg"/);
   assert.match(html, /property="og:url" content="https:\/\/www\.stouras\.com\/ucd-blog\/project-management\/2026\/11\/dei-at-facebook"/);
   assert.match(html, /name="twitter:card" content="summary_large_image"/);
-  assert.match(html, /href="\.\.\/\.\.\/\.\.\/\.\.\/favicon\.ico/);
+  assert.match(html, /href="\.\.\/\.\.\/\.\.\/\.\.\/project-management\/favicon\.svg"/);
   assert.match(html, /url=https:\/\/www\.stouras\.com\/ucd-blog\/\?redirect=%2Fucd-blog%2Fproject-management%2F2026%2F11%2Fdei-at-facebook"/);
 });
 test('a blog page is one segment deep and carries the blog description', () => {
@@ -27,7 +27,7 @@ test('a blog page is one segment deep and carries the blog description', () => {
   assert.match(html, /property="og:type" content="website"/);
   assert.match(html, /property="og:title" content="UCD Project Management Blog — UCD blog"/);
   assert.match(html, /property="og:description" content="Posts on &lt;projects&gt;\."/);
-  assert.match(html, /href="\.\.\/favicon\.ico/);
+  assert.match(html, /href="\.\.\/project-management\/favicon\.svg"/);
   assert.match(html, /url=https:\/\/www\.stouras\.com\/ucd-blog\/\?redirect=%2Fucd-blog%2Fproject-management"/);
 });
 test('the hand-over script finds the app root from the page address, whatever the mount', () => {

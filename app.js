@@ -1,4 +1,5 @@
 // Router + every page. Clean URLs (router.js) that work from any static host (stouras.com/ucd-blog/).
+import {faviconFor} from './canvas-icon.js';
 import {route, navigate, rewrite, publicUrl, startRouter} from './router.js';
 import {initStore, store, resetAccess} from './store.js';
 import {renderAccountControl, currentUser, openAuthModal, roleLabel} from './auth.js';
@@ -122,6 +123,9 @@ matchMedia('(max-width: 700px)').addEventListener('change', e => { if (!e.matche
 // The masthead names the blog the reader is on (its title and description); elsewhere, the site.
 const blogOnPath = path => BLOGS.find(b => b.id === (path.match(/^\/([a-z0-9-]+)(?:[\/?#]|$)/) || [])[1]) || null;
 function renderHeader(path = route(), blog = blogOnPath(path)) {
+  const icon = document.getElementById('page-favicon');
+  const href = faviconFor(blog, new URL('.', import.meta.url).href);
+  if (icon.href !== href) icon.href = href;
   const u = user();
   const active = h => (h === '/' ? path === '/' : path.startsWith(h)) ? 'active' : '';
   setNav(false);
