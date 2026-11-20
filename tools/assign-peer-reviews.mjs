@@ -1,31 +1,27 @@
 import {cert, initializeApp} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
-import {academicYearOf} from '../util.js';
-import {assignPeerReviews, reviewId, PER_STUDENT} from '../peer-review-model.js';
+import {scheduledYear, scheduledDraw, reviewId, PER_STUDENT} from '../peer-review-model.js';
 
 const db = getFirestore(initializeApp(process.env.FIRESTORE_EMULATOR_HOST ? {projectId: 'demo-ucd-blog'} : {credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))}));
-const day = new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Dublin', year: 'numeric', month: '2-digit', day: '2-digit'});
 async function draw(moduleRef) {
   return db.runTransaction(async tx => {
     const m = (await tx.get(moduleRef)).data();
-    if (!m?.peerReview || !m.deadline || day.format(Date.now()) <= m.deadline) return;
-    const year = academicYearOf(Date.parse(m.deadline + 'T12:00:00Z'));
     const roundRef = db.collection('peerRounds').doc(moduleRef.id);
     const prior = (await tx.get(roundRef)).data();
-    if (prior && (!prior.academicYear || prior.academicYear === year)) return;
+    const year = scheduledYear(m, prior);
+    if (!year) return;
     const [roster, documents] = await Promise.all([
       tx.get(moduleRef.collection('members').select('penName')),
       tx.get(db.collection('posts').where('moduleId', '==', moduleRef.id).select('status','authorId','publishedAt','academicYear','authorName'))
     ]);
     const members = new Map(roster.docs.map(d => [d.id, d.get('penName') || '']));
-    const posts = documents.docs.map(d => ({...d.data(), id: d.id})).filter(p =>
-      members.has(p.authorId) && p.publishedAt && day.format(p.publishedAt) <= m.deadline &&
-      (p.academicYear || academicYearOf(p.publishedAt)) === year && p.status === 'published');
-    if (new Set(posts.map(p => p.authorId)).size <= PER_STUDENT) {
+    const posts = documents.docs.map(d => ({...d.data(), id: d.id}));
+    const draw = scheduledDraw(m, year, posts, members);
+    if (!draw) {
       console.log(moduleRef.id + ': fewer than five eligible authors');
       return;
     }
-    const {assignments, seed} = assignPeerReviews({posts});
+    const {assignments, seed} = draw;
     const now = Date.now();
     for (const row of assignments) {
       const ref = db.collection('peerReviews').doc(reviewId(moduleRef.id, row.postId, row.reviewerUid));

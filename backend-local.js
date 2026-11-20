@@ -5,7 +5,7 @@
 // `?local` on a dev server without touching the live database.
 import {SEED_USERS, SEED_POSTS, SEED_COMMENTS, SEED_BLOGS, SEED_MODULES, SEED_MEMBERSHIPS, DEFAULT_SETTINGS, EMPTY_EXERCISE} from './seed.js';
 import {newId, slugify, wordCount, excerptOf, isReservedUrlName, academicYearOf} from './util.js';
-import {reviewId, reviewerRelease} from './peer-review-model.js';
+import {reviewId, reviewerRelease, scheduledYear, scheduledDraw} from './peer-review-model.js';
 import {JOIN_CITIES, normalizeCode, isJoinCity, cityLabel, STANDING_EXPIRY} from './invitation-codes.js';
 
 const KEY = 'ucd-blog.v2', VIEW = 'ucd-blog.viewAs';
@@ -26,6 +26,26 @@ const delay = v => new Promise(r => setTimeout(() => r(v), 30)); // keeps the pa
 const me = () => local.currentUser();
 const staff = u => u && ['admin', 'lecturer'].includes(u.role);
 const teaches = (u, x) => u && (u.role === 'admin' || (x.teacherIds || []).includes(u.uid));
+
+function drawDueRounds() {
+  let changed = false;
+  for (const module of state.modules) {
+    const year = scheduledYear(module, state.peerRounds?.[module.id]);
+    if (!year) continue;
+    const members = new Set(state.memberships.filter(m => m.moduleId === module.id).map(m => m.uid));
+    const draw = scheduledDraw(module, year, state.posts.filter(p => p.moduleId === module.id), members);
+    if (!draw) continue;
+    const now = Date.now();
+    const rounds = state.peerRounds ||= {}, reviews = state.peerReviews ||= {};
+    for (const row of draw.assignments) {
+      const id = reviewId(module.id, row.postId, row.reviewerUid);
+      reviews[id] = {id, ...row, moduleId:module.id, blogId:module.blogId, assignedAt:now, updatedAt:now, grade:null, assessment:'', submittedAt:null};
+    }
+    rounds[module.id] = {moduleId:module.id, blogId:module.blogId, academicYear:year, status:'open', perStudent:4, seed:draw.seed, assignedBy:'scheduler', assignedAt:now};
+    changed = true;
+  }
+  if (changed) save();
+}
 
 export const local = {
   mode: 'local',
@@ -261,8 +281,8 @@ export const local = {
   async getPeerRound(moduleId) { return delay(structuredClone((state.peerRounds || {})[moduleId] || null)); },
   async savePeerRound(moduleId, patch) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.peerRounds = state.peerRounds || {}; state.peerRounds[moduleId] = {...(state.peerRounds[moduleId] || {}), ...patch, id: moduleId, moduleId, updatedAt: Date.now(), updatedBy: u.uid}; save(); return structuredClone(state.peerRounds[moduleId]); },
   async assignPeerReviews(moduleId, rows) { const u = me(); if (u?.role !== 'admin') throw Error('Admin access required.'); state.peerReviews = state.peerReviews || {}; const now = Date.now(); for (const r of rows) { const id = reviewId(moduleId, r.postId, r.reviewerUid); state.peerReviews[id] = {id, moduleId, blogId: r.blogId || '', postId: r.postId, authorId: r.authorId, reviewerUid: r.reviewerUid, reviewerName: r.reviewerName || '', order: r.order || 0, assignedAt: now, grade: null, assessment: '', submittedAt: null, updatedAt: now}; } save(); },
-  async listPeerReviews(moduleId) { if (!staff(me()) || !teaches(me(),state.modules.find(m => m.id === moduleId))) return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.moduleId === moduleId))); },
-  async listMyPeerReviews() { const u = me(); if (!u) return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.reviewerUid === u.uid))); },
+  async listPeerReviews(moduleId) { drawDueRounds(); if (!staff(me()) || !teaches(me(),state.modules.find(m => m.id === moduleId))) return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.moduleId === moduleId))); },
+  async listMyPeerReviews() { drawDueRounds(); const u = me(); if (!u) return []; return delay(structuredClone(Object.values(state.peerReviews || {}).filter(r => r.reviewerUid === u.uid))); },
   async getPeerReview(id) { const u = me(), r = (state.peerReviews || {})[id]; return delay(r && u && (r.reviewerUid === u.uid || u.role === 'admin') ? structuredClone(r) : null); },
   async submitPeerReview(id, {grade, assessment}) { const u = me(), r = (state.peerReviews || {})[id]; if (!u || !r || r.reviewerUid !== u.uid) throw Error('This post is not assigned to you.'); if (!state.modules.find(m => m.id === r.moduleId)?.peerReview || (state.peerRounds || {})[r.moduleId]?.status !== 'open') throw Error('The review round is closed.'); Object.assign(r, {grade, assessment, submittedAt: Date.now(), updatedAt: Date.now()}); save(); return structuredClone(r); },
   async savePeerReview(id, patch) { if (me()?.role !== 'admin') throw Error('Admin access required.'); const r = (state.peerReviews || {})[id]; if (!r) throw Error('Review not found.'); Object.assign(r, patch, {updatedAt: Date.now()}); save(); return structuredClone(r); },

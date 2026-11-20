@@ -69,6 +69,18 @@ export function peerCohort({posts = [], students = [], year = academicYearOf()} 
   return {year, posts: pool, authors, extras};
 }
 
+const irishDay = new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Dublin', year:'numeric', month:'2-digit', day:'2-digit'});
+export function scheduledYear(module, prior, now = Date.now()) {
+  if (!module?.peerReview || !module.deadline || irishDay.format(now) <= module.deadline) return null;
+  const year = academicYearOf(Date.parse(module.deadline + 'T12:00:00Z'));
+  return prior && (!prior.academicYear || prior.academicYear === year) ? null : year;
+}
+export function scheduledDraw(module, year, posts, members) {
+  const eligible = reviewablePosts(posts.filter(p => members.has(p.authorId) && p.publishedAt &&
+    irishDay.format(p.publishedAt) <= module.deadline && (p.academicYear || academicYearOf(p.publishedAt)) === year));
+  return eligible.length > PER_STUDENT ? assignPeerReviews({posts:eligible}) : null;
+}
+
 // The draw. `posts`: the module's posts; `extraReviewers`: uids of students with no post
 // who should still review (optional; each takes `perStudent` posts from those with the
 // fewest reviews, so a few posts get a fifth). Returns the assignments (postId, authorId,
