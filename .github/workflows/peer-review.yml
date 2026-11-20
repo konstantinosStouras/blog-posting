@@ -1,0 +1,45 @@
+name: Assign peer reviews
+on:
+  schedule:
+    - cron: '13,43 * * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/peer-review.yml'
+      - 'tools/assign-peer-reviews.mjs'
+      - 'peer-review-model.js'
+      - 'tests/peer-draw.emulator.mjs'
+      - 'firestore.rules'
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run test:rules
+      - run: npx firebase emulators:exec --only firestore --project demo-ucd-blog "node tests/peer-draw.emulator.mjs"
+  draw:
+    needs: verify
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success')) }}
+    concurrency: peer-review-draw
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - run: node tools/assign-peer-reviews.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

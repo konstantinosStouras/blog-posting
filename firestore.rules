@@ -181,12 +181,10 @@ service cloud.firestore {
       // A module may only write on a blog its instructor owns (or any blog, for the admin).
       allow create: if moduleShape() && moduleId.matches('^[a-z0-9][a-z0-9-]{1,79}$')
         && request.resource.data.createdBy == request.auth.uid && blogStaff(request.resource.data.blogId)
-        && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid] && request.resource.data.get('peerReview',false) == false));
-      // Peer review (the option and its deadline) is the admin's alone: another instructor's save leaves both as they are.
+        && (isAdmin() || (verified() && hasRole('lecturer') && request.resource.data.teacherIds == [request.auth.uid]));
       allow update: if moduleShape() && staffOf(moduleId) && blogStaff(request.resource.data.blogId)
         && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
-        && (isAdmin() || (request.resource.data.teacherIds == resource.data.teacherIds
-          && request.resource.data.get('peerReview',false) == resource.data.get('peerReview',false) && request.resource.data.get('peerDeadline','') == resource.data.get('peerDeadline','')));
+        && (isAdmin() || request.resource.data.teacherIds == resource.data.teacherIds);
       // A module's instructor (or the admin) deletes it, with its roster; the app refuses while it has posts.
       allow delete: if staffOf(moduleId);
       match /members/{uid} {
@@ -449,7 +447,7 @@ service cloud.firestore {
         && d.get('order',0) is number && d.assignedAt is number && (d.get('grade',null) == null || d.grade is number);
     }
     match /peerReviews/{id} {
-      allow read: if isAdmin() || own(resource.data.reviewerUid);
+      allow read: if own(resource.data.reviewerUid) || staffOf(resource.data.moduleId);
       // An assignment: a published post of the module, a member of the module who is not its author, no grade yet.
       allow create: if isAdmin() && peerReviewShape()
         && id == request.resource.data.moduleId + '_' + request.resource.data.postId + '_' + request.resource.data.reviewerUid
@@ -464,7 +462,8 @@ service cloud.firestore {
         && request.resource.data.moduleId == resource.data.moduleId && request.resource.data.postId == resource.data.postId
         && request.resource.data.reviewerUid == resource.data.reviewerUid && request.resource.data.authorId == resource.data.authorId
         && (isAdmin()
-          || (verified() && own(resource.data.reviewerUid) && peerRound(resource.data.moduleId).status == 'open'
+          || (verified() && own(resource.data.reviewerUid) && get(modulePath(resource.data.moduleId)).data.get('peerReview',false) && peerRound(resource.data.moduleId).status == 'open'
+            && (peerRound(resource.data.moduleId).get('assignedBy','') != 'scheduler' || resource.data.assignedAt == peerRound(resource.data.moduleId).assignedAt)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['grade','assessment','submittedAt','updatedAt'])
             && request.resource.data.grade is int && request.resource.data.grade >= 1 && request.resource.data.grade <= 10
             && request.resource.data.assessment is string
