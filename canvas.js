@@ -48,7 +48,7 @@ export function renderCanvas(posts, opts = {}) {
   const bulk = opts.bulk && posts.some(p => opts.bulk.canDelete(p)) ? opts.bulk : null;
   current = {posts: posts.slice(), opts, f: parseFilters(query), base, allTags: false, cats: opts.categories || [], modules: new Map((opts.modules || []).map(m => [m.id, m])), blogs: new Map((opts.blogs || []).map(b => [b.id, b])), bulk, selecting: !!bulk && carry, selected: new Set()};
   if (!posts.length) return `<p class="empty">${esc(opts.emptyText || 'No posts here yet.')}</p>`;
-  return `<section class="canvas-root" aria-label="Posts">${headHtml(current)}<div class="canvas-bulk" role="toolbar" aria-label="Selected posts">${bulkHtml(current)}</div><div class="canvas-filters">${filtersHtml(current)}</div><div class="canvas-grid">${gridHtml(current)}</div></section>`;
+  return `<section class="canvas-root" aria-label="Posts"><div class="canvas-controls">${headHtml(current)}<div class="canvas-bulk" role="toolbar" aria-label="Selected posts">${bulkHtml(current)}</div><div class="canvas-filters">${filtersHtml(current)}</div></div><div class="canvas-grid">${gridHtml(current)}</div></section>`;
 }
 
 // ---------- matching ----------

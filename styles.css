@@ -962,3 +962,25 @@ dialog.brief-sheet { width: min(900px, 96vw); height: min(800px, 90dvh); }
 .canvas-theme h2 small { color: var(--muted); font: normal .85rem system-ui; white-space: nowrap; }
 @media (max-width: 700px) { .masthead-actions .write-long { display: none; } }
 .brief-body, .challenge-guide .steps, .brief-editor .surface { text-align: justify; }
+@media screen {
+  .canvas-controls {
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 14px;
+    padding: 8px 0;
+    max-height: 55vh;
+    max-height: 55dvh;
+    overflow-y: auto;
+  }
+  .canvas-controls .canvas-head { margin-bottom: 0; }
+  .canvas-controls .canvas-bulk:not(:empty),
+  .canvas-controls .canvas-filters > div:not([hidden]) { margin: 8px 0 0; }
+}
+@media screen and (max-width: 600px) {
+  .canvas-controls .canvas-head { gap: 6px; }
+  .canvas-controls .canvas-count { width: auto; }
+  .canvas-controls .canvas-sort { gap: 4px; }
+}
