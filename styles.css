@@ -60,7 +60,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .account-menu [data-preview-student] { display: block; width: 100%; }
 .account-menu .preview-head:has(.student-preview-row) { position: relative; display: block; padding: 0; }
 .account-menu .menu .student-preview-row { display: grid; gap: 3px; width: 100%; min-height: 48px; padding: 8px 48px 8px 10px; }
-.account-menu .student-preview-row + .close-preview { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
+.account-menu .student-preview-row .close-preview { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
 .account-menu .preview-head .small { color: var(--muted); font-size: 12px; }
 .account-menu .menu .preview-head .close-preview { margin-left: auto; padding: 0; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 6px; display: grid; place-items: center; font-size: 18px; line-height: 1; color: var(--ink); }
 .account-menu .menu .preview-head .close-preview:hover { border-color: var(--blue); color: var(--blue); background: #fff; }
